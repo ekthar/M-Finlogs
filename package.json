@@ -1,7 +1,7 @@
 {
   "name": "m-finlogs",
   "productName": "M-Finlogs",
-  "version": "0.1.3-gamma.1",
+  "version": "0.1.3-gamma.2",
   "description": "Accounting Software for M-Finlogs",
   "main": "main.js",
   "scripts": {
@@ -14,13 +14,23 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ektharxd",
+        "owner": "ekthar",
         "repo": "M-Finlogs"
       }
     ],
     "win": {
       "target": "nsis",
       "icon": "assets/finlogs.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerSidebar": "assets/installerSidebar.bmp",
+      "installerHeader": "assets/installerHeader.bmp",
+      "installerHeaderIcon": "assets/finlogs.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "license": null
     },
     "extraResources": [
       {
@@ -34,12 +44,13 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "exceljs": "^4.4.0",
     "electron-updater": "^6.3.0",
+    "exceljs": "^4.4.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "electron": "^40.0.0",
-    "electron-builder": "^26.4.0"
+    "electron-builder": "^26.4.0",
+    "puppeteer": "^24.37.5"
   }
 }

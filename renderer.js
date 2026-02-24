@@ -92,9 +92,9 @@ window.restartBackend = restartBackend;
 window.stopBackend = stopBackend;
 window.runAutoBackupNow = runAutoBackupNow;
 window.openAutoBackupFolder = openAutoBackupFolder;
+window.openSoftwareUpdate = openSoftwareUpdate;
 window.requestUpdateCheck = requestUpdateCheck;
 window.requestUpdateRestart = requestUpdateRestart;
-window.requestUpdateCheck = requestUpdateCheck;
 
 const PARTY_CACHE_TTL_MS = 5 * 60 * 1000;
 let partyCache = { data: null, ts: 0 };
@@ -1511,18 +1511,39 @@ async function requestUpdateCheck() {
     const statusEl = document.getElementById('updateStatus');
     const lastCheckedEl = document.getElementById('updateLastChecked');
     const restartBtn = document.getElementById('updateRestartBtn');
+    const checkBtn = document.getElementById('updateCheckBtn');
     if (statusEl) statusEl.textContent = 'Checking for updates...';
+    if (checkBtn) checkBtn.disabled = true;
+    if (checkBtn) checkBtn.textContent = 'Checking...';
+    showToast('Checking for software updates...', 'info');
     try {
         const res = await ipcRenderer.invoke('update:check');
         if (statusEl) {
             statusEl.textContent = res && res.status ? res.status : 'Update check completed.';
         }
         if (restartBtn) restartBtn.style.display = 'none';
+        if (res && res.error) {
+            showToast(`Update check failed: ${res.error}`, 'error');
+        } else {
+            showToast('Update check started.', 'success');
+        }
     } catch (e) {
         if (statusEl) statusEl.textContent = 'Update check failed.';
+        showToast('Update check failed.', 'error');
     } finally {
+        if (checkBtn) checkBtn.disabled = false;
+        if (checkBtn) checkBtn.textContent = 'Check for Updates';
         if (lastCheckedEl) lastCheckedEl.textContent = `Last checked: ${new Date().toLocaleString()}`;
     }
+}
+
+function openSoftwareUpdate() {
+    showView('settingsView');
+    const settingsNav = document.querySelector(".nav-item[onclick*='settingsView']");
+    if (settingsNav && typeof activateNav === 'function') {
+        activateNav(settingsNav);
+    }
+    requestUpdateCheck();
 }
 
 async function requestUpdateRestart() {
@@ -1530,8 +1551,14 @@ async function requestUpdateRestart() {
     try {
         const res = await ipcRenderer.invoke('update:restart');
         if (statusEl) statusEl.textContent = res && res.status ? res.status : 'Restarting...';
+        if (res && res.error) {
+            showToast(`Install failed: ${res.error}`, 'error');
+        } else {
+            showToast((res && res.status) || 'Restarting to install update...', 'info');
+        }
     } catch (e) {
         if (statusEl) statusEl.textContent = 'Restart failed.';
+        showToast('Restart failed.', 'error');
     }
 }
 
@@ -1540,7 +1567,9 @@ async function initUpdateBadge() {
     if (!badge) return;
     try {
         const version = await ipcRenderer.invoke('app:getVersion');
-        badge.textContent = `Version: v${version}`;
+        const cfg = await ipcRenderer.invoke('update:getConfig');
+        const channel = cfg && cfg.channel ? cfg.channel.toUpperCase() : 'STABLE';
+        badge.textContent = `Version: v${version} • ${channel}`;
     } catch (e) {
         badge.textContent = 'Version: --';
     }
@@ -1555,23 +1584,13 @@ ipcRenderer.on('update:status', (_event, payload) => {
     if (restartBtn) {
         restartBtn.style.display = payload && payload.type === 'downloaded' ? 'inline-flex' : 'none';
     }
-});
-
-async function requestUpdateCheck() {
-    const statusEl = document.getElementById('updateStatus');
-    const lastCheckedEl = document.getElementById('updateLastChecked');
-    if (statusEl) statusEl.textContent = 'Checking for updates...';
-    try {
-        const res = await ipcRenderer.invoke('update:check');
-        if (statusEl) {
-            statusEl.textContent = res && res.status ? res.status : 'Update check completed.';
-        }
-    } catch (e) {
-        if (statusEl) statusEl.textContent = 'Update check failed.';
-    } finally {
-        if (lastCheckedEl) lastCheckedEl.textContent = `Last checked: ${new Date().toLocaleString()}`;
+    if (payload && payload.type === 'downloaded') {
+        showToast('Update downloaded. Click Restart & Install.', 'success');
     }
-}
+    if (payload && payload.type === 'error') {
+        showToast(payload.message || 'Update error occurred.', 'error');
+    }
+});
 
 // Dark Mode
 function toggleDarkMode() {

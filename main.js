@@ -8,6 +8,67 @@ const http = require('http');
 
 let autoUpdaterRef = null;
 let autoUpdaterReady = false;
+let updateDownloadedReady = false;
+let updateCheckInProgress = false;
+let splashShownAt = 0;
+
+const UPDATE_CHANNEL = (process.env.FINLOGS_UPDATE_CHANNEL || 'stable').toLowerCase();
+
+function configureRuntimePaths() {
+    try {
+        const userDataDir = app.getPath('userData');
+        const sessionDir = path.join(userDataDir, 'session-cache');
+        const httpCacheDir = path.join(userDataDir, 'http-cache');
+
+        if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+        if (!fs.existsSync(httpCacheDir)) fs.mkdirSync(httpCacheDir, { recursive: true });
+
+        app.setPath('sessionData', sessionDir);
+        app.commandLine.appendSwitch('disk-cache-dir', httpCacheDir);
+        app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+    } catch (e) {
+        console.warn('Failed to configure session/cache paths:', e.message);
+    }
+}
+
+configureRuntimePaths();
+
+function isPrereleaseChannel() {
+    const version = (app && typeof app.getVersion === 'function') ? app.getVersion() : '';
+    const isVersionPrerelease = typeof version === 'string' && version.includes('-');
+    return isVersionPrerelease || ['beta', 'alpha', 'prerelease', 'rc', 'canary'].includes(UPDATE_CHANNEL);
+}
+
+function appendUpdateLog(message) {
+    try {
+        const logPath = path.join(app.getPath('userData'), 'updater.log');
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${message}\n`, 'utf8');
+    } catch (_) {
+        // ignore logging failures
+    }
+}
+
+function getUpdateConfigSummary() {
+    return {
+        channel: UPDATE_CHANNEL,
+        allowPrerelease: isPrereleaseChannel(),
+        autoDownload: true
+    };
+}
+
+function ensureAutoUpdater() {
+    if (autoUpdaterRef) return autoUpdaterRef;
+    const { autoUpdater } = require('electron-updater');
+    autoUpdaterRef = autoUpdater;
+    autoUpdaterRef.autoDownload = true;
+    autoUpdaterRef.autoInstallOnAppQuit = true;
+    autoUpdaterRef.allowPrerelease = isPrereleaseChannel();
+    if (!app.isPackaged) {
+        autoUpdaterRef.forceDevUpdateConfig = true;
+    }
+    appendUpdateLog(`Auto-updater initialized (channel=${UPDATE_CHANNEL}, prerelease=${autoUpdaterRef.allowPrerelease})`);
+    return autoUpdaterRef;
+}
 
 function sendUpdateStatus(payload) {
     if (mainWindow && mainWindow.webContents) {
@@ -18,15 +79,30 @@ function sendUpdateStatus(payload) {
 function wireAutoUpdaterEvents() {
     if (!autoUpdaterRef || autoUpdaterReady || !mainWindow) return;
     autoUpdaterReady = true;
-    autoUpdaterRef.on('checking-for-update', () => sendUpdateStatus({ type: 'checking', message: 'Checking for updates...' }));
-    autoUpdaterRef.on('update-available', (info) => sendUpdateStatus({ type: 'available', message: `Update available: v${info.version}` }));
-    autoUpdaterRef.on('update-not-available', () => sendUpdateStatus({ type: 'none', message: 'You are up to date.' }));
-    autoUpdaterRef.on('error', (err) => sendUpdateStatus({ type: 'error', message: `Update error: ${err.message}` }));
+    autoUpdaterRef.on('checking-for-update', () => {
+        appendUpdateLog('Checking for updates');
+        sendUpdateStatus({ type: 'checking', message: 'Checking for updates...' });
+    });
+    autoUpdaterRef.on('update-available', (info) => {
+        appendUpdateLog(`Update available: v${info.version}`);
+        sendUpdateStatus({ type: 'available', message: `Update available: v${info.version}` });
+    });
+    autoUpdaterRef.on('update-not-available', () => {
+        appendUpdateLog('No update available');
+        sendUpdateStatus({ type: 'none', message: 'You are up to date.' });
+    });
+    autoUpdaterRef.on('error', (err) => {
+        appendUpdateLog(`Update error: ${err.message}`);
+        sendUpdateStatus({ type: 'error', message: `Update error: ${err.message}` });
+    });
     autoUpdaterRef.on('download-progress', (p) => {
         const percent = Math.round(p.percent || 0);
+        appendUpdateLog(`Download progress: ${percent}%`);
         sendUpdateStatus({ type: 'progress', message: `Downloading update... ${percent}%`, percent });
     });
     autoUpdaterRef.on('update-downloaded', () => {
+        updateDownloadedReady = true;
+        appendUpdateLog('Update downloaded and ready to install');
         sendUpdateStatus({ type: 'downloaded', message: 'Update downloaded. Restart to install.' });
     });
 }
@@ -36,6 +112,7 @@ let splashWindow;
 let backendProcess = null;
 
 function createSplashWindow() {
+    splashShownAt = Date.now();
     splashWindow = new BrowserWindow({
         width: 500,
         height: 300,
@@ -57,6 +134,7 @@ function createMainWindow() {
         title: "M-Finlogs",
         autoHideMenuBar: true,
         show: false,
+        backgroundColor: '#eef4ff',
         icon: path.join(__dirname, 'assets', 'finlogs.ico'),
         roundedCorners: true,
         titleBarStyle: 'hidden',
@@ -70,12 +148,23 @@ function createMainWindow() {
 
     wireAutoUpdaterEvents();
 
-    mainWindow.once('ready-to-show', () => {
+    let revealed = false;
+    const revealMainWindow = () => {
+        if (revealed || !mainWindow) return;
+        const elapsed = Date.now() - splashShownAt;
+        const minSplashMs = 1200;
+        const delay = Math.max(0, minSplashMs - elapsed);
+
+        revealed = true;
         setTimeout(() => {
-            if (splashWindow) splashWindow.close();
-            mainWindow.show();
-        }, 2500);
-    });
+            if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
+            if (mainWindow && !mainWindow.isVisible()) mainWindow.show();
+        }, delay);
+    };
+
+    mainWindow.once('ready-to-show', revealMainWindow);
+    mainWindow.webContents.once('did-finish-load', revealMainWindow);
+    setTimeout(revealMainWindow, 10000);
 }
 
 function isPortFree(port, host = '127.0.0.1') {
@@ -270,39 +359,57 @@ ipcMain.handle('app:getVersion', async () => {
     return app.getVersion();
 });
 
+ipcMain.handle('update:getConfig', async () => {
+    return getUpdateConfigSummary();
+});
+
 ipcMain.handle('update:check', async () => {
+    if (updateCheckInProgress) {
+        return { status: 'Update check already in progress...' };
+    }
+
     try {
-        if (!autoUpdaterRef) {
-            try {
-                ({ autoUpdater: autoUpdaterRef } = require('electron-updater'));
-                autoUpdaterRef.autoDownload = true;
-                autoUpdaterRef.autoInstallOnAppQuit = true;
-                autoUpdaterRef.allowPrerelease = true;
-                if (!app.isPackaged) {
-                    autoUpdaterRef.forceDevUpdateConfig = true;
-                }
-            } catch (e) {
-                return { status: 'Auto-updater not available', error: e.message };
-            }
+        try {
+            ensureAutoUpdater();
+        } catch (e) {
+            appendUpdateLog(`Auto-updater unavailable: ${e.message}`);
+            return { status: 'Auto-updater not available', error: e.message };
         }
+
+        updateDownloadedReady = false;
+        updateCheckInProgress = true;
 
         wireAutoUpdaterEvents();
 
-        await autoUpdaterRef.checkForUpdates();
+        appendUpdateLog('Check request sent');
+        autoUpdaterRef.checkForUpdates()
+            .catch((e) => {
+                appendUpdateLog(`Async update check failed: ${e.message}`);
+                sendUpdateStatus({ type: 'error', message: `Update error: ${e.message}` });
+            })
+            .finally(() => {
+                updateCheckInProgress = false;
+            });
+
         return { status: 'Checking for updates...' };
     } catch (e) {
+        updateCheckInProgress = false;
+        appendUpdateLog(`Update check failed: ${e.message}`);
         return { status: 'Update check failed', error: e.message };
     }
 });
 
 ipcMain.handle('update:restart', async () => {
     try {
-        if (autoUpdaterRef) {
+        if (autoUpdaterRef && updateDownloadedReady) {
+            appendUpdateLog('Installing downloaded update via quitAndInstall');
             autoUpdaterRef.quitAndInstall();
             return { status: 'Restarting to install update...' };
         }
-        return { status: 'No update ready to install.' };
+        appendUpdateLog('Install requested but no downloaded update is ready');
+        return { status: 'No downloaded update ready. Check for updates first.' };
     } catch (e) {
+        appendUpdateLog(`Restart failed: ${e.message}`);
         return { status: 'Restart failed', error: e.message };
     }
 });

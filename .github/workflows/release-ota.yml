@@ -1,0 +1,70 @@
+name: Build and Publish Release
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build backend executable
+        run: python -m PyInstaller backend.spec
+
+      - name: Copy backend executable for electron-builder
+        shell: pwsh
+        run: |
+          $paths = @(
+            "dist/backend.exe",
+            "py-dist/backend/backend.exe",
+            "dist/backend/backend.exe"
+          )
+          $source = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $source) {
+            throw "backend.exe not found in expected output locations."
+          }
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Copy-Item $source "dist/backend.exe" -Force
+
+      - name: Build and publish desktop app
+        run: npm run dist -- --publish always
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: m-finlogs-windows-dist
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap
+          if-no-files-found: warn

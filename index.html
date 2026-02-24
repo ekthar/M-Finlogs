@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="assets/finlogs.svg">
     <link rel="icon" type="image/x-icon" href="assets/finlogs.ico">
     <link rel="stylesheet" href="index.css">
@@ -28,54 +29,73 @@
 
     <!-- Simple Login Screen -->
     <div id="loginModal" class="login-background" style="display: flex;">
-        <div class="login-glass-card">
-            <div class="login-hero">
-                <img src="assets/finlogs.svg" alt="Finlogs">
-            </div>
-            <div class="login-brand">M-Finlogs</div>
-            <h2 class="login-title">Sign in to continue</h2>
-            <p class="login-subtitle">Manage your entries, reports, and backups in one place.</p>
+        <div class="login-line-x" style="top: 10%;"></div>
+        <div class="login-line-x" style="bottom: 10%;"></div>
+        <div class="login-line-y" style="left: 5%;"></div>
+        <div class="login-line-y" style="right: 5%;"></div>
 
-            <div class="input-group">
-                <label>Company</label>
-                <div class="login-field">
-                    <ion-icon name="business-outline"></ion-icon>
-                    <select id="loginCompany" class="login-input"></select>
+        <div class="login-coord-label" style="top: 11%; left: 5.5%;">LAT_40.7128</div>
+        <div class="login-coord-label" style="bottom: 11%; right: 5.5%;">LNG_74.0060</div>
+
+        <div class="login-footer-note">MFINLOGS // BUILD_VERSION_0.1.3-gamma.1 // STACK: MS_SQL_CORE</div>
+
+        <main class="login-layout-container">
+            <section class="login-specs">
+                <div class="login-header">
+                    <div class="login-meta-data"><span>[PROJECT]</span> MFINLOGS_ERP_CORE</div>
+                    <h1>MUNNA <span>FINLOGS</span></h1>
                 </div>
-            </div>
 
-            <div class="input-group">
-                <label>Create Company</label>
-                <div class="login-inline">
-                    <div class="login-field">
-                        <ion-icon name="add-circle-outline"></ion-icon>
-                        <input type="text" id="newCompanyName" class="login-input" placeholder="New company name">
+                <div class="login-technical-details">
+                    <div class="login-meta-data">
+                        <p><span>STATUS:</span> SYSTEM_READY</p>
+                        <p><span>INSTANCE:</span> SQL_SERVER_EX_01</p>
+                        <p><span>ENCRYPTION:</span> AES_256_GCM</p>
+                        <p style="margin-top: 1rem; opacity: 0.6; font-size: 0.65rem;">Unauthorized access attempts are logged automatically.</p>
                     </div>
-                    <button onclick="createCompany()" class="login-btn login-btn--ghost" type="button">Add</button>
                 </div>
-            </div>
+            </section>
 
-            <div class="input-group">
-                <label>Username</label>
-                <div class="login-field">
-                    <ion-icon name="person-outline"></ion-icon>
-                    <input type="text" id="loginUser" class="login-input" placeholder="Enter username" autocomplete="off">
-                </div>
-            </div>
+            <section class="login-auth-sheet">
+                <form id="loginForm" onsubmit="return false;">
+                    <div class="login-form-group">
+                        <label class="login-form-label">FLD_01 // SYSTEM_USER</label>
+                        <input type="text" id="loginUser" class="login-form-input" placeholder="USERNAME" autocomplete="off" required>
+                        <span class="login-input-decorator">PRM_ID</span>
+                    </div>
 
-            <div class="input-group">
-                <label>Password</label>
-                <div class="login-field">
-                    <ion-icon name="lock-closed-outline"></ion-icon>
-                    <input type="password" id="loginPass" class="login-input" placeholder="Enter password"
-                        onkeydown="if(event.key==='Enter') handleLogin()">
-                </div>
-            </div>
+                    <div class="login-form-group">
+                        <label class="login-form-label">FLD_02 // ACCESS_KEY</label>
+                        <input type="password" id="loginPass" class="login-form-input" placeholder="••••••••" onkeydown="if(event.key==='Enter') handleLogin()" required>
+                        <span class="login-input-decorator">SEC_PWD</span>
+                    </div>
 
-            <button onclick="handleLogin()" class="login-btn">Sign In</button>
-            <p id="loginError" class="error-msg"></p>
-            <a href="javascript:void(0)" onclick="showDbConfig()" style="display:block; text-align:center; margin-top:12px; color: #4A90E2; font-size: 13px; text-decoration: none;">⚙️ Configure Database</a>
-        </div>
+                    <div class="login-form-group">
+                        <label class="login-form-label">FLD_03 // TARGET_DATABASE</label>
+                        <select id="loginCompany" class="login-db-select"></select>
+                    </div>
+
+                    <div class="login-form-group">
+                        <label class="login-form-label">FLD_04 // CREATE_COMPANY</label>
+                        <div class="login-company-row">
+                            <input type="text" id="newCompanyName" class="login-form-input" placeholder="NEW COMPANY NAME">
+                            <button onclick="createCompany()" class="login-mini-btn" type="button">Add</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" onclick="handleLogin()" class="login-auth-action" id="submitBtn">
+                        Mount & Execute Access
+                    </button>
+
+                    <p id="loginError" class="error-msg"></p>
+
+                    <div class="login-links-row">
+                        <span class="login-link-text">SYSTEM_LOGS</span>
+                        <a href="javascript:void(0)" onclick="showDbConfig()" class="login-link-text">CONFIGURE_DATABASE</a>
+                    </div>
+                </form>
+            </section>
+        </main>
     </div>
 
     <!-- Database Configuration Modal -->
@@ -127,10 +147,10 @@
             </div>
 
             <div style="display: flex; gap: 10px;">
-                <button onclick="testDbConnection()" class="login-btn" style="flex: 1; background: #4CAF50;">Test Connection</button>
+                <button onclick="testDbConnection()" class="login-btn" style="flex: 1;">Test Connection</button>
                 <button onclick="saveDbConfig()" class="login-btn" style="flex: 1;">Save & Apply</button>
             </div>
-            <button onclick="closeDbConfig()" class="login-btn" style="margin-top: 8px; background: #666;">Cancel</button>
+            <button onclick="closeDbConfig()" class="login-btn" style="margin-top: 8px;">Cancel</button>
             <p id="dbConfigStatus" class="error-msg"></p>
         </div>
     </div>
@@ -188,6 +208,9 @@
             </a>
             <a class="nav-item" onclick="showView('settingsView'); activateNav(this)">
                 <ion-icon name="settings-outline"></ion-icon> Settings
+            </a>
+            <a class="nav-item" onclick="openSoftwareUpdate()">
+                <ion-icon name="cloud-download-outline"></ion-icon> Software Update
             </a>
 
             <div style="flex:1;"></div>
@@ -771,7 +794,7 @@
                             Version: --
                         </div>
                         <div style="display:flex; gap:8px;">
-                            <button onclick="requestUpdateCheck()">Check for Updates</button>
+                            <button id="updateCheckBtn" onclick="requestUpdateCheck()">Check for Updates</button>
                             <button id="updateRestartBtn" class="secondary" onclick="requestUpdateRestart()" style="display:none;">Restart & Install</button>
                         </div>
                         <div id="updateLastChecked" style="font-size: 11px; color: var(--text-secondary);"></div>
