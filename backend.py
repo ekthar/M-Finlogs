@@ -49,6 +49,27 @@ def get_backup_target_dir() -> str:
 
 app = FastAPI()
 
+# Add exception logging middleware
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.middleware("http")
+async def log_exceptions(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        error_msg = f"Error in {request.method} {request.url.path}: {str(e)}"
+        print(f"\n{'='*80}")
+        print(f"ERROR: {error_msg}")
+        print(f"Traceback:\n{traceback.format_exc()}")
+        print(f"{'='*80}\n")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": error_msg}
+        )
+
 REPORT_CACHE_TTL_SEC = 300
 report_cache = {}
 
