@@ -1,166 +1,214 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Starting...</title>
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="index.css">
-    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <title>MFINLOGS | Initializing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono:wght@300;500&display=swap" rel="stylesheet">
     <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: radial-gradient(900px 600px at 10% 10%, rgba(79, 70, 229, 0.18), transparent 60%),
-                radial-gradient(700px 520px at 90% 20%, rgba(16, 185, 129, 0.2), transparent 60%),
-                rgba(255, 255, 255, 0.6);
-            height: 100vh;
-            margin: 0;
-            flex-direction: column;
-            user-select: none;
-            border: 1px solid rgba(255, 255, 255, 0.8);
-            border-radius: 12px;
-            overflow: hidden;
-            position: relative;
-            backdrop-filter: blur(22px) saturate(140%);
-            -webkit-backdrop-filter: blur(22px) saturate(140%);
+        :root {
+            --bg: #eef4ff;
+            --ink: #0f2942;
+            --accent: #0ea5e9;
+            --grid: rgba(15, 41, 66, 0.12);
+            --border: rgba(15, 41, 66, 0.22);
         }
 
-        body::before,
-        body::after {
-            content: "";
-            position: absolute;
-            width: 420px;
-            height: 420px;
-            border-radius: 50%;
-            filter: blur(50px);
-            opacity: 0.35;
-            z-index: 0;
-            animation: floatBlob 10s ease-in-out infinite;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 55%, #e5eefc 100%);
+            color: var(--ink);
+            -webkit-app-region: drag;
         }
 
         body::before {
-            background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.5), transparent 60%);
-            top: -120px;
-            left: -120px;
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+            background-size: 38px 38px;
         }
 
         body::after {
-            background: radial-gradient(circle at 70% 70%, rgba(16, 185, 129, 0.5), transparent 60%);
-            bottom: -140px;
-            right: -140px;
-            animation-delay: 2s;
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.03;
+            background: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
         }
 
-        .logo-container {
-            text-align: center;
-            animation: fadeIn 0.8s ease-out;
+        .line-x, .line-y {
+            position: absolute;
+            background: var(--grid);
+        }
+
+        .line-x { left: 0; width: 100vw; height: 1px; }
+        .line-y { top: 0; height: 100vh; width: 1px; }
+
+        .wrap {
             position: relative;
-            z-index: 1;
+            z-index: 2;
+            width: 100%;
+            height: 100%;
+            display: grid;
+            place-items: center;
+            padding: 24px;
         }
 
-        .logo-icon {
-            font-size: 64px;
-            color: var(--accent);
-            margin-bottom: 16px;
+        .sheet {
+            width: min(460px, 96vw);
+            background: rgba(255, 255, 255, 0.72);
+            border: 1px solid var(--border);
+            padding: 26px 24px;
+            box-shadow: 12px 12px 0 rgba(15, 41, 66, 0.12);
+            backdrop-filter: blur(8px);
+            position: relative;
+            text-align: center;
+        }
+
+        .sheet::before, .sheet::after {
+            content: "";
+            position: absolute;
+            width: 34px;
+            height: 34px;
+        }
+
+        .sheet::before {
+            top: -8px;
+            left: -8px;
+            border-top: 2px solid var(--accent);
+            border-left: 2px solid var(--accent);
+        }
+
+        .sheet::after {
+            bottom: -8px;
+            right: -8px;
+            border-bottom: 2px solid var(--accent);
+            border-right: 2px solid var(--accent);
+        }
+
+        .logo {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 14px;
+            opacity: 0;
+            animation: fadeIn 0.8s ease forwards;
         }
 
         h1 {
-            font-size: 28px;
-            margin: 0;
-            color: var(--text-primary);
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            font-family: 'Google Sans', 'Inter', sans-serif;
+            font-size: clamp(2rem, 8vw, 3rem);
+            letter-spacing: -1px;
+            line-height: 0.92;
+            font-weight: 900;
+            margin-bottom: 8px;
+            color: transparent;
+            -webkit-text-stroke: 1px var(--ink);
         }
 
-        p {
-            color: var(--text-secondary);
-            margin-top: 8px;
-            font-size: 14px;
-            font-family: 'Google Sans', 'Inter', sans-serif;
+        h1 span {
+            display: block;
+            color: var(--ink);
+            -webkit-text-stroke: 0;
         }
 
-        .math-clipart {
-            position: absolute;
-            top: 18px;
-            right: 18px;
-            width: 120px;
-            height: 120px;
-            opacity: 0.35;
-            filter: blur(0.2px);
-            z-index: 1;
+        .status {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            letter-spacing: 1.3px;
+            text-transform: uppercase;
+            color: #234162;
+            margin-top: 10px;
+            min-height: 1.4em;
         }
 
-        /* Loader */
         .loader {
-            width: 180px;
-            height: 4px;
-            background: #E5E5EA;
-            border-radius: 4px;
-            margin-top: 32px;
+            margin: 22px auto 0;
+            width: min(280px, 70vw);
+            height: 2px;
+            background: rgba(15, 41, 66, 0.16);
             overflow: hidden;
             position: relative;
-            z-index: 1;
         }
 
-        .loader-bar {
+        .loader > div {
+            position: absolute;
             height: 100%;
-            background: var(--accent);
-            width: 0%;
-            border-radius: 4px;
-            animation: load 2.5s ease-in-out forwards;
+            width: 38%;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            animation: sweep 1.8s infinite ease-in-out;
         }
 
-        @keyframes load {
-            0% {
-                width: 0%;
-            }
-
-            50% {
-                width: 70%;
-            }
-
-            100% {
-                width: 100%;
-            }
+        .note {
+            margin-top: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6rem;
+            opacity: 0.65;
+            color: #234162;
+            letter-spacing: 1px;
         }
 
-        @keyframes floatBlob {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(16px, -10px) scale(1.05); }
+        @keyframes sweep {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
         }
     </style>
 </head>
-
 <body>
-    <svg class="math-clipart" viewBox="0 0 200 200" aria-hidden="true">
-        <defs>
-            <linearGradient id="mathGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#4F46E5" />
-                <stop offset="100%" stop-color="#10B981" />
-            </linearGradient>
-        </defs>
-        <rect x="8" y="8" width="184" height="184" rx="20" fill="none" stroke="url(#mathGrad)" stroke-width="3" />
-        <text x="24" y="55" font-size="16" fill="url(#mathGrad)" font-family="'Google Sans', 'Inter', sans-serif">log(x)</text>
-        <text x="24" y="82" font-size="14" fill="url(#mathGrad)" font-family="'Google Sans', 'Inter', sans-serif">EKTHAR</text>
-        <text x="24" y="108" font-size="14" fill="url(#mathGrad)" font-family="'Google Sans', 'Inter', sans-serif">∫ f(x) dx</text>
-        <text x="24" y="134" font-size="14" fill="url(#mathGrad)" font-family="'Google Sans', 'Inter', sans-serif">Σ (i=1..n)</text>
-        <path d="M25 155 L85 155" stroke="url(#mathGrad)" stroke-width="2" />
-        <circle cx="120" cy="150" r="22" fill="none" stroke="url(#mathGrad)" stroke-width="2" />
-        <path d="M138 148 L160 132" stroke="url(#mathGrad)" stroke-width="2" />
-    </svg>
-    <div class="logo-container">
-        <ion-icon name="stats-chart" class="logo-icon"></ion-icon>
-        <h1>M-Finlogs</h1>
-        <p>Loading Accounts...</p>
+    <div class="line-x" style="top:10%;"></div>
+    <div class="line-x" style="bottom:10%;"></div>
+    <div class="line-y" style="left:5%;"></div>
+    <div class="line-y" style="right:5%;"></div>
+
+    <div class="wrap">
+        <main class="sheet">
+            <img src="assets/finlogs.svg" alt="MUNNA icon" class="logo">
+            <h1>MFIN<span>LOGS</span></h1>
+            <div id="stream" class="status">INITIALIZING SYSTEM CORE...</div>
+            <div class="loader"><div></div></div>
+            <div class="note">BUILD_0.1.3-GAMMA.1 // SQL_CORE</div>
+        </main>
     </div>
 
-    <div class="loader">
-        <div class="loader-bar"></div>
-    </div>
+    <script>
+        const streamText = document.getElementById('stream');
+        const phases = [
+            'INITIALIZING SYSTEM CORE...',
+            'MOUNTING LEDGER MODULE...',
+            'VERIFYING DATABASE CHANNEL...',
+            'MFINLOGS READY.'
+        ];
+        let current = 0;
+
+        setInterval(() => {
+            if (current < phases.length - 1) {
+                current += 1;
+                streamText.style.opacity = 0;
+                setTimeout(() => {
+                    streamText.textContent = phases[current];
+                    streamText.style.opacity = 1;
+                }, 180);
+            }
+        }, 1200);
+    </script>
 </body>
-
 </html>

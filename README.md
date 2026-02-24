@@ -1,4 +1,10 @@
 # M-Finlogs
+## OTA Updates
+
+- Customers can manually update from **Sidebar → Software Update** or **Settings → Check for Updates**.
+- Update status is visible in-app and restart/install is enabled only after download completes.
+- Full release, staged rollout, and rollback process is documented in `OTA_UPDATE_RUNBOOK.md`.
+
 To make it flawless:
 
 Run backend on server 24/7

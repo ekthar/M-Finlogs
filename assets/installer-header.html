@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            width: 150px;
+            height: 57px;
+            overflow: hidden;
+            background: linear-gradient(135deg, #eef4ff 0%, #dbe8f9 100%);
+            position: relative;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+        }
+        
+        /* Blueprint grid overlay */
+        body::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(15, 41, 66, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(15, 41, 66, 0.08) 1px, transparent 1px);
+            background-size: 12px 12px;
+            pointer-events: none;
+        }
+        
+        /* Corner markers */
+        .corner-marker {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border: 1.5px solid rgba(14, 165, 233, 0.4);
+        }
+        
+        .corner-marker.tl {
+            top: 4px;
+            left: 4px;
+            border-right: none;
+            border-bottom: none;
+        }
+        
+        .corner-marker.tr {
+            top: 4px;
+            right: 4px;
+            border-left: none;
+            border-bottom: none;
+        }
+        
+        .corner-marker.bl {
+            bottom: 4px;
+            left: 4px;
+            border-right: none;
+            border-top: none;
+        }
+        
+        .corner-marker.br {
+            bottom: 4px;
+            right: 4px;
+            border-left: none;
+            border-top: none;
+        }
+        
+        /* Content */
+        .content {
+            position: relative;
+            z-index: 1;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 12px;
+        }
+        
+        .logo-small {
+            width: 28px;
+            height: 28px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1.5px solid rgba(14, 165, 233, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .logo-text {
+            font-size: 16px;
+            font-weight: 900;
+            color: #0f2942;
+        }
+        
+        .product-info {
+            flex: 1;
+        }
+        
+        .product-name {
+            font-size: 11px;
+            font-weight: 700;
+            color: #0f2942;
+            line-height: 1;
+            margin-bottom: 2px;
+        }
+        
+        .product-tagline {
+            font-size: 7px;
+            color: rgba(15, 41, 66, 0.6);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="corner-marker tl"></div>
+    <div class="corner-marker tr"></div>
+    <div class="corner-marker bl"></div>
+    <div class="corner-marker br"></div>
+    
+    <div class="content">
+        <div class="logo-small">
+            <div class="logo-text">M</div>
+        </div>
+        <div class="product-info">
+            <div class="product-name">M-Finlogs</div>
+            <div class="product-tagline">Setup Wizard</div>
+        </div>
+    </div>
+</body>
+</html>
