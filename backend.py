@@ -435,7 +435,15 @@ def get_ledger(party: str, start: str = None, end: str = None):
             
         party_id = row[0]
 
-        # Use txn_id
+        # Calculate opening balance from transactions BEFORE start date (if date filter applied)
+        balance = 0
+        if start:
+            opening_query = "SELECT SUM(CASE WHEN txn_type = 'Sale' THEN amount WHEN txn_type IN ('Receipt', 'Sale Return') THEN -amount ELSE 0 END) FROM transactions WHERE party_id=? AND txn_date < ?"
+            cursor.execute(opening_query, (party_id, start))
+            opening_result = cursor.fetchone()
+            balance = float(opening_result[0] or 0) if opening_result else 0
+
+        # Get filtered transactions for display
         query = "SELECT txn_id, txn_date, bill_no, txn_type, payment_mode, amount FROM transactions WHERE party_id=?"
         params = [party_id]
 
@@ -451,25 +459,19 @@ def get_ledger(party: str, start: str = None, end: str = None):
         data = cursor.fetchall()
         conn.close() 
 
-        balance = 0
         ledger = []
 
         for dim, d, b, t, m, a in data:
-            # Logic: Sale/Receipt(if form customer) vs. Payment
-            # Assuming Sale increases balance (Receivable), Receipt decreases it
-            # But earlier logic was Sale +, everything else - ?
-            # Let's align with get_mode_report: 
-            # In (Sale) = +, In (Receipt) = - (Decreases receivable)?
-            # Wait, Standard Ledger for Customer:
-            # Debit (Sale) +, Credit (Receipt) -
+            # Align with outstanding report logic:
+            # Debit: Sale increases receivable
+            # Credit: Receipt and Sale Return decrease receivable
+            # Other transactions (Expense, Purchase) should not affect customer receivable balance
             
             if t == "Sale":
                 balance += float(a)
             elif t in ["Receipt", "Sale Return"]:
                 balance -= float(a) 
-            else: 
-                # Expense, etc? Default to minus for now if not Sale
-                 balance -= float(a)
+            # Note: Expense, Purchase, and other types are NOT included in customer receivable balance
 
             ledger.append({
                 "id": dim, # This is txn_id
@@ -837,7 +839,7 @@ def get_outstanding_report():
     cursor.execute("""
         SELECT p.name, 
                SUM(CASE WHEN t.txn_type = 'Sale' THEN t.amount ELSE 0 END) as sales,
-               SUM(CASE WHEN t.txn_type = 'Receipt' THEN t.amount ELSE 0 END) as receipts
+               SUM(CASE WHEN t.txn_type IN ('Receipt', 'Sale Return') THEN t.amount ELSE 0 END) as credits
         FROM parties p
         LEFT JOIN transactions t ON p.party_id = t.party_id
         WHERE p.type = 'Credit Customer'
@@ -848,10 +850,10 @@ def get_outstanding_report():
 
     outstanding = []
     total_outstanding = 0.0
-    for name, sales, receipts in rows:
+    for name, sales, credits in rows:
         s = float(sales or 0)
-        r = float(receipts or 0)
-        balance = s - r
+        c = float(credits or 0)
+        balance = s - c
         if balance > 0:
             outstanding.append({"party": name, "balance": balance})
             total_outstanding += balance
