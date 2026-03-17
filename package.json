@@ -6,7 +6,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "preflight:build": "node scripts/preflight-build.js",
+    "build:backend": "py -3.12 -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py || python -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py",
+    "dist": "set \"ComSpec=C:\\Windows\\System32\\cmd.exe\" && set \"PATH=%SystemRoot%\\System32;%PATH%\" && electron-builder",
+    "dist:with-backend": "npm run preflight:build && npm run build:backend && npm run dist"
   },
   "build": {
     "appId": "com.mfinlogs.app",

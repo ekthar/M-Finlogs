@@ -1,5 +1,16 @@
 const { ipcRenderer } = require('electron');
-const ExcelJS = require('exceljs');
+let ExcelJS = null;
+let XLSX = null;
+try {
+    ExcelJS = require('exceljs');
+} catch (_) {
+    // Optional dependency in production builds; fallback handled in export function.
+}
+try {
+    XLSX = require('xlsx');
+} catch (_) {
+    // If both are unavailable, export will show a user-facing error.
+}
 
 // Global cache for party types
 const partyTypes = {};
@@ -56,13 +67,41 @@ window.fetch = (url, options) => {
 
 // Database Configuration Functions - defined early for inline handlers
 function showDbConfig() {
-    const modal = document.getElementById('dbConfigModal');
-    if (modal) {
-        modal.style.display = 'flex';
-        loadDbConfig();
-    } else {
-        showToast('Configuration modal not found', 'error');
+    const accessModal = document.getElementById('dbConfigAccessModal');
+    const passEl = document.getElementById('dbConfigAccessPass');
+    const errEl = document.getElementById('dbConfigAccessError');
+    if (!accessModal || !passEl) {
+        showToast('Configuration access modal not found', 'error');
+        return;
     }
+    if (errEl) errEl.textContent = '';
+    passEl.value = '';
+    accessModal.style.display = 'flex';
+    setTimeout(() => passEl.focus(), 0);
+}
+
+function closeDbConfigAccessModal() {
+    const accessModal = document.getElementById('dbConfigAccessModal');
+    if (accessModal) accessModal.style.display = 'none';
+}
+
+function submitDbConfigAccess() {
+    const passEl = document.getElementById('dbConfigAccessPass');
+    const errEl = document.getElementById('dbConfigAccessError');
+    const dbModal = document.getElementById('dbConfigModal');
+    if (!passEl || !dbModal) return;
+
+    if ((passEl.value || '').trim() !== 'ekthar') {
+        if (errEl) errEl.textContent = 'Incorrect password';
+        showToast('Incorrect password', 'error');
+        passEl.focus();
+        passEl.select();
+        return;
+    }
+
+    closeDbConfigAccessModal();
+    dbModal.style.display = 'flex';
+    loadDbConfig();
 }
 
 function closeDbConfig() {
@@ -83,6 +122,8 @@ function toggleSqlAuth() {
 // Declare testDbConnection and saveDbConfig as window functions (will be defined later)
 // This allows inline handlers to work
 window.showDbConfig = showDbConfig;
+window.submitDbConfigAccess = submitDbConfigAccess;
+window.closeDbConfigAccessModal = closeDbConfigAccessModal;
 window.closeDbConfig = closeDbConfig;
 window.toggleSqlAuth = toggleSqlAuth;
 // testDbConnection and saveDbConfig are assigned at the bottom of the file
@@ -94,7 +135,6 @@ window.runAutoBackupNow = runAutoBackupNow;
 window.openAutoBackupFolder = openAutoBackupFolder;
 window.requestUpdateCheck = requestUpdateCheck;
 window.requestUpdateRestart = requestUpdateRestart;
-window.requestUpdateCheck = requestUpdateCheck;
 
 const PARTY_CACHE_TTL_MS = 5 * 60 * 1000;
 let partyCache = { data: null, ts: 0 };
@@ -122,6 +162,49 @@ async function fetchWithTimeout(url, options = {}, timeout = 5000) {
 
 function fetchReport(url) {
     return fetchWithTimeout(url, {}, REPORT_TIMEOUT_MS);
+}
+
+function toYMD(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function initializeDatePickers() {
+    if (typeof flatpickr !== 'function') return;
+    const nodes = document.querySelectorAll('input.app-date-input');
+    nodes.forEach((el) => {
+        if (el._flatpickr) {
+            el._flatpickr.destroy();
+        }
+        flatpickr(el, {
+            dateFormat: 'Y-m-d',
+            allowInput: true,
+            disableMobile: true,
+            clickOpens: true,
+            static: false,
+            onReady: (_selectedDates, _dateStr, instance) => {
+                const cal = instance.calendarContainer;
+                if (!cal || cal.querySelector('.app-fp-footer')) return;
+
+                const footer = document.createElement('div');
+                footer.className = 'app-fp-footer';
+
+                const todayBtn = document.createElement('button');
+                todayBtn.type = 'button';
+                todayBtn.className = 'app-fp-today-btn';
+                todayBtn.textContent = 'Today';
+                todayBtn.addEventListener('click', () => {
+                    instance.setDate(new Date(), true);
+                    instance.close();
+                });
+
+                footer.appendChild(todayBtn);
+                cal.appendChild(footer);
+            }
+        });
+    });
 }
 
 async function loadParties(force = false) {
@@ -178,6 +261,8 @@ let editContext = null;
 // Multiple rapid calls cause DOM thrashing -> input fields freeze
 // Fixed: Only one loadTransactions can run at a time
 let isLoadingTransactions = false;
+let isCompactTables = false;
+let outstandingCallListMode = false;
 
 function initTxnVirtualScroll() {
     if (txnVirtualInitialized) return;
@@ -450,7 +535,7 @@ async function loadTransactions(page = 1, force = false, options = {}) {
         // Set default date if not set
         const dateInput = document.getElementById("newDate");
         if (!dateInput.value) {
-            dateInput.valueAsDate = new Date();
+            dateInput.value = toYMD(new Date());
         }
         
         // Update pagination controls
@@ -673,6 +758,7 @@ function showView(viewId, options = {}) {
     const { skipLoad = false } = options;
     document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
     document.getElementById(viewId).classList.add('active');
+    updateGlobalReportContext(viewId);
     
     // Load data when switching to specific views
     if (skipLoad) {
@@ -690,6 +776,41 @@ function showView(viewId, options = {}) {
     }
 }
 
+function toggleTableDensity() {
+    isCompactTables = !isCompactTables;
+    document.body.classList.toggle('compact-tables', isCompactTables);
+    const btn = document.getElementById('densityToggleBtn');
+    if (btn) btn.textContent = isCompactTables ? 'Comfortable View' : 'Compact View';
+}
+
+function updateGlobalReportContext(viewId) {
+    const el = document.getElementById('globalReportContext');
+    if (!el) return;
+
+    const fy = sessionStorage.getItem('financialYear') || '-';
+    let range = 'FY default';
+
+    if (viewId === 'ledgerView') {
+        const s = document.getElementById('ledgerStart')?.value;
+        const e = document.getElementById('ledgerEnd')?.value;
+        range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+    } else if (viewId === 'purchaseReportView') {
+        const s = document.getElementById('purchaseFrom')?.value;
+        const e = document.getElementById('purchaseTo')?.value;
+        range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+    } else if (viewId === 'dailySummaryView') {
+        const s = document.getElementById('dailyFrom')?.value;
+        const e = document.getElementById('dailyTo')?.value;
+        range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+    } else if (viewId === 'shortReportView') {
+        const s = document.getElementById('shortFrom')?.value;
+        const e = document.getElementById('shortTo')?.value;
+        range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+    }
+
+    el.textContent = `FY: ${fy} | Range: ${range}`;
+}
+
 // Reports
 // Reports
 async function loadLedgerReport() {
@@ -702,17 +823,40 @@ async function loadLedgerReport() {
     const start = document.getElementById("ledgerStart").value;
     const end = document.getElementById("ledgerEnd").value;
 
-    let url = `http://127.0.0.1:8000/ledger/${normalizedParty}`;
+    let url = `http://127.0.0.1:8000/ledger/${encodeURIComponent(normalizedParty)}`;
     const params = new URLSearchParams();
     if (start) params.append("start", start);
     if (end) params.append("end", end);
     if (start || end) url += `?${params.toString()}`;
 
     const res = await fetchWithTimeout(url);
-    const data = await res.json();
+    const payload = await res.json();
+    const data = Array.isArray(payload) ? payload : (payload.data || []);
 
     const tbody = document.getElementById("ledgerBody");
     tbody.innerHTML = "";
+
+    const openingChip = document.getElementById('ledgerOpeningChip');
+    if (openingChip) {
+        let openingBalance = Number(payload && payload.opening_balance != null ? payload.opening_balance : 0);
+        if (Array.isArray(payload) && data.length > 0) {
+            const first = data[0];
+            const firstType = String(first.type || '').toLowerCase();
+            const firstAmt = Number(first.amount || 0);
+            let effect = 0;
+            if (firstType === 'sale') effect = firstAmt;
+            else if (firstType === 'receipt' || firstType === 'reciept' || firstType === 'sale return') effect = -firstAmt;
+            openingBalance = Number(first.balance || 0) - effect;
+        }
+        const openingLabel = openingBalance < 0
+            ? `${formatMoney(Math.abs(openingBalance))} Cr`
+            : `${formatMoney(openingBalance)} Dr`;
+        const startLabel = payload && payload.period_start ? formatDateShort(payload.period_start) : 'selected period';
+        openingChip.textContent = `Opening (${startLabel}): ${openingLabel}`;
+        openingChip.classList.remove('positive', 'negative');
+        openingChip.classList.add(openingBalance < 0 ? 'negative' : 'positive');
+        openingChip.style.display = 'inline-flex';
+    }
 
     // Admin Edit Column Header
     const headerRow = document.querySelector('#ledgerTable thead tr');
@@ -728,9 +872,8 @@ async function loadLedgerReport() {
         headerRow.appendChild(th);
     }
 
-    let runningBalance = 0;
-
     pruneTxnHighlights();
+    let rowsHtml = '';
     data.forEach(row => {
         const rowClass = getTxnHighlightClass(row.id);
         let actionCell = "";
@@ -767,7 +910,7 @@ async function loadLedgerReport() {
             ? `${formatMoney(Math.abs(serverBalance))} Cr`
             : `${formatMoney(serverBalance)} Dr`;
 
-        tbody.innerHTML += `
+        rowsHtml += `
         <tr${rowClass ? ` class="${rowClass}"` : ''}>
             <td>${formatDateShort(row.date)}</td>
             <td>${row.bill_no || ''}</td>
@@ -778,6 +921,7 @@ async function loadLedgerReport() {
             ${actionCell}
         </tr>`;
     });
+    tbody.innerHTML = rowsHtml || `<tr><td colspan="6" class="text-right">No Data</td></tr>`;
 }
 
 // --- Edit Transaction Logic ---
@@ -1580,15 +1724,18 @@ function toggleDarkMode() {
     if (isDark) {
         document.documentElement.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
+        ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
     } else {
         document.documentElement.removeAttribute('data-theme');
         localStorage.setItem('theme', 'light');
+        ipcRenderer.invoke('window:setTheme', 'light').catch(() => {});
     }
 }
 
 // Initialize Theme
 window.onload = function () {
     initApiBase().then(() => {
+        startAutoBackup();
         checkAuth();
         // Load essential data after auth check
         if (sessionStorage.getItem('username')) {
@@ -1605,6 +1752,9 @@ window.onload = function () {
     if (savedTheme === 'dark') {
         document.documentElement.setAttribute('data-theme', 'dark');
         document.getElementById("darkModeToggle").checked = true;
+        ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
+    } else {
+        ipcRenderer.invoke('window:setTheme', 'light').catch(() => {});
     }
 
     initUpdateBadge();
@@ -1621,6 +1771,8 @@ window.onload = function () {
     if (purchaseFrom && !purchaseFrom.value) {
         setReportRange('purchase', 30);
     }
+
+    initializeDatePickers();
     
     // Failsafe: periodically check if modals are blocking the app
     setInterval(() => {
@@ -2038,51 +2190,81 @@ async function showPurchaseReport() {
             monthlyBody.innerHTML = `<tr><td colspan="2" class="text-right">No Data</td></tr>`;
         } else {
             let monthlyTotal = 0;
+            let monthlyHtml = '';
             monthlyData.forEach(row => {
                 const amt = Number(row.total_amount || 0);
                 monthlyTotal += amt;
-                monthlyBody.innerHTML += `
+                monthlyHtml += `
                     <tr>
                         <td>${row.month || ''}</td>
                         <td class="text-right">${formatMoney(amt)}</td>
                     </tr>`;
             });
-            monthlyBody.innerHTML += `
+            monthlyHtml += `
                 <tr style="font-weight:bold;">
                     <td>Total</td>
                     <td class="text-right">${formatMoney(monthlyTotal)}</td>
                 </tr>`;
+            monthlyBody.innerHTML = monthlyHtml;
         }
     }
 
-    if (supplierBody) {
-        supplierBody.innerHTML = '';
-        if (!supplierData || supplierData.length === 0) {
-            supplierBody.innerHTML = `<tr><td colspan="2" class="text-right">No Data</td></tr>`;
-        } else {
-            let supplierTotal = 0;
-            supplierData.forEach(row => {
-                const amt = Number(row.total_amount || 0);
-                supplierTotal += amt;
-                supplierBody.innerHTML += `
-                    <tr>
-                        <td>${row.party || ''}</td>
-                        <td class="text-right">${formatMoney(amt)}</td>
-                    </tr>`;
-            });
-            supplierBody.innerHTML += `
-                <tr style="font-weight:bold;">
-                    <td>Total</td>
-                    <td class="text-right">${formatMoney(supplierTotal)}</td>
-                </tr>`;
+    purchaseSupplierData = supplierData || [];
+    renderPurchaseSupplier();
+}
 
-            if (summaryEl) {
-                summaryEl.innerHTML = `
-                    <div style="padding: 12px 14px; background: var(--card-bg); border-radius: 8px; text-align:center; font-weight: 600;">
-                        Total Purchase: ${formatMoney(supplierTotal)} | Parties: ${supplierData.length}
-                    </div>`;
-            }
+let purchaseSupplierData = [];
+
+function renderPurchaseSupplier() {
+    const supplierBody = document.getElementById('purchaseSupplierBody');
+    const summaryEl = document.getElementById('purchaseSummary');
+    if (!supplierBody) return;
+
+    const sortEl = document.getElementById('purchaseSupplierSort');
+    const sortValue = sortEl ? sortEl.value : 'name-asc';
+
+    const sorted = (purchaseSupplierData || []).slice().sort((a, b) => {
+        if (sortValue === 'name-desc') {
+            return String(b.party || '').localeCompare(String(a.party || ''), 'en', { sensitivity: 'base' });
         }
+        if (sortValue === 'amount-desc') {
+            return Number(b.total_amount || 0) - Number(a.total_amount || 0);
+        }
+        if (sortValue === 'amount-asc') {
+            return Number(a.total_amount || 0) - Number(b.total_amount || 0);
+        }
+        return String(a.party || '').localeCompare(String(b.party || ''), 'en', { sensitivity: 'base' });
+    });
+
+    supplierBody.innerHTML = '';
+    if (!sorted.length) {
+        supplierBody.innerHTML = `<tr><td colspan="2" class="text-right">No Data</td></tr>`;
+        if (summaryEl) summaryEl.innerHTML = '';
+        return;
+    }
+
+    let supplierTotal = 0;
+    sorted.forEach(row => {
+        const amt = Number(row.total_amount || 0);
+        supplierTotal += amt;
+        supplierBody.innerHTML += `
+            <tr>
+                <td>${row.party || ''}</td>
+                <td class="text-right">${formatMoney(amt)}</td>
+            </tr>`;
+    });
+
+    supplierBody.innerHTML += `
+        <tr style="font-weight:bold;">
+            <td>Total</td>
+            <td class="text-right">${formatMoney(supplierTotal)}</td>
+        </tr>`;
+
+    if (summaryEl) {
+        summaryEl.innerHTML = `
+            <div style="padding: 12px 14px; background: var(--card-bg); border-radius: 8px; text-align:center; font-weight: 600;">
+                Total Purchase: ${formatMoney(supplierTotal)} | Parties: ${sorted.length}
+            </div>`;
     }
 }
 
@@ -2154,27 +2336,57 @@ async function showExpenseReport() {
         return;
     }
 
-    tbody.innerHTML = "";
+    let html = "";
     data.forEach(row => {
-        tbody.innerHTML += `<tr><td>${formatDateShort(row.date)}</td><td>${row.party}</td><td>${row.mode}</td><td class="text-right">${formatMoney(row.amount)}</td></tr>`;
+        html += `<tr><td>${formatDateShort(row.date)}</td><td>${row.party}</td><td>${row.mode}</td><td class="text-right">${formatMoney(row.amount)}</td></tr>`;
     });
+    tbody.innerHTML = html || `<tr><td colspan="4" class="text-right">No Data</td></tr>`;
 }
 
 async function showOutstanding() {
     showView('outstandingView');
-    let result = { data: [], total: 0 };
+    let result = { data: [], total: 0, summary: {} };
     try {
         const res = await fetchReport("http://127.0.0.1:8000/report/outstanding");
         result = await res.json();
     } catch (e) {
         showToast("Outstanding report failed: " + e.message, "error");
         const tbody = document.getElementById("outstandingBody");
-        if (tbody) tbody.innerHTML = `<tr><td colspan="2" class="text-right">No Data</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-right">No Data</td></tr>`;
         return;
     }
     outstandingData = result.data || [];
     const totalSpan = document.getElementById("totalOutstanding");
     if (totalSpan) totalSpan.textContent = `₹${formatMoney(result.total)}`;
+
+    const summary = result.summary || {};
+    const highCountEl = document.getElementById('outstandingHighCount');
+    const criticalCountEl = document.getElementById('outstandingCriticalCount');
+    const highAmountEl = document.getElementById('outstandingHighAmount');
+    const criticalAmountEl = document.getElementById('outstandingCriticalAmount');
+    if (highCountEl) highCountEl.textContent = String(summary.high_count || 0);
+    if (criticalCountEl) criticalCountEl.textContent = String(summary.critical_count || 0);
+    if (highAmountEl) highAmountEl.textContent = formatMoney(summary.high_amount || 0);
+    if (criticalAmountEl) criticalAmountEl.textContent = formatMoney(summary.critical_amount || 0);
+
+    const bell = document.getElementById('outstandingAlertBell');
+    if (bell) {
+        const count = Number(summary.critical_count || 0) + Number(summary.high_count || 0);
+        bell.textContent = `Alerts: ${count}`;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lastAlertDate = sessionStorage.getItem('outstandingRiskAlertDate');
+    if (lastAlertDate !== todayStr) {
+        if (Number(summary.critical_count || 0) > 0) {
+            showToast(`Alert: ${summary.critical_count} party(s) are 30+ days overdue`, 'error');
+            sessionStorage.setItem('outstandingRiskAlertDate', todayStr);
+        } else if (Number(summary.high_count || 0) > 0) {
+            showToast(`Warning: ${summary.high_count} party(s) are 15+ days overdue`, 'warning');
+            sessionStorage.setItem('outstandingRiskAlertDate', todayStr);
+        }
+    }
+
     renderOutstanding();
 }
 
@@ -2184,9 +2396,34 @@ function renderOutstanding() {
     const tbody = document.getElementById("outstandingBody");
     if (!tbody) return;
     const sortEl = document.getElementById("outstandingSort");
-    const sortValue = sortEl ? sortEl.value : 'name-asc';
+    const sortValue = sortEl ? sortEl.value : 'risk-desc';
 
-    const sorted = (outstandingData || []).slice().sort((a, b) => {
+    const riskFilterEl = document.getElementById('outstandingRiskFilter');
+    const riskFilter = riskFilterEl ? riskFilterEl.value : 'all';
+
+    let filtered = (outstandingData || []).slice();
+    if (riskFilter === 'high') {
+        filtered = filtered.filter(x => String(x.risk_level || '') === 'high');
+    } else if (riskFilter === 'critical') {
+        filtered = filtered.filter(x => String(x.risk_level || '') === 'critical');
+    } else if (riskFilter === 'no-receipt') {
+        filtered = filtered.filter(x => !x.last_receipt_date);
+    }
+
+    if (outstandingCallListMode) {
+        filtered.sort((a, b) => {
+            const d = Number(b.days_unpaid || 0) - Number(a.days_unpaid || 0);
+            if (d !== 0) return d;
+            return Number(b.balance || 0) - Number(a.balance || 0);
+        });
+    }
+
+    const sorted = filtered.slice().sort((a, b) => {
+        if (sortValue === 'risk-desc') {
+            const riskDiff = Number(b.risk_rank || 0) - Number(a.risk_rank || 0);
+            if (riskDiff !== 0) return riskDiff;
+            return Number(b.balance || 0) - Number(a.balance || 0);
+        }
         if (sortValue === 'name-desc') {
             return String(b.party || '').localeCompare(String(a.party || ''), 'en', { sensitivity: 'base' });
         }
@@ -2196,13 +2433,108 @@ function renderOutstanding() {
         if (sortValue === 'amount-asc') {
             return Number(a.balance || 0) - Number(b.balance || 0);
         }
+        if (sortValue === 'days-desc') {
+            return Number(b.days_unpaid || 0) - Number(a.days_unpaid || 0);
+        }
+        if (sortValue === 'days-asc') {
+            return Number(a.days_unpaid || 0) - Number(b.days_unpaid || 0);
+        }
         return String(a.party || '').localeCompare(String(b.party || ''), 'en', { sensitivity: 'base' });
     });
 
-    tbody.innerHTML = '';
+    let html = '';
     sorted.forEach(row => {
-        tbody.innerHTML += `<tr><td>${row.party}</td><td class="text-right">${formatMoney(row.balance)}</td></tr>`;
+        const riskLevel = row.risk_level || 'normal';
+        const rowClass = riskLevel === 'critical' ? 'risk-critical' : (riskLevel === 'high' ? 'risk-high' : '');
+        const riskLabel = riskLevel === 'critical' ? '30+ Critical' : (riskLevel === 'high' ? '15+ Due' : 'Normal');
+        const lastReceipt = row.last_receipt_date ? formatDateShort(row.last_receipt_date) : '-';
+        html += `
+            <tr${rowClass ? ` class="${rowClass}"` : ''} data-party="${row.party || ''}">
+                <td>${row.party}</td>
+                <td><span class="outstanding-risk-chip ${riskLevel}">${riskLabel}</span></td>
+                <td class="text-right">${Number(row.days_unpaid || 0)}</td>
+                <td>${lastReceipt}</td>
+                <td class="text-right">${formatMoney(row.balance)}</td>
+            </tr>`;
     });
+
+    tbody.innerHTML = html || `<tr><td colspan="5" class="text-right">No Data</td></tr>`;
+    const panel = document.getElementById('outstandingCollectionPanel');
+    if (panel && !sorted.length) panel.style.display = 'none';
+    Array.from(tbody.querySelectorAll('tr[data-party]')).forEach(tr => {
+        tr.style.cursor = 'pointer';
+        tr.onclick = () => loadOutstandingPartyDetail(tr.getAttribute('data-party'));
+    });
+}
+
+function toggleOutstandingCallListMode() {
+    outstandingCallListMode = !outstandingCallListMode;
+    const btn = document.getElementById('outstandingCallListBtn');
+    if (btn) btn.textContent = `Call List: ${outstandingCallListMode ? 'On' : 'Off'}`;
+    renderOutstanding();
+}
+
+function showOutstandingAlerts() {
+    const critical = Number(document.getElementById('outstandingCriticalCount')?.textContent || 0);
+    const high = Number(document.getElementById('outstandingHighCount')?.textContent || 0);
+    if (critical > 0) {
+        showToast(`Critical alert: ${critical} party(s) crossed 30 days`, 'error');
+    } else if (high > 0) {
+        showToast(`Warning: ${high} party(s) crossed 15 days`, 'warning');
+    } else {
+        showToast('No overdue alerts for now', 'success');
+    }
+}
+
+function snoozeOutstandingAlertsToday() {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    sessionStorage.setItem('outstandingRiskAlertDate', todayStr);
+    showToast('Outstanding alerts snoozed for today', 'info');
+}
+
+async function loadOutstandingPartyDetail(party) {
+    if (!party) return;
+    const panel = document.getElementById('outstandingCollectionPanel');
+    const title = document.getElementById('collectionsPartyTitle');
+    const meta = document.getElementById('collectionsPartyMeta');
+    const action = document.getElementById('collectionsSuggestedAction');
+    const body = document.getElementById('collectionsRecentBody');
+    const statusChip = document.getElementById('collectionsPartyStatus');
+    if (!panel || !title || !meta || !action || !body || !statusChip) return;
+
+    panel.style.display = 'block';
+    title.textContent = `${party} - Collections`; 
+    meta.textContent = 'Loading...';
+    action.textContent = '';
+    body.innerHTML = `<tr><td colspan="5" class="text-right">Loading...</td></tr>`;
+
+    try {
+        const res = await fetchReport(`http://127.0.0.1:8000/report/outstanding/party?party=${encodeURIComponent(party)}`);
+        const data = await res.json();
+        const risk = Number(data.days_unpaid || 0) >= 30 ? 'critical' : (Number(data.days_unpaid || 0) >= 15 ? 'high' : 'normal');
+        const label = risk === 'critical' ? '30+ Critical' : (risk === 'high' ? '15+ Due' : 'Normal');
+        statusChip.className = `outstanding-risk-chip ${risk}`;
+        statusChip.textContent = label;
+
+        const lastReceipt = data.last_receipt_date ? formatDateShort(data.last_receipt_date) : '-';
+        meta.textContent = `Outstanding: ${formatMoney(data.outstanding || 0)} | Days Unpaid: ${data.days_unpaid || 0} | Last Receipt: ${lastReceipt}`;
+        action.textContent = data.suggested_action || '';
+
+        const rows = data.recent_transactions || [];
+        if (!rows.length) {
+            body.innerHTML = `<tr><td colspan="5" class="text-right">No recent transactions</td></tr>`;
+            return;
+        }
+        let html = '';
+        rows.forEach(r => {
+            html += `<tr><td>${formatDateShort(r.date)}</td><td>${r.bill_no || ''}</td><td>${r.type || ''}</td><td>${r.mode || ''}</td><td class="text-right">${formatMoney(r.amount || 0)}</td></tr>`;
+        });
+        body.innerHTML = html;
+    } catch (e) {
+        meta.textContent = 'Failed to load details';
+        action.textContent = '';
+        body.innerHTML = `<tr><td colspan="5" class="text-right">No Data</td></tr>`;
+    }
 }
 
 async function showTrialBalance() {
@@ -2443,24 +2775,31 @@ async function exportTableToExcel(tableId, filename = '', sheetName = 'Report') 
         const table = document.getElementById(tableId);
         if (!table) return showToast("Table not found to export", "error");
 
-        // Sanitize sheet name
-        const safeSheetName = (sheetName || "Report").replace(/[\/\\\?\*\[\]]/g, "_").substring(0, 31);
-        const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet(safeSheetName);
-
-        const rows = Array.from(table.querySelectorAll('tr'))
-            .map((row) => Array.from(row.querySelectorAll('th, td'))
-                .map((cell) => cell.innerText.trim()))
-            .filter((row) => row.length > 0);
-        rows.forEach((row) => ws.addRow(row));
-
         const defaultName = filename ? filename + '.xlsx' : 'report.xlsx';
 
         // Ask Main Process for Save Path
         const filePath = await ipcRenderer.invoke('dialog:save', defaultName);
         if (!filePath) return; // User canceled
 
-        await wb.xlsx.writeFile(filePath);
+        if (ExcelJS) {
+            // Sanitize sheet name
+            const safeSheetName = (sheetName || "Report").replace(/[\/\\\?\*\[\]]/g, "_").substring(0, 31);
+            const wb = new ExcelJS.Workbook();
+            const ws = wb.addWorksheet(safeSheetName);
+
+            const rows = Array.from(table.querySelectorAll('tr'))
+                .map((row) => Array.from(row.querySelectorAll('th, td'))
+                    .map((cell) => cell.innerText.trim()))
+                .filter((row) => row.length > 0);
+            rows.forEach((row) => ws.addRow(row));
+            await wb.xlsx.writeFile(filePath);
+        } else if (XLSX) {
+            const wb = XLSX.utils.table_to_book(table, { sheet: (sheetName || 'Report').substring(0, 31) });
+            XLSX.writeFile(wb, filePath);
+        } else {
+            return showToast("Excel export module missing (exceljs/xlsx)", "error");
+        }
+
         showToast("Export Saved!", "success");
     } catch (e) {
         showToast("Export Failed: " + e.message, "error");
@@ -2521,7 +2860,7 @@ let autoBackupTimer = null;
 function checkAuth() {
     currentUser = sessionStorage.getItem('username');
     currentRole = sessionStorage.getItem('role');
-    const company = sessionStorage.getItem('company');
+    const financialYear = sessionStorage.getItem('financialYear');
 
     const modal = document.getElementById('loginModal');
     const appContent = document.getElementById('appContent');
@@ -2531,7 +2870,7 @@ function checkAuth() {
         modal.style.display = 'flex';
         appContent.style.filter = 'blur(5px)';
         appContent.style.pointerEvents = 'none';
-        loadCompanies();
+        loadFinancialYears();
         return;
     }
 
@@ -2540,11 +2879,11 @@ function checkAuth() {
     appContent.style.filter = 'none';
     appContent.style.pointerEvents = 'auto';
 
-    if (company) {
-        fetch('http://127.0.0.1:8000/company/select', {
+    if (financialYear) {
+        fetch('http://127.0.0.1:8000/financial-year/select', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: company })
+            body: JSON.stringify({ year: financialYear })
         });
     }
 
@@ -2556,131 +2895,70 @@ function checkAuth() {
 }
 
 function startAutoBackup() {
+    const startupBackupKey = 'startupAutoBackupDone';
+    if (!sessionStorage.getItem(startupBackupKey)) {
+        sessionStorage.setItem(startupBackupKey, '1');
+        fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' }).catch(() => {});
+    }
+
     if (autoBackupTimer) return;
     autoBackupTimer = setInterval(() => {
         fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' });
     }, 60 * 60 * 1000);
 }
 
-async function loadCompanies(retries = 5) {
-    const select = document.getElementById('loginCompany');
+async function loadFinancialYears(retries = 5) {
+    const select = document.getElementById('loginFinancialYear');
     if (!select) return;
     if (!select.innerHTML) {
-        select.innerHTML = '<option value="">Loading companies...</option>';
+        select.innerHTML = '<option value="">Loading financial years...</option>';
     }
     try {
-        const res = await fetchWithTimeout('http://127.0.0.1:8000/companies');
+        const res = await fetchWithTimeout('http://127.0.0.1:8000/financial-years');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        const years = (data && data.years) ? data.years : [];
         select.innerHTML = '';
-        if (!data.length) {
-            select.innerHTML = '<option value="">No companies found</option>';
+        if (!years.length) {
+            select.innerHTML = '<option value="">No financial years found</option>';
             return;
         }
-        data.forEach(c => {
+        years.forEach(y => {
             const opt = document.createElement('option');
-            opt.value = c.name;
-            opt.textContent = c.name;
+            opt.value = y;
+            opt.textContent = y;
             select.appendChild(opt);
         });
+        if (data.selected) {
+            select.value = data.selected;
+        }
     } catch (e) {
         if (retries > 0) {
-            setTimeout(() => loadCompanies(retries - 1), 1000);
+            setTimeout(() => loadFinancialYears(retries - 1), 1000);
         } else {
-            select.innerHTML = '<option value="">Failed to load companies</option>';
-            showToast('Error loading companies', 'error');
+            select.innerHTML = '<option value="">Failed to load financial years</option>';
+            showToast('Error loading financial years', 'error');
         }
     }
 }
 
-async function createCompany() {
-    const name = document.getElementById('newCompanyName').value.trim();
-    if (!name) return showToast('Enter company name', 'error');
-    try {
-        const res = await fetch('http://127.0.0.1:8000/companies', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-        });
-        const data = await res.json();
-        if (data.status === 'Created') {
-            showToast('Company created', 'success');
-            document.getElementById('newCompanyName').value = '';
-            await loadCompanies();
-            const select = document.getElementById('loginCompany');
-            if (select) select.value = name;
-        } else {
-            showToast('Create failed: ' + data.detail, 'error');
-        }
-    } catch (e) {
-        showToast('Error: ' + e, 'error');
-    }
-}
-
-// UI Interaction for Login Inputs
 async function handleLogin() {
     const user = document.getElementById('loginUser').value;
     const pass = document.getElementById('loginPass').value;
     const errorP = document.getElementById('loginError');
-    const company = document.getElementById('loginCompany').value;
+    const financialYear = document.getElementById('loginFinancialYear').value;
+    const passInp = document.getElementById('loginPass');
 
-    if (!user || !pass || !company) {
-        errorP.innerText = "Select company and enter credentials";
+    if (!user || !pass || !financialYear) {
+        errorP.innerText = 'Select financial year and enter credentials';
         return;
     }
 
     try {
-        await fetch('http://127.0.0.1:8000/company/select', {
+        await fetch('http://127.0.0.1:8000/financial-year/select', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: company })
-        });
-
-        const res = await fetch('http://127.0.0.1:8000/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: user, password: pass })
-        });
-
-        if (!res.ok) throw new Error('Invalid Username or Password');
-
-        const data = await res.json();
-        sessionStorage.setItem('username', data.username);
-        sessionStorage.setItem('role', data.role);
-        sessionStorage.setItem('company', company);
-
-        checkAuth();
-        showToast(`Hey ${data.username}, great to see you again! 😄`, "success");
-
-
-        loadParties();
-        showDashboard();
-
-    } catch (e) {
-        errorP.innerText = e.message;
-    }
-}
-
-function resetLogin() {
-    document.getElementById('loginStep1').classList.remove('hidden');
-    document.getElementById('loginStep2').classList.remove('active');
-    document.getElementById('loginPass').value = '';
-    document.getElementById('loginUser').focus();
-}
-
-async function handleLogin() {
-    const user = document.getElementById('loginUser').value;
-    const pass = document.getElementById('loginPass').value;
-    const errorP = document.getElementById('loginError2');
-    const passInp = document.getElementById('loginPass');
-    const company = document.getElementById('loginCompany').value;
-
-    try {
-        if (!company) throw new Error('Select company');
-        await fetch('http://127.0.0.1:8000/company/select', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: company })
+            body: JSON.stringify({ year: financialYear })
         });
 
         const res = await fetch('http://127.0.0.1:8000/login', {
@@ -2694,13 +2972,10 @@ async function handleLogin() {
         const data = await res.json();
         sessionStorage.setItem('username', data.username);
         sessionStorage.setItem('role', data.role);
-        sessionStorage.setItem('company', company);
+        sessionStorage.setItem('financialYear', financialYear);
 
         checkAuth();
         showToast(`Hey ${data.username}, great to see you again! 😄`, "success");
-
-
-        // Load initial data
         loadParties();
         
         // Load transactions AND show dashboard
@@ -2709,10 +2984,16 @@ async function handleLogin() {
 
     } catch (e) {
         passInp.classList.add('shake');
-        errorP.innerText = "Incorrect password/ID";
-        errorP.classList.add('visible');
+        errorP.innerText = e.message || 'Incorrect password/ID';
         setTimeout(() => passInp.classList.remove('shake'), 500);
     }
+}
+
+function resetLogin() {
+    const passEl = document.getElementById('loginPass');
+    const userEl = document.getElementById('loginUser');
+    if (passEl) passEl.value = '';
+    if (userEl) userEl.focus();
 }
 
 function handleLogout() {

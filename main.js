@@ -35,6 +35,16 @@ let mainWindow;
 let splashWindow;
 let backendProcess = null;
 
+function applyTitleBarTheme(theme) {
+    if (!mainWindow || process.platform !== 'win32') return;
+    const isDark = theme === 'dark';
+    mainWindow.setTitleBarOverlay({
+        color: isDark ? '#050c14' : '#22364a',
+        symbolColor: '#eaf2ff',
+        height: 30
+    });
+}
+
 function createSplashWindow() {
     splashWindow = new BrowserWindow({
         width: 500,
@@ -57,6 +67,7 @@ function createMainWindow() {
         title: "M-Finlogs",
         autoHideMenuBar: true,
         show: false,
+        backgroundColor: '#071726',
         icon: path.join(__dirname, 'assets', 'finlogs.ico'),
         roundedCorners: true,
         titleBarStyle: 'hidden',
@@ -67,6 +78,7 @@ function createMainWindow() {
         }
     });
     mainWindow.loadFile('index.html');
+    applyTitleBarTheme('dark');
 
     wireAutoUpdaterEvents();
 
@@ -74,7 +86,7 @@ function createMainWindow() {
         setTimeout(() => {
             if (splashWindow) splashWindow.close();
             mainWindow.show();
-        }, 2500);
+        }, 4200);
     });
 }
 
@@ -305,6 +317,11 @@ ipcMain.handle('update:restart', async () => {
     } catch (e) {
         return { status: 'Restart failed', error: e.message };
     }
+});
+
+ipcMain.handle('window:setTheme', async (_event, theme) => {
+    applyTitleBarTheme(theme);
+    return { status: 'ok' };
 });
 
 ipcMain.handle('folder:openAutoBackup', async () => {
