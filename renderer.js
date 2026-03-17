@@ -746,25 +746,26 @@ async function loadLedgerReport() {
         const particulars = `${typeRaw}${mode ? ' / ' + mode : ''}`;
         const amt = Number(row.amount || 0);
 
-        const debitTypes = new Set(['sale', 'expense', 'purchase']);
-        const creditTypes = new Set(['receipt', 'reciept', 'sale return']);
+        // Use backend's calculated balance
+        const serverBalance = Number(row.balance || 0);
 
+        // Determine debit/credit display based on transaction type for receivable ledger
+        // Sale = Debit (increases receivable)
+        // Receipt, Sale Return = Credit (decreases receivable)
         let debit = '';
         let credit = '';
-        if (debitTypes.has(type)) {
+        if (type === 'sale') {
             debit = formatMoney(amt);
-            runningBalance += amt;
-        } else if (creditTypes.has(type)) {
+        } else if (type === 'receipt' || type === 'reciept' || type === 'sale return') {
             credit = formatMoney(amt);
-            runningBalance -= amt;
         } else {
+            // Other types: show in debit but don't affect receivable balance
             debit = formatMoney(amt);
-            runningBalance += amt;
         }
 
-        const balanceLabel = runningBalance < 0
-            ? `${formatMoney(Math.abs(runningBalance))} Cr`
-            : `${formatMoney(runningBalance)} Dr`;
+        const balanceLabel = serverBalance < 0
+            ? `${formatMoney(Math.abs(serverBalance))} Cr`
+            : `${formatMoney(serverBalance)} Dr`;
 
         tbody.innerHTML += `
         <tr${rowClass ? ` class="${rowClass}"` : ''}>
