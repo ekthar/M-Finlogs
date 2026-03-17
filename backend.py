@@ -6,6 +6,7 @@ import datetime
 import time
 import os
 import re
+import logging
 from typing import Optional
 from config import SQL_DATABASE, SQL_DRIVER, SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
 try:
@@ -49,6 +50,16 @@ def get_backup_target_dir() -> str:
 
 app = FastAPI()
 
+logger = logging.getLogger("mfinlogs")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+def log_exception(context: str, err: Exception):
+    try:
+        logger.exception("%s: %s", context, err)
+    except Exception:
+        pass
+
 REPORT_CACHE_TTL_SEC = 300
 report_cache = {}
 
@@ -83,7 +94,93 @@ def resolve_date_range(start: Optional[str], end: Optional[str], days: int = 30)
         start_date, end_date = end_date, start_date
     return start_date, end_date
 
+def financial_year_for_date(dt: datetime.date) -> str:
+    start_year = dt.year if dt.month >= 4 else dt.year - 1
+    return f"{start_year}-{start_year + 1}"
+
+def parse_financial_year(financial_year: str):
+    m = re.match(r"^(\d{4})-(\d{4})$", (financial_year or "").strip())
+    if not m:
+        raise ValueError("Invalid financial year format. Use YYYY-YYYY")
+    start_year = int(m.group(1))
+    end_year = int(m.group(2))
+    if end_year != start_year + 1:
+        raise ValueError("Financial year must be consecutive years")
+    return datetime.date(start_year, 4, 1), datetime.date(end_year, 3, 31)
+
+def set_text_setting(key: str, value: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM app_settings WHERE setting_key=?", (key,))
+    exists = cursor.fetchone()[0] > 0
+    if exists:
+        cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", (value, key))
+    else:
+        cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", (key, value))
+    conn.close()
+
+def get_selected_financial_year(cursor=None) -> str:
+    global current_financial_year
+    if current_financial_year:
+        return current_financial_year
+
+    close_conn = False
+    conn = None
+    try:
+        if cursor is None:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            close_conn = True
+
+        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key='active_financial_year'")
+        row = cursor.fetchone()
+        if row and row[0]:
+            current_financial_year = str(row[0]).strip()
+        else:
+            current_financial_year = financial_year_for_date(datetime.date.today())
+            cursor.execute(
+                "IF EXISTS (SELECT 1 FROM app_settings WHERE setting_key=?) "
+                "UPDATE app_settings SET setting_value=? WHERE setting_key=? "
+                "ELSE INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
+                ('active_financial_year', current_financial_year, 'active_financial_year', 'active_financial_year', current_financial_year)
+            )
+    except Exception:
+        current_financial_year = financial_year_for_date(datetime.date.today())
+    finally:
+        if close_conn and conn:
+            conn.close()
+
+    return current_financial_year
+
+def get_financial_year_bounds(cursor=None):
+    selected_fy = get_selected_financial_year(cursor)
+    fy_start, fy_end = parse_financial_year(selected_fy)
+    return selected_fy, fy_start, fy_end
+
+def ensure_financial_year_column(cursor):
+    cursor.execute("SELECT COUNT(*) FROM sys.tables WHERE name = 'transactions'")
+    has_transactions = cursor.fetchone()[0] > 0
+    if not has_transactions:
+        return
+
+    cursor.execute("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('transactions') AND name = 'financial_year'")
+    fy_col_exists = cursor.fetchone()[0] > 0
+    if not fy_col_exists:
+        cursor.execute("ALTER TABLE transactions ADD financial_year NVARCHAR(9) NULL")
+
+    cursor.execute("""
+        UPDATE transactions
+        SET financial_year = CASE
+            WHEN MONTH(txn_date) >= 4
+                THEN CONCAT(YEAR(txn_date), '-', YEAR(txn_date) + 1)
+            ELSE CONCAT(YEAR(txn_date) - 1, '-', YEAR(txn_date))
+        END
+        WHERE (financial_year IS NULL OR LTRIM(RTRIM(financial_year)) = '')
+          AND txn_date IS NOT NULL
+    """)
+
 current_company = None
+current_financial_year = None
 initialized_dbs = set()  # Cache to track initialized databases
 
 @app.on_event("startup")
@@ -160,9 +257,27 @@ def init_db(company_name: str):
             party_id INT,
             txn_type NVARCHAR(50),
             payment_mode NVARCHAR(50),
+            financial_year NVARCHAR(9),
             amount DECIMAL(18,2),
             FOREIGN KEY (party_id) REFERENCES parties (party_id)
         )
+    """)
+
+    # Migration: Add financial_year column if missing
+    cursor.execute("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('transactions') AND name = 'financial_year'")
+    fy_col_exists = cursor.fetchone()[0] > 0
+    if not fy_col_exists:
+        cursor.execute("ALTER TABLE transactions ADD financial_year NVARCHAR(9) NULL")
+
+    # Backfill financial_year for historical rows
+    cursor.execute("""
+        UPDATE transactions
+        SET financial_year = CASE
+            WHEN MONTH(txn_date) >= 4
+                THEN CONCAT(YEAR(txn_date), '-', YEAR(txn_date) + 1)
+            ELSE CONCAT(YEAR(txn_date) - 1, '-', YEAR(txn_date))
+        END
+        WHERE financial_year IS NULL AND txn_date IS NOT NULL
     """)
     
     # Create indexes for faster queries
@@ -195,6 +310,10 @@ def init_db(company_name: str):
         CREATE INDEX idx_transactions_date_type_mode ON transactions(txn_date, txn_type, payment_mode)
     """)
     cursor.execute("""
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_transactions_fy_date' AND object_id = OBJECT_ID('transactions'))
+        CREATE INDEX idx_transactions_fy_date ON transactions(financial_year, txn_date)
+    """)
+    cursor.execute("""
         IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_parties_normalized' AND object_id = OBJECT_ID('parties'))
         CREATE INDEX idx_parties_normalized ON parties(normalized_name)
     """)
@@ -212,6 +331,12 @@ def init_db(company_name: str):
 
     # Insert default company setting if not exists
     cursor.execute("IF NOT EXISTS (SELECT 1 FROM app_settings WHERE setting_key='company_name') INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", ("company_name", company_name))
+    # Insert default active financial year if not exists
+    cursor.execute(
+        "IF NOT EXISTS (SELECT 1 FROM app_settings WHERE setting_key='active_financial_year') "
+        "INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
+        ("active_financial_year", financial_year_for_date(datetime.date.today()))
+    )
 
     # Migration: Add company column to audit_logs if it doesn't exist
     # Check if column exists first
@@ -299,6 +424,9 @@ class CompanyCreateRequest(BaseModel):
 class CompanySelectRequest(BaseModel):
     name: str
 
+class FinancialYearSelectRequest(BaseModel):
+    year: str
+
 # Helper for Audit (Needs its own conn if called separately, but usually called within context? 
 # Actually log_audit is a helper. Let's make it open its own conn to be safe and independent)
 def log_audit(username, action, details, company=None):
@@ -369,6 +497,41 @@ def select_company(req: CompanySelectRequest):
     init_db(name)
     return {"status": "Selected", "company": name}
 
+@app.get("/financial-years")
+def list_financial_years():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    selected_fy = get_selected_financial_year(cursor)
+    ensure_financial_year_column(cursor)
+    cursor.execute("SELECT DISTINCT financial_year FROM transactions WHERE financial_year IS NOT NULL ORDER BY financial_year DESC")
+    years = [str(r[0]) for r in cursor.fetchall() if r[0]]
+    conn.close()
+
+    # Ensure current and selected FY are available in list
+    current_fy = financial_year_for_date(datetime.date.today())
+    merged = []
+    for y in [selected_fy, current_fy] + years:
+        if y and y not in merged:
+            merged.append(y)
+    merged.sort(reverse=True)
+
+    return {"years": merged, "selected": selected_fy}
+
+@app.post("/financial-year/select")
+def select_financial_year(req: FinancialYearSelectRequest):
+    global current_financial_year
+    selected = (req.year or "").strip()
+    if not selected:
+        raise HTTPException(status_code=400, detail="Financial year is required")
+    try:
+        parse_financial_year(selected)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    current_financial_year = selected
+    set_text_setting("active_financial_year", selected)
+    return {"status": "Selected", "financial_year": selected}
+
 class PartyCreate(BaseModel):
     name: str
     ptype: str
@@ -395,6 +558,7 @@ def create_party(party: PartyCreate):
         conn.close()
         return {"status": "Party Created"}
     except Exception as e:
+        log_exception("create_party", e)
         conn.close()
         return {"status": "Error", "detail": str(e)}
 
@@ -403,6 +567,7 @@ def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: st
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+        ensure_financial_year_column(cursor)
         cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (party.lower().replace(" ","_"),))
         row = cursor.fetchone()
         if not row:
@@ -410,18 +575,22 @@ def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: st
             
         party_id = row[0]
 
+        txn_date = parse_date_str(date) or datetime.date.today()
+        txn_fy = financial_year_for_date(txn_date)
+
         cursor.execute(
-            "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, amount) VALUES (?, ?, ?, ?, ?, ?)",
-            (date, bill_no, party_id, txn_type, mode, amount)
+            "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (date, bill_no, party_id, txn_type, mode, txn_fy, amount)
         )
         conn.close()
         invalidate_report_cache()
         return {"status": "Transaction Added"}
     except Exception as e:
+        log_exception("add_transaction", e)
         conn.close()
         return {"status": "Error", "detail": str(e)}
 
-@app.get("/ledger/{party}")
+@app.get("/ledger/{party:path}")
 def get_ledger(party: str, start: str = None, end: str = None):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -431,28 +600,50 @@ def get_ledger(party: str, start: str = None, end: str = None):
         if not row:
             conn.close()
             # If party doesn't exist, return empty ledger instead of crashing
-            return []
+            return {
+                "data": [],
+                "opening_balance": 0.0,
+                "period_start": start,
+                "period_end": end,
+                "financial_year": get_selected_financial_year(cursor)
+            }
             
         party_id = row[0]
 
-        # Calculate opening balance from transactions BEFORE start date (if date filter applied)
-        balance = 0
-        if start:
-            opening_query = "SELECT SUM(CASE WHEN txn_type = 'Sale' THEN amount WHEN txn_type IN ('Receipt', 'Sale Return') THEN -amount ELSE 0 END) FROM transactions WHERE party_id=? AND txn_date < ?"
-            cursor.execute(opening_query, (party_id, start))
-            opening_result = cursor.fetchone()
-            balance = float(opening_result[0] or 0) if opening_result else 0
+        selected_fy, fy_start, fy_end = get_financial_year_bounds(cursor)
+
+        # Bound ledger to selected financial year. If start is omitted, start at FY start.
+        start_date = parse_date_str(start) if start else fy_start
+        end_date = parse_date_str(end) if end else fy_end
+
+        if start_date < fy_start:
+            start_date = fy_start
+        if end_date > fy_end:
+            end_date = fy_end
+        if start_date > end_date:
+            conn.close()
+            return {
+                "data": [],
+                "opening_balance": 0.0,
+                "period_start": start_date.isoformat(),
+                "period_end": end_date.isoformat(),
+                "financial_year": selected_fy
+            }
+
+        # Opening balance is cumulative before start date (supports April 1 opening = March 31 closing).
+        opening_query = "SELECT SUM(CASE WHEN txn_type = 'Sale' THEN amount WHEN txn_type IN ('Receipt', 'Sale Return') THEN -amount ELSE 0 END) FROM transactions WHERE party_id=? AND txn_date < ?"
+        cursor.execute(opening_query, (party_id, start_date.isoformat()))
+        opening_result = cursor.fetchone()
+        opening_balance = float(opening_result[0] or 0) if opening_result else 0
+        balance = opening_balance
 
         # Get filtered transactions for display
         query = "SELECT txn_id, txn_date, bill_no, txn_type, payment_mode, amount FROM transactions WHERE party_id=?"
         params = [party_id]
 
-        if start:
-            query += " AND txn_date >= ?"
-            params.append(start)
-        if end:
-            query += " AND txn_date <= ?"
-            params.append(end)
+        query += " AND txn_date >= ? AND txn_date <= ?"
+        params.append(start_date.isoformat())
+        params.append(end_date.isoformat())
 
         query += " ORDER BY txn_date"
         cursor.execute(query, params)
@@ -480,14 +671,28 @@ def get_ledger(party: str, start: str = None, end: str = None):
                 "type": t,
                 "mode": m,
                 "amount": float(a),
-                "balance": float(balance)
+                "balance": float(balance),
+                "financial_year": selected_fy
             })
 
-        return ledger
+        return {
+            "data": ledger,
+            "opening_balance": float(opening_balance),
+            "period_start": start_date.isoformat(),
+            "period_end": end_date.isoformat(),
+            "financial_year": selected_fy
+        }
     except Exception as e:
+        log_exception("get_ledger", e)
         try: conn.close()
         except: pass
-        return []
+        return {
+            "data": [],
+            "opening_balance": 0.0,
+            "period_start": start,
+            "period_end": end,
+            "financial_year": current_financial_year or financial_year_for_date(datetime.date.today())
+        }
 
 
 @app.get("/parties")
@@ -503,8 +708,16 @@ def get_transactions(page: int = 1, limit: int = 50, days: int = 30, from_date: 
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    selected_fy, fy_start, fy_end = get_financial_year_bounds(cursor)
+
     where_clauses = []
     params = []
+
+    # Always restrict by selected financial year
+    where_clauses.append("t.txn_date >= ?")
+    params.append(fy_start.isoformat())
+    where_clauses.append("t.txn_date <= ?")
+    params.append(fy_end.isoformat())
 
     if from_date:
         where_clauses.append("t.txn_date >= ?")
@@ -560,13 +773,16 @@ def get_transactions(page: int = 1, limit: int = 50, days: int = 30, from_date: 
 def get_transactions_by_date(date: str):
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT t.txn_id, t.txn_date, t.bill_no, p.name, t.txn_type, t.payment_mode, t.amount
         FROM transactions t WITH (NOLOCK)
         JOIN parties p WITH (NOLOCK) ON t.party_id = p.party_id
         WHERE t.txn_date = ?
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         ORDER BY t.txn_date DESC, t.txn_id DESC
-    """, (date,))
+    """, (date, fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
     conn.close()
 
@@ -610,44 +826,20 @@ def get_single_transaction(txn_id: int):
         "amount": float(row[6])
     }
 
-@app.get("/transactions/by-date")
-def get_transactions_by_date(date: str):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT t.txn_id, t.txn_date, t.bill_no, p.name, t.txn_type, t.payment_mode, t.amount
-        FROM transactions t WITH (NOLOCK)
-        JOIN parties p WITH (NOLOCK) ON t.party_id = p.party_id
-        WHERE t.txn_date = ?
-        ORDER BY t.txn_date DESC, t.txn_id DESC
-    """, (date,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [
-        {
-            "id": r[0],
-            "date": str(r[1]),
-            "bill_no": r[2] if r[2] else "",
-            "party": r[3],
-            "type": r[4],
-            "mode": r[5],
-            "amount": float(r[6])
-        }
-        for r in rows
-    ]
-
 @app.get("/summary/daily")
 def get_daily_summary():
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT txn_date, payment_mode, txn_type, SUM(amount)
         FROM transactions
         WHERE payment_mode IN ('Cash', 'Bank', 'UPI', 'GPay', 'GPAY', 'Google Pay', 'GooglePay')
+          AND txn_date >= ?
+          AND txn_date <= ?
         GROUP BY txn_date, payment_mode, txn_type
         ORDER BY txn_date DESC
-    """)
+    """, (fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
     conn.close()
 
@@ -683,23 +875,29 @@ def get_daily_summary():
 def get_mode_report(mode: str):
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
     if mode.lower() == "bank":
         cursor.execute("""
             SELECT t.txn_date, t.bill_no, p.name, t.txn_type, t.amount
             FROM transactions t
             JOIN parties p ON t.party_id = p.party_id
             WHERE t.payment_mode IN ('Bank', 'UPI', 'GPay', 'GPAY', 'Google Pay', 'GooglePay')
+              AND t.txn_date >= ?
+              AND t.txn_date <= ?
             ORDER BY t.txn_date
-        """)
+        """, (fy_start.isoformat(), fy_end.isoformat()))
     else:
         cursor.execute("""
             SELECT t.txn_date, t.bill_no, p.name, t.txn_type, t.amount
             FROM transactions t
             JOIN parties p ON t.party_id = p.party_id
             WHERE t.payment_mode = ?
+              AND t.txn_date >= ?
+              AND t.txn_date <= ?
             ORDER BY t.txn_date
-        """, (mode,))
+        """, (mode, fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
+    conn.close()
     
     # Calculate running balance for the account (Cash/Bank/UPI)
     # In = Sale/Receipt (+), Out = Expense (-)
@@ -733,13 +931,16 @@ def get_mode_report(mode: str):
 def get_type_report(txn_type: str):
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT t.txn_date, t.bill_no, p.name, t.payment_mode, t.amount
         FROM transactions t
         JOIN parties p ON t.party_id = p.party_id
         WHERE t.txn_type = ?
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         ORDER BY t.txn_date
-    """, (txn_type,))
+    """, (txn_type, fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
     conn.close()
     
@@ -759,13 +960,19 @@ def get_type_report(txn_type: str):
 @app.get("/report/purchase/monthly")
 def get_purchase_monthly_report(start: Optional[str] = None, end: Optional[str] = None, days: int = 30):
     start_date, end_date = resolve_date_range(start, end, days)
-    cache_key = (current_company or "default", "purchase_monthly", str(start_date), str(end_date))
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-
     conn = get_db_connection()
     cursor = conn.cursor()
+    selected_fy, fy_start, fy_end = get_financial_year_bounds(cursor)
+    if start_date < fy_start:
+        start_date = fy_start
+    if end_date > fy_end:
+        end_date = fy_end
+    cache_key = (current_company or "default", selected_fy, "purchase_monthly", str(start_date), str(end_date))
+    cached = cache_get(cache_key)
+    if cached is not None:
+        conn.close()
+        return cached
+
     cursor.execute(
         """
         SELECT
@@ -797,13 +1004,19 @@ def get_purchase_monthly_report(start: Optional[str] = None, end: Optional[str] 
 @app.get("/report/purchase/supplier")
 def get_purchase_supplier_report(start: Optional[str] = None, end: Optional[str] = None, days: int = 30, party: Optional[str] = None):
     start_date, end_date = resolve_date_range(start, end, days)
-    cache_key = (current_company or "default", "purchase_supplier", str(start_date), str(end_date), (party or "").strip())
-    cached = cache_get(cache_key)
-    if cached is not None:
-        return cached
-
     conn = get_db_connection()
     cursor = conn.cursor()
+    selected_fy, fy_start, fy_end = get_financial_year_bounds(cursor)
+    if start_date < fy_start:
+        start_date = fy_start
+    if end_date > fy_end:
+        end_date = fy_end
+    cache_key = (current_company or "default", selected_fy, "purchase_supplier", str(start_date), str(end_date), (party or "").strip())
+    cached = cache_get(cache_key)
+    if cached is not None:
+        conn.close()
+        return cached
+
     base_query = """
         SELECT
             p.name,
@@ -836,73 +1049,215 @@ def get_purchase_supplier_report(start: Optional[str] = None, end: Optional[str]
 def get_outstanding_report():
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT p.name, 
                SUM(CASE WHEN t.txn_type = 'Sale' THEN t.amount ELSE 0 END) as sales,
-               SUM(CASE WHEN t.txn_type IN ('Receipt', 'Sale Return') THEN t.amount ELSE 0 END) as credits
+               SUM(CASE WHEN t.txn_type IN ('Receipt', 'Sale Return') THEN t.amount ELSE 0 END) as credits,
+               MAX(CASE WHEN t.txn_type = 'Receipt' THEN t.txn_date END) as last_receipt_date,
+               MIN(CASE WHEN t.txn_type = 'Sale' THEN t.txn_date END) as first_sale_date
         FROM parties p
         LEFT JOIN transactions t ON p.party_id = t.party_id
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         WHERE p.type = 'Credit Customer'
         GROUP BY p.name
-    """)
+    """, (fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
     conn.close()
 
     outstanding = []
     total_outstanding = 0.0
-    for name, sales, credits in rows:
+    high_count = 0
+    critical_count = 0
+    high_amount = 0.0
+    critical_amount = 0.0
+    max_days_unpaid = 0
+    today = datetime.date.today()
+
+    for name, sales, credits, last_receipt_date, first_sale_date in rows:
         s = float(sales or 0)
         c = float(credits or 0)
         balance = s - c
         if balance > 0:
-            outstanding.append({"party": name, "balance": balance})
+            days_anchor = last_receipt_date or first_sale_date
+            days_unpaid = (today - days_anchor).days if days_anchor else 0
+            max_days_unpaid = max(max_days_unpaid, days_unpaid)
+
+            if days_unpaid >= 30:
+                risk_level = "critical"
+                critical_count += 1
+                critical_amount += balance
+            elif days_unpaid >= 15:
+                risk_level = "high"
+                high_count += 1
+                high_amount += balance
+            else:
+                risk_level = "normal"
+
+            outstanding.append({
+                "party": name,
+                "balance": balance,
+                "last_receipt_date": str(last_receipt_date) if last_receipt_date else None,
+                "days_unpaid": int(days_unpaid),
+                "risk_level": risk_level,
+                "risk_rank": 2 if risk_level == "critical" else (1 if risk_level == "high" else 0)
+            })
             total_outstanding += balance
     
-    return {"data": outstanding, "total": total_outstanding}
+    return {
+        "data": outstanding,
+        "total": total_outstanding,
+        "summary": {
+            "high_count": high_count,
+            "critical_count": critical_count,
+            "high_amount": high_amount,
+            "critical_amount": critical_amount,
+            "max_days_unpaid": max_days_unpaid
+        }
+    }
+
+@app.get("/report/outstanding/party")
+def get_outstanding_party_detail(party: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
+
+    cursor.execute("SELECT party_id FROM parties WHERE name = ?", (party,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Party not found")
+
+    party_id = row[0]
+    cursor.execute(
+        """
+        SELECT TOP 5 txn_date, bill_no, txn_type, payment_mode, amount
+        FROM transactions
+        WHERE party_id = ?
+          AND txn_date >= ?
+          AND txn_date <= ?
+        ORDER BY txn_date DESC, txn_id DESC
+        """,
+        (party_id, fy_start.isoformat(), fy_end.isoformat())
+    )
+    recent = cursor.fetchall()
+
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END),
+            SUM(CASE WHEN txn_type IN ('Receipt', 'Sale Return') THEN amount ELSE 0 END),
+            MAX(CASE WHEN txn_type='Receipt' THEN txn_date END)
+        FROM transactions
+        WHERE party_id = ?
+          AND txn_date >= ?
+          AND txn_date <= ?
+        """,
+        (party_id, fy_start.isoformat(), fy_end.isoformat())
+    )
+    sums = cursor.fetchone()
+    conn.close()
+
+    sales = float((sums[0] if sums else 0) or 0)
+    receipts = float((sums[1] if sums else 0) or 0)
+    outstanding = sales - receipts
+    last_receipt = sums[2] if sums else None
+    days_unpaid = (datetime.date.today() - last_receipt).days if last_receipt else 0
+    suggested = "Contact politely and confirm payment timeline"
+    if days_unpaid >= 30:
+        suggested = "Critical follow-up: call today and pause new credit until settlement"
+    elif days_unpaid >= 15:
+        suggested = "High-risk follow-up: share statement and ask for partial payment"
+
+    return {
+        "party": party,
+        "outstanding": outstanding,
+        "days_unpaid": days_unpaid,
+        "last_receipt_date": str(last_receipt) if last_receipt else None,
+        "suggested_action": suggested,
+        "recent_transactions": [
+            {
+                "date": str(r[0]),
+                "bill_no": r[1] or "",
+                "type": r[2],
+                "mode": r[3],
+                "amount": float(r[4] or 0)
+            }
+            for r in recent
+        ]
+    }
 
 @app.get("/report/trial-balance")
 def get_trial_balance():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # helper to get sum
-    def get_sum(query):
-        cursor.execute(query)
-        val = cursor.fetchone()[0]
-        return float(val or 0)
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
 
-    # 1. Cash/Bank/UPI Balances
-    def get_account_balance(mode):
-        if mode == 'Bank':
-            inflow = get_sum("SELECT SUM(amount) FROM transactions WHERE payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type IN ('Sale', 'Receipt')")
-            outflow = get_sum("SELECT SUM(amount) FROM transactions WHERE payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type = 'Expense'")
-        else:
-            inflow = get_sum(f"SELECT SUM(amount) FROM transactions WHERE payment_mode='{mode}' AND txn_type IN ('Sale', 'Receipt')")
-            outflow = get_sum(f"SELECT SUM(amount) FROM transactions WHERE payment_mode='{mode}' AND txn_type = 'Expense'")
-        return inflow - outflow
+    cursor.execute(
+        """
+        SELECT
+            payment_mode,
+            txn_type,
+            SUM(amount) AS total_amount
+        FROM transactions
+        WHERE txn_date >= ?
+          AND txn_date <= ?
+        GROUP BY payment_mode, txn_type
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    txn_rows = cursor.fetchall()
 
-    cash_bal = get_account_balance('Cash')
-    bank_bal = get_account_balance('Bank')
-    upi_bal = get_account_balance('UPI')
-    
-    # Debtors
-    debtors = get_sum("""
-        SELECT SUM(CASE WHEN t.txn_type = 'Sale' THEN t.amount ELSE -t.amount END)
-        FROM transactions t JOIN parties p ON t.party_id = p.party_id
-    """) # Removed invalid SQL comment
-    # Note: Using simple Sum logic here matching get_ledger mostly
-    
-    # Creditors
-    creditors = get_sum("""
-        SELECT SUM(CASE WHEN t.txn_type = 'Purchase' THEN t.amount ELSE -t.amount END)
-        FROM transactions t JOIN parties p ON t.party_id = p.party_id
-    """) # Removed invalid SQL comment
-    
-    # Sales (Revenue)
-    total_sales = get_sum("SELECT SUM(amount) FROM transactions WHERE txn_type='Sale'")
-    
-    # Expenses (Direct/Indirect)
-    total_expenses = get_sum("SELECT SUM(amount) FROM transactions WHERE txn_type='Expense'")
+    mode_in = {"cash": 0.0, "bank": 0.0, "upi": 0.0}
+    mode_out = {"cash": 0.0, "bank": 0.0, "upi": 0.0}
+    bank_modes = {'bank', 'gpay', 'gpay', 'google pay', 'googlepay'}
+    for payment_mode, txn_type, total_amount in txn_rows:
+        m = str(payment_mode or '').strip().lower()
+        t = str(txn_type or '').strip().lower()
+        amt = float(total_amount or 0)
+        key = 'bank' if m in bank_modes else ('upi' if m == 'upi' else 'cash')
+        if t in ('sale', 'receipt'):
+            mode_in[key] += amt
+        elif t == 'expense':
+            mode_out[key] += amt
+
+    cash_bal = mode_in['cash'] - mode_out['cash']
+    bank_bal = mode_in['bank'] - mode_out['bank']
+    upi_bal = mode_in['upi'] - mode_out['upi']
+
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END) AS sales,
+            SUM(CASE WHEN t.txn_type IN ('Receipt', 'Sale Return') THEN t.amount ELSE 0 END) AS receipts
+        FROM transactions t
+        JOIN parties p ON t.party_id = p.party_id
+        WHERE p.type='Credit Customer'
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    d_row = cursor.fetchone()
+    debtors = float((d_row[0] if d_row else 0) or 0) - float((d_row[1] if d_row else 0) or 0)
+
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END) AS sales,
+            SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) AS expenses
+        FROM transactions
+        WHERE txn_date >= ?
+          AND txn_date <= ?
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    p_row = cursor.fetchone()
+    total_sales = float((p_row[0] if p_row else 0) or 0)
+    total_expenses = float((p_row[1] if p_row else 0) or 0)
+
+    creditors = 0.0
     
     conn.close()
     
@@ -920,8 +1275,21 @@ def get_trial_balance():
 def get_pnl_report():
     conn = get_db_connection()
     cursor = conn.cursor()
-    sales = float(cursor.execute("SELECT SUM(amount) FROM transactions WHERE txn_type='Sale'").fetchone()[0] or 0)
-    expenses = float(cursor.execute("SELECT SUM(amount) FROM transactions WHERE txn_type='Expense'").fetchone()[0] or 0)
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END) AS sales,
+            SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) AS expenses
+        FROM transactions
+        WHERE txn_date >= ?
+          AND txn_date <= ?
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    row = cursor.fetchone()
+    sales = float((row[0] if row else 0) or 0)
+    expenses = float((row[1] if row else 0) or 0)
     conn.close()
     
     net_profit = sales - expenses
@@ -936,33 +1304,49 @@ def get_pnl_report():
 def get_dashboard_metrics():
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # helper
-    def get_val(q):
-        try:
-            val = cursor.execute(q).fetchone()[0]
-            return float(val or 0)
-        except:
-            return 0.0
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
 
-    # 1. Total Sales Today (SQL Server syntax)
-    sales_today = get_val("SELECT ISNULL(SUM(amount), 0) FROM transactions WHERE txn_type='Sale' AND txn_date = CAST(GETDATE() AS DATE)")
-    
-    # 2. Total Sales Month (SQL Server syntax)
-    sales_month = get_val("SELECT ISNULL(SUM(amount), 0) FROM transactions WHERE txn_type='Sale' AND MONTH(txn_date) = MONTH(GETDATE()) AND YEAR(txn_date) = YEAR(GETDATE())")
-
-    # 3. Cash & Bank Balances
-    cash_in = get_val("SELECT SUM(amount) FROM transactions WHERE payment_mode='Cash' AND txn_type IN ('Sale', 'Receipt')")
-    cash_out = get_val("SELECT SUM(amount) FROM transactions WHERE payment_mode='Cash' AND txn_type='Expense'")
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN txn_type='Sale' AND txn_date = CAST(GETDATE() AS DATE) THEN amount ELSE 0 END) AS sales_today,
+            SUM(CASE WHEN txn_type='Sale' AND MONTH(txn_date)=MONTH(GETDATE()) AND YEAR(txn_date)=YEAR(GETDATE()) THEN amount ELSE 0 END) AS sales_month,
+            SUM(CASE WHEN payment_mode='Cash' AND txn_type IN ('Sale','Receipt') THEN amount ELSE 0 END) AS cash_in,
+            SUM(CASE WHEN payment_mode='Cash' AND txn_type='Expense' THEN amount ELSE 0 END) AS cash_out,
+            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type IN ('Sale','Receipt') THEN amount ELSE 0 END) AS bank_in,
+            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type='Expense' THEN amount ELSE 0 END) AS bank_out
+        FROM transactions
+        WHERE txn_date >= ?
+          AND txn_date <= ?
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    row = cursor.fetchone()
+    sales_today = float((row[0] if row else 0) or 0)
+    sales_month = float((row[1] if row else 0) or 0)
+    cash_in = float((row[2] if row else 0) or 0)
+    cash_out = float((row[3] if row else 0) or 0)
+    bank_in = float((row[4] if row else 0) or 0)
+    bank_out = float((row[5] if row else 0) or 0)
     cash_bal = cash_in - cash_out
-
-    bank_in = get_val("SELECT SUM(amount) FROM transactions WHERE payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type IN ('Sale', 'Receipt')")
-    bank_out = get_val("SELECT SUM(amount) FROM transactions WHERE payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type='Expense'")
     bank_bal = bank_in - bank_out
 
-    # 4. Total Receivables (Simplistic)
-    cust_sales = get_val("SELECT SUM(amount) FROM transactions t JOIN parties p ON t.party_id=p.party_id WHERE p.type='Customer' AND t.txn_type='Sale'")
-    cust_receipts = get_val("SELECT SUM(amount) FROM transactions t JOIN parties p ON t.party_id=p.party_id WHERE p.type='Customer' AND t.txn_type='Receipt'")
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END) AS cust_sales,
+            SUM(CASE WHEN t.txn_type='Receipt' THEN t.amount ELSE 0 END) AS cust_receipts
+        FROM transactions t
+        JOIN parties p ON t.party_id=p.party_id
+        WHERE p.type='Customer'
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
+        """,
+        (fy_start.isoformat(), fy_end.isoformat())
+    )
+    rec_row = cursor.fetchone()
+    cust_sales = float((rec_row[0] if rec_row else 0) or 0)
+    cust_receipts = float((rec_row[1] if rec_row else 0) or 0)
     receivables = cust_sales - cust_receipts
 
     conn.close()
@@ -1203,6 +1587,7 @@ async def import_transactions(file: UploadFile = File(...)):
     except ImportError:
          return {"status": "Error", "detail": "pandas/openpyxl libraries not installed."}
     except Exception as e:
+        log_exception("set_opening_cash", e)
         return {"status": "Error", "detail": str(e)}
 
 def get_opening_cash_before_date(cursor, start_date: datetime.date, opening_seed: float) -> float:
@@ -1379,6 +1764,7 @@ def set_opening_cash(req: OpeningCashRequest):
         log_audit(req.admin_user, "Set Opening Cash", f"Opening Cash Seed set to {req.amount}")
         return {"status": "Saved"}
     except Exception as e:
+        log_exception("set_cash_in_hand", e)
         return {"status": "Error", "detail": str(e)}
 
 @app.post("/cash/hand")

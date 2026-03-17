@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' http: https: https://unpkg.com https://cdn.jsdelivr.net;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' http: https: https://unpkg.com https://cdn.jsdelivr.net;">
     <title>M-Finlogs</title>
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -14,11 +14,13 @@
     <link rel="icon" type="image/x-icon" href="assets/finlogs.ico">
     <link rel="stylesheet" href="index.css">
     <link rel="stylesheet" href="skeleton-loaders.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <!-- Ionicons for Icons -->
     <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 </head>
 
 <body>
@@ -37,21 +39,10 @@
             <p class="login-subtitle">Manage your entries, reports, and backups in one place.</p>
 
             <div class="input-group">
-                <label>Company</label>
+                <label>Financial Year</label>
                 <div class="login-field">
-                    <ion-icon name="business-outline"></ion-icon>
-                    <select id="loginCompany" class="login-input"></select>
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label>Create Company</label>
-                <div class="login-inline">
-                    <div class="login-field">
-                        <ion-icon name="add-circle-outline"></ion-icon>
-                        <input type="text" id="newCompanyName" class="login-input" placeholder="New company name">
-                    </div>
-                    <button onclick="createCompany()" class="login-btn login-btn--ghost" type="button">Add</button>
+                    <ion-icon name="calendar-outline"></ion-icon>
+                    <select id="loginFinancialYear" class="login-input"></select>
                 </div>
             </div>
 
@@ -74,64 +65,118 @@
 
             <button onclick="handleLogin()" class="login-btn">Sign In</button>
             <p id="loginError" class="error-msg"></p>
-            <a href="javascript:void(0)" onclick="showDbConfig()" style="display:block; text-align:center; margin-top:12px; color: #4A90E2; font-size: 13px; text-decoration: none;">⚙️ Configure Database</a>
+            <a href="javascript:void(0)" onclick="showDbConfig()" class="login-config-link">⚙️ Configure Database</a>
+        </div>
+    </div>
+
+    <!-- Configure Database Access Modal -->
+    <div id="dbConfigAccessModal" class="login-background" style="display: none; z-index: 10002;">
+        <div class="login-glass-card" style="max-width: 420px;">
+            <h2 class="login-title">Secure Access</h2>
+            <p class="login-subtitle">Enter password to open Configure Database</p>
+
+            <div class="input-group">
+                <label>Password</label>
+                <div class="login-field">
+                    <ion-icon name="key-outline"></ion-icon>
+                    <input type="password" id="dbConfigAccessPass" class="login-input" placeholder="Enter password"
+                        onkeydown="if(event.key==='Enter') submitDbConfigAccess()">
+                </div>
+            </div>
+
+            <div style="display:flex; gap: 10px;">
+                <button onclick="submitDbConfigAccess()" class="login-btn" style="flex:1;">Unlock</button>
+                <button onclick="closeDbConfigAccessModal()" class="login-btn login-btn--ghost" style="flex:1;" type="button">Cancel</button>
+            </div>
+
+            <p id="dbConfigAccessError" class="error-msg"></p>
         </div>
     </div>
 
     <!-- Database Configuration Modal -->
     <div id="dbConfigModal" class="login-background" style="display: none; z-index: 10001;">
-        <div class="login-glass-card" style="max-width: 500px;">
+        <div class="login-glass-card" style="max-width: 980px; width: min(980px, 95vw);">
             <h2 class="login-title">Database Configuration</h2>
             <p class="login-subtitle">Configure SQL Server connection</p>
 
-            <div class="input-group">
-                <label>SQL Server Instance</label>
-                <input type="text" id="cfgServer" class="login-input" placeholder="e.g., localhost or SERVERNAME">
-                <small style="color: var(--text-secondary); font-size: 11px;">Use 'localhost' for default instance, 'localhost\SQLEXPRESS' for named instance</small>
-            </div>
+            <div class="db-config-layout">
+                <div class="db-config-left">
+                    <div class="input-group">
+                        <label>SQL Server Instance</label>
+                        <input type="text" id="cfgServer" class="login-input" placeholder="e.g., localhost or SERVERNAME">
+                        <small style="color: var(--text-secondary); font-size: 11px;">Use 'localhost' for default instance, 'localhost\SQLEXPRESS' for named instance</small>
+                    </div>
 
-            <div class="input-group">
-                <label>API Server URL</label>
-                <input type="text" id="cfgApiBase" class="login-input" placeholder="http://SERVER_IP:8000">
-                <small style="color: var(--text-secondary); font-size: 11px;">Clients connect to this backend URL.</small>
-            </div>
+                    <div class="input-group">
+                        <label>API Server URL</label>
+                        <input type="text" id="cfgApiBase" class="login-input" placeholder="http://SERVER_IP:8000">
+                        <small style="color: var(--text-secondary); font-size: 11px;">Clients connect to this backend URL.</small>
+                    </div>
 
-            <div class="input-group">
-                <label>Database Name</label>
-                <input type="text" id="cfgDatabase" class="login-input" placeholder="e.g., M_Finlogs_Accounts">
-            </div>
+                    <div class="input-group">
+                        <label>Database Name</label>
+                        <input type="text" id="cfgDatabase" class="login-input" placeholder="e.g., M_Finlogs_Accounts">
+                    </div>
 
-            <div class="input-group">
-                <label>Authentication Type</label>
-                <select id="cfgAuthType" class="login-input" onchange="toggleSqlAuth()">
-                    <option value="windows">Windows Authentication</option>
-                    <option value="sql">SQL Server Authentication</option>
-                </select>
-            </div>
+                    <div class="input-group">
+                        <label>Authentication Type</label>
+                        <select id="cfgAuthType" class="login-input" onchange="toggleSqlAuth()">
+                            <option value="windows">Windows Authentication</option>
+                            <option value="sql">SQL Server Authentication</option>
+                        </select>
+                    </div>
 
-            <div id="sqlAuthFields" style="display: none;">
-                <div class="input-group">
-                    <label>SQL Username</label>
-                    <input type="text" id="cfgUsername" class="login-input" placeholder="SQL Server username">
+                    <div id="sqlAuthFields" style="display: none;">
+                        <div class="input-group">
+                            <label>SQL Username</label>
+                            <input type="text" id="cfgUsername" class="login-input" placeholder="SQL Server username">
+                        </div>
+                        <div class="input-group">
+                            <label>SQL Password</label>
+                            <input type="password" id="cfgPassword" class="login-input" placeholder="SQL Server password">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Backup Target Folder (UNC share)</label>
+                        <input type="text" id="cfgBackupDir" class="login-input" placeholder="\\LAPTOP\M-FinlogsBackups">
+                        <small style="color: var(--text-secondary); font-size: 11px;">SQL Server must have write access to this shared folder.</small>
+                    </div>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="testDbConnection()" class="login-btn" style="flex: 1; background: #4CAF50;">Test Connection</button>
+                        <button onclick="saveDbConfig()" class="login-btn" style="flex: 1;">Save & Apply</button>
+                    </div>
+                    <p id="dbConfigStatus" class="error-msg"></p>
                 </div>
-                <div class="input-group">
-                    <label>SQL Password</label>
-                    <input type="password" id="cfgPassword" class="login-input" placeholder="SQL Server password">
+
+                <div class="db-config-right">
+                    <div style="padding-top: 2px;">
+                        <h3 style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-primary);">Backup & Restore</h3>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button onclick="backupDB()" class="login-btn" style="width:auto; padding:10px 12px;">Backup Database</button>
+                            <button class="login-btn login-btn--ghost" onclick="runAutoBackupNow()" type="button">Run Auto Backup Now</button>
+                            <button class="login-btn login-btn--ghost" onclick="openAutoBackupFolder()" type="button">Open Auto Backup Folder</button>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <button class="login-btn login-btn--ghost" onclick="restoreDB()" type="button">Choose Backup & Restore</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+                        <h3 style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-primary);">Server Mode</h3>
+                        <p style="margin: 0 0 8px 0; color: var(--text-secondary); font-size: 12px;">Run backend automatically on system startup (server machine).</p>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button onclick="installServerMode()" class="login-btn" style="width:auto; padding:10px 12px;">Install Server Mode</button>
+                            <button class="login-btn login-btn--ghost" onclick="uninstallServerMode()" type="button">Uninstall Server Mode</button>
+                            <button class="login-btn login-btn--ghost" onclick="restartBackend()" type="button">Restart Backend</button>
+                            <button class="login-btn login-btn--ghost" onclick="stopBackend()" type="button">Stop Backend</button>
+                        </div>
+                    </div>
+
+                    <button onclick="closeDbConfig()" class="login-btn" style="margin-top: 16px; background: #666;">Close</button>
                 </div>
             </div>
-
-            <div class="input-group">
-                <label>Backup Target Folder (UNC share)</label>
-                <input type="text" id="cfgBackupDir" class="login-input" placeholder="\\\\LAPTOP\\M-FinlogsBackups">
-                <small style="color: var(--text-secondary); font-size: 11px;">SQL Server must have write access to this shared folder.</small>
-            </div>
-
-            <div style="display: flex; gap: 10px;">
-                <button onclick="testDbConnection()" class="login-btn" style="flex: 1; background: #4CAF50;">Test Connection</button>
-                <button onclick="saveDbConfig()" class="login-btn" style="flex: 1;">Save & Apply</button>
-            </div>
-            <button onclick="closeDbConfig()" class="login-btn" style="margin-top: 8px; background: #666;">Cancel</button>
-            <p id="dbConfigStatus" class="error-msg"></p>
         </div>
     </div>
 
@@ -205,6 +250,11 @@
         <!-- Main Content -->
         <div class="main-content">
 
+            <div class="global-context-bar">
+                <div id="globalReportContext">FY: - | Range: -</div>
+                <button id="densityToggleBtn" class="secondary" onclick="toggleTableDensity()">Compact View</button>
+            </div>
+
             <!-- Daily Entry View -->
             <div id="entryView" class="view-section active">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -226,7 +276,7 @@
                 </div>
                 <div class="card" style="margin: 12px 0; padding: 12px;">
                     <div style="display:grid; grid-template-columns: 140px 140px 2.5fr 140px 120px 140px; gap: 10px; align-items:center;">
-                        <input type="date" id="newDate" onkeydown="handleEntryNavigation(event, 'newBill')">
+                        <input type="text" id="newDate" class="app-date-input" placeholder="yyyy-mm-dd" onkeydown="handleEntryNavigation(event, 'newBill')">
                         <input type="text" id="newBill" placeholder="Ref/Bill" onkeydown="handleEntryNavigation(event, 'newParty')">
                         <input type="text" id="newParty" list="partyList" placeholder="Select Party" value="Customer" onkeydown="handleEntryNavigation(event, 'newType')" onfocus="if(this.value==='Customer') this.value=''; this.select();" onblur="if(this.value==='') this.value='Customer';">
 
@@ -393,15 +443,17 @@
 
                     <div style="display:flex; gap: 10px; align-items: center;">
                         <label>From: </label>
-                        <input type="date" id="ledgerStart" style="width: 130px;">
+                        <input type="text" id="ledgerStart" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 130px;">
                         <label>To: </label>
-                        <input type="date" id="ledgerEnd" style="width: 130px;">
+                        <input type="text" id="ledgerEnd" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 130px;">
                         <button onclick="loadLedgerReport()">Show</button>
                     </div>
 
                     <input type="text" placeholder="Search Transactions..."
                         onkeyup="filterTable('ledgerTable', this.value)" style="width: 200px;">
                 </div>
+
+                <div id="ledgerOpeningChip" class="ledger-opening-chip" style="display:none;"></div>
 
                 <table id="ledgerTable">
                     <thead>
@@ -432,7 +484,7 @@
                     style="margin-bottom: 20px; padding: 16px; display:flex; flex-wrap: wrap; gap: 16px; justify-content:space-between; align-items:center;">
                     <div style="display:flex; gap: 10px; align-items: center;">
                         <label>Date: </label>
-                        <input type="date" id="dayBookDate" style="width: 160px;">
+                        <input type="text" id="dayBookDate" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 160px;">
                         <button onclick="loadDayBook()">Show</button>
                     </div>
 
@@ -469,11 +521,11 @@
                 <div class="card" style="margin-bottom: 16px; padding: 12px; display:flex; flex-wrap: wrap; gap: 12px; align-items:center;">
                     <label style="display:flex; align-items:center; gap: 8px;">
                         From:
-                        <input type="date" id="dailyFrom" style="width: 150px;">
+                        <input type="text" id="dailyFrom" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                     </label>
                     <label style="display:flex; align-items:center; gap: 8px;">
                         To:
-                        <input type="date" id="dailyTo" style="width: 150px;">
+                        <input type="text" id="dailyTo" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                     </label>
                     <button class="secondary" onclick="setReportRange('daily', 30)">Last 30 Days</button>
                     <button class="secondary" onclick="setReportRange('daily', 90)">Last 90 Days</button>
@@ -510,11 +562,11 @@
                 <div class="card" style="margin-bottom: 16px; padding: 12px; display:flex; flex-wrap: wrap; gap: 12px; align-items:center;">
                     <label style="display:flex; align-items:center; gap: 8px;">
                         From:
-                        <input type="date" id="shortFrom" style="width: 150px;">
+                        <input type="text" id="shortFrom" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                     </label>
                     <label style="display:flex; align-items:center; gap: 8px;">
                         To:
-                        <input type="date" id="shortTo" style="width: 150px;">
+                        <input type="text" id="shortTo" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                     </label>
                     <button class="secondary" onclick="setReportRange('short', 30)">Last 30 Days</button>
                     <button class="secondary" onclick="setReportRange('short', 90)">Last 90 Days</button>
@@ -550,11 +602,11 @@
                     <div class="card" style="margin-bottom: 16px; padding: 12px; display:flex; flex-wrap: wrap; gap: 12px; align-items:center;">
                         <label style="display:flex; align-items:center; gap: 8px;">
                             From:
-                            <input type="date" id="purchaseFrom" style="width: 150px;">
+                            <input type="text" id="purchaseFrom" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                         </label>
                         <label style="display:flex; align-items:center; gap: 8px;">
                             To:
-                            <input type="date" id="purchaseTo" style="width: 150px;">
+                            <input type="text" id="purchaseTo" class="app-date-input" placeholder="yyyy-mm-dd" style="width: 150px;">
                         </label>
                         <label style="display:flex; align-items:center; gap: 8px;">
                             Party:
@@ -577,6 +629,16 @@
                     </table>
 
                     <h3 style="margin: 18px 0 8px;">Party-wise Purchase</h3>
+                    <div style="display:flex; gap: 10px; align-items:center; margin: 0 0 10px 0;">
+                        <select id="purchaseSupplierSort" onchange="renderPurchaseSupplier()" style="padding: 6px 10px; width: 170px;">
+                            <option value="name-asc">A -> Z</option>
+                            <option value="name-desc">Z -> A</option>
+                            <option value="amount-desc">Amount Down</option>
+                            <option value="amount-asc">Amount Up</option>
+                        </select>
+                        <input type="text" placeholder="Search..."
+                            onkeyup="filterTable('purchaseSupplierBody', this.value, true)" style="width: 200px;">
+                    </div>
                     <table id="purchaseSupplierTable">
                         <thead>
                             <tr>
@@ -632,13 +694,25 @@
                 <div class="report-header">
                     <h2>Credit Outstanding</h2>
                     <div style="display:flex; gap: 10px; align-items:center;">
+                        <button id="outstandingAlertBell" class="secondary" onclick="showOutstandingAlerts()">Alerts: 0</button>
+                        <button id="outstandingAlertSnoozeBtn" class="secondary" onclick="snoozeOutstandingAlertsToday()">Snooze Today</button>
                         <button class="secondary" onclick="exportTableToExcel('outstandingTable', 'Credit_Outstanding')">Export Excel</button>
                         <select id="outstandingSort" onchange="renderOutstanding()" style="padding: 6px 10px;">
+                            <option value="risk-desc">Risk First</option>
                             <option value="name-asc">A → Z</option>
                             <option value="name-desc">Z → A</option>
                             <option value="amount-desc">Amount ↓</option>
                             <option value="amount-asc">Amount ↑</option>
+                            <option value="days-desc">Days Unpaid ↓</option>
+                            <option value="days-asc">Days Unpaid ↑</option>
                         </select>
+                        <select id="outstandingRiskFilter" onchange="renderOutstanding()" style="padding: 6px 10px; width: 170px;">
+                            <option value="all">All</option>
+                            <option value="high">15+ only</option>
+                            <option value="critical">30+ only</option>
+                            <option value="no-receipt">No receipt</option>
+                        </select>
+                        <button id="outstandingCallListBtn" class="secondary" onclick="toggleOutstandingCallListMode()">Call List: Off</button>
                         <input type="text" placeholder="Search..."
                             onkeyup="filterTable('outstandingBody', this.value, true)" style="width: 200px;">
                     </div>
@@ -646,15 +720,56 @@
                 <div class="report-summary-card">
                     Total Outstanding: <span id="totalOutstanding" style="color: #FF6B6B;">₹0.00</span>
                 </div>
+                <div class="outstanding-risk-strip">
+                    <div class="outstanding-risk-card">
+                        <div class="label">15+ Due</div>
+                        <div class="value" id="outstandingHighCount">0</div>
+                    </div>
+                    <div class="outstanding-risk-card critical">
+                        <div class="label">30+ Critical</div>
+                        <div class="value" id="outstandingCriticalCount">0</div>
+                    </div>
+                    <div class="outstanding-risk-card">
+                        <div class="label">15+ Amount</div>
+                        <div class="value" id="outstandingHighAmount">0</div>
+                    </div>
+                    <div class="outstanding-risk-card critical">
+                        <div class="label">30+ Amount</div>
+                        <div class="value" id="outstandingCriticalAmount">0</div>
+                    </div>
+                </div>
                 <table id="outstandingTable" class="report-table">
                     <thead>
                         <tr>
                             <th>Party</th>
+                            <th>Status</th>
+                            <th class="text-right">Days Unpaid</th>
+                            <th>Last Receipt</th>
                             <th class="text-right">Outstanding Balance</th>
                         </tr>
                     </thead>
                     <tbody id="outstandingBody"></tbody>
                 </table>
+                <div id="outstandingCollectionPanel" class="collections-panel" style="display:none;">
+                    <div class="collections-panel-header">
+                        <h3 id="collectionsPartyTitle" style="margin:0;">Collections</h3>
+                        <span id="collectionsPartyStatus" class="outstanding-risk-chip normal">Normal</span>
+                    </div>
+                    <div id="collectionsPartyMeta" class="collections-meta"></div>
+                    <div id="collectionsSuggestedAction" class="collections-action"></div>
+                    <table class="report-table" style="margin-top:10px;">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Bill</th>
+                                <th>Type</th>
+                                <th>Mode</th>
+                                <th class="text-right">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody id="collectionsRecentBody"></tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Trial Balance View -->
@@ -777,28 +892,6 @@
                         <div id="updateLastChecked" style="font-size: 11px; color: var(--text-secondary);"></div>
                     </div>
                 </div>
-                <br>
-
-                <div class="card">
-                    <h3>Backup & Restore</h3>
-                    <button onclick="backupDB()">Backup Database</button>
-                    <button class="secondary" onclick="runAutoBackupNow()" style="margin-left: 8px;">Run Auto Backup Now</button>
-                    <button class="secondary" onclick="openAutoBackupFolder()" style="margin-left: 8px;">Open Auto Backup Folder</button>
-                    <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                        <label style="display:block; margin-bottom: 8px;">Restore from File:</label>
-                        <button class="secondary" onclick="restoreDB()">Choose Backup & Restore</button>
-                    </div>
-                </div>
-                    <div class="card">
-                        <h3>Server Mode</h3>
-                        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 10px;">
-                            Run backend automatically on system startup (server machine).
-                        </p>
-                        <button onclick="installServerMode()">Install Server Mode</button>
-                        <button class="secondary" onclick="uninstallServerMode()" style="margin-left: 8px;">Uninstall Server Mode</button>
-                        <button class="secondary" onclick="restartBackend()" style="margin-left: 8px;">Restart Backend</button>
-                        <button class="secondary" onclick="stopBackend()" style="margin-left: 8px;">Stop Backend</button>
-                    </div>
                 <br>
 
                 <div class="card">
