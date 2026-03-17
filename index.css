@@ -2,7 +2,7 @@
 /* Ensure Inter is used everywhere */
 * {
     box-sizing: border-box;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Hanken Grotesk', 'Segoe UI', sans-serif !important;
 }
 
 :root {
@@ -48,6 +48,23 @@
     --shadow-premium: 0 18px 42px rgba(0, 0, 0, 0.88);
 }
 
+[data-theme="white"] {
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --primary-light: #eef2ff;
+    --accent: #10b981;
+    --background: #f3f4f6;
+    --surface: #ffffff;
+    --sidebar-bg: rgba(255, 255, 255, 0.9);
+    --text-primary: #111827;
+    --text-secondary: #6b7280;
+    --border: #e5e7eb;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 10px 18px rgba(0, 0, 0, 0.10);
+    --shadow-premium: 0 18px 28px rgba(0, 0, 0, 0.12);
+}
+
 body {
     background:
         radial-gradient(circle at 18% 14%, rgba(56, 95, 134, 0.5) 0%, transparent 34%),
@@ -74,6 +91,15 @@ body::before {
         radial-gradient(280px 160px at 74% 22%, rgba(114, 103, 246, 0.14), transparent 74%);
     animation: appAuraShift 18s ease-in-out infinite;
     z-index: 0;
+}
+
+[data-theme="white"] body {
+    background: #f3f4f6;
+}
+
+[data-theme="white"] body::before {
+    opacity: 0;
+    animation: none;
 }
 
 
@@ -1248,29 +1274,29 @@ select.login-input {
 .outstanding-risk-card .value {
     font-size: 18px;
     font-weight: 700;
-    color: #b91c1c;
+    color: #c24b5a;
 }
 
 .outstanding-risk-card.critical {
-    background: #fef2f2;
-    border-color: rgba(185, 28, 28, 0.35);
+    background: #fff5f7;
+    border-color: rgba(194, 75, 90, 0.28);
 }
 
 #outstandingTable tr.risk-high td {
-    background: rgba(239, 68, 68, 0.08);
+    background: rgba(194, 75, 90, 0.07);
 }
 
 #outstandingTable tr.risk-critical td {
-    background: rgba(127, 29, 29, 0.14);
+    background: rgba(171, 58, 79, 0.10);
 }
 
 #outstandingTable tr.risk-high td:first-child,
 #outstandingTable tr.risk-critical td:first-child {
-    border-left: 4px solid #dc2626;
+    border-left: 4px solid #c24b5a;
 }
 
 #outstandingTable tr.risk-critical td:first-child {
-    border-left-color: #7f1d1d;
+    border-left-color: #ab3a4f;
 }
 
 .outstanding-risk-chip {
@@ -1291,15 +1317,15 @@ select.login-input {
 }
 
 .outstanding-risk-chip.high {
-    background: rgba(239, 68, 68, 0.14);
-    color: #b91c1c;
-    border-color: rgba(239, 68, 68, 0.32);
+    background: rgba(194, 75, 90, 0.13);
+    color: #9f3346;
+    border-color: rgba(194, 75, 90, 0.30);
 }
 
 .outstanding-risk-chip.critical {
-    background: rgba(127, 29, 29, 0.18);
-    color: #7f1d1d;
-    border-color: rgba(127, 29, 29, 0.4);
+    background: rgba(171, 58, 79, 0.15);
+    color: #8d2f42;
+    border-color: rgba(171, 58, 79, 0.30);
 }
 
 .global-context-bar {
@@ -1327,6 +1353,7 @@ select.login-input {
     position: sticky;
     bottom: 12px;
     z-index: 8;
+    color: #1f2937;
 }
 
 .collections-panel-header {
@@ -1339,8 +1366,38 @@ select.login-input {
 
 .collections-meta {
     font-size: 13px;
-    color: var(--text-secondary);
+    color: #475569;
     margin-bottom: 8px;
+}
+
+.collections-panel h3,
+.collections-panel table th,
+.collections-panel table td {
+    color: #1f2937;
+}
+
+.collections-panel table th {
+    background: #e8edf5;
+}
+
+.collections-panel table td {
+    background: #ffffff;
+}
+
+[data-theme="dark"] .collections-panel,
+[data-theme="dark"] .collections-panel h3,
+[data-theme="dark"] .collections-panel table th,
+[data-theme="dark"] .collections-panel table td,
+[data-theme="dark"] .collections-meta {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .collections-panel table th {
+    background: #11161f !important;
+}
+
+[data-theme="dark"] .collections-panel table td {
+    background: #0b0f16 !important;
 }
 
 .collections-action {

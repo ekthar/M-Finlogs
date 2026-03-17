@@ -6,10 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' http: https: https://unpkg.com https://cdn.jsdelivr.net;">
     <title>M-Finlogs</title>
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="assets/finlogs.svg">
     <link rel="icon" type="image/x-icon" href="assets/finlogs.ico">
     <link rel="stylesheet" href="index.css">
@@ -753,7 +750,10 @@
                 <div id="outstandingCollectionPanel" class="collections-panel" style="display:none;">
                     <div class="collections-panel-header">
                         <h3 id="collectionsPartyTitle" style="margin:0;">Collections</h3>
-                        <span id="collectionsPartyStatus" class="outstanding-risk-chip normal">Normal</span>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span id="collectionsPartyStatus" class="outstanding-risk-chip normal">Normal</span>
+                            <button class="secondary" style="padding:4px 10px; font-size:12px;" onclick="closeOutstandingCollectionPanel()">Close</button>
+                        </div>
                     </div>
                     <div id="collectionsPartyMeta" class="collections-meta"></div>
                     <div id="collectionsSuggestedAction" class="collections-action"></div>
@@ -765,6 +765,7 @@
                                 <th>Type</th>
                                 <th>Mode</th>
                                 <th class="text-right">Amount</th>
+                                <th class="text-right">Balance</th>
                             </tr>
                         </thead>
                         <tbody id="collectionsRecentBody"></tbody>
@@ -865,10 +866,12 @@
                         Restrict Party Selection to List
                     </label>
                     <div style="margin-top: 10px; padding-top:10px; border-top: 1px solid var(--border);">
-                        <label style="display:flex; align-items:center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" id="darkModeToggle" style="width: auto;" onclick="toggleDarkMode()">
-                            Enable Dark Mode 🌙
-                        </label>
+                        <label for="themeSelect" style="display:block; margin-bottom:6px;">App Theme</label>
+                        <select id="themeSelect" onchange="changeTheme()" style="max-width: 260px;">
+                            <option value="splash">Splash Blue (Default)</option>
+                            <option value="dark">Pitch Black</option>
+                            <option value="white">Classic White</option>
+                        </select>
                     </div>
                 </div>
                 <br>

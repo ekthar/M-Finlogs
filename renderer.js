@@ -1718,18 +1718,33 @@ async function requestUpdateCheck() {
     }
 }
 
-// Dark Mode
-function toggleDarkMode() {
-    const isDark = document.getElementById("darkModeToggle").checked;
-    if (isDark) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+function applyTheme(theme) {
+    const selected = (theme || 'splash').toLowerCase();
+    const root = document.documentElement;
+
+    if (selected === 'dark') {
+        root.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
         ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
+    } else if (selected === 'white') {
+        root.setAttribute('data-theme', 'white');
+        localStorage.setItem('theme', 'white');
+        ipcRenderer.invoke('window:setTheme', 'white').catch(() => {});
     } else {
-        document.documentElement.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'light');
-        ipcRenderer.invoke('window:setTheme', 'light').catch(() => {});
+        root.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'splash');
+        ipcRenderer.invoke('window:setTheme', 'splash').catch(() => {});
     }
+
+    const themeSelect = document.getElementById('themeSelect');
+    if (themeSelect) {
+        themeSelect.value = selected === 'light' ? 'white' : selected;
+    }
+}
+
+function changeTheme() {
+    const themeSelect = document.getElementById('themeSelect');
+    applyTheme(themeSelect ? themeSelect.value : 'splash');
 }
 
 // Initialize Theme
@@ -1748,14 +1763,8 @@ window.onload = function () {
         updateSystemStatus(false);
     }
     setInterval(checkBackendStatus, 15000);
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        document.getElementById("darkModeToggle").checked = true;
-        ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
-    } else {
-        ipcRenderer.invoke('window:setTheme', 'light').catch(() => {});
-    }
+    const savedTheme = localStorage.getItem('theme') || 'splash';
+    applyTheme(savedTheme);
 
     initUpdateBadge();
 
@@ -2474,6 +2483,11 @@ function toggleOutstandingCallListMode() {
     renderOutstanding();
 }
 
+function closeOutstandingCollectionPanel() {
+    const panel = document.getElementById('outstandingCollectionPanel');
+    if (panel) panel.style.display = 'none';
+}
+
 function showOutstandingAlerts() {
     const critical = Number(document.getElementById('outstandingCriticalCount')?.textContent || 0);
     const high = Number(document.getElementById('outstandingHighCount')?.textContent || 0);
@@ -2506,7 +2520,7 @@ async function loadOutstandingPartyDetail(party) {
     title.textContent = `${party} - Collections`; 
     meta.textContent = 'Loading...';
     action.textContent = '';
-    body.innerHTML = `<tr><td colspan="5" class="text-right">Loading...</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="text-right">Loading...</td></tr>`;
 
     try {
         const res = await fetchReport(`http://127.0.0.1:8000/report/outstanding/party?party=${encodeURIComponent(party)}`);
@@ -2517,23 +2531,43 @@ async function loadOutstandingPartyDetail(party) {
         statusChip.textContent = label;
 
         const lastReceipt = data.last_receipt_date ? formatDateShort(data.last_receipt_date) : '-';
-        meta.textContent = `Outstanding: ${formatMoney(data.outstanding || 0)} | Days Unpaid: ${data.days_unpaid || 0} | Last Receipt: ${lastReceipt}`;
+        const hasClosingBalance = data.closing_balance !== null && data.closing_balance !== undefined && Number.isFinite(Number(data.closing_balance));
+        const closingBal = hasClosingBalance ? Number(data.closing_balance) : Number(data.outstanding || 0);
+        const closingLabel = closingBal < 0
+            ? `${formatMoney(Math.abs(closingBal))} Cr`
+            : `${formatMoney(closingBal)} Dr`;
+        meta.textContent = `Outstanding: ${formatMoney(data.outstanding || 0)} | Days Unpaid: ${data.days_unpaid || 0} | Last Receipt: ${lastReceipt} | Ledger Closing: ${closingLabel}`;
         action.textContent = data.suggested_action || '';
 
-        const rows = data.recent_transactions || [];
+        const recentLedger = Array.isArray(data.recent_ledger) ? data.recent_ledger : [];
+        const legacyRecent = Array.isArray(data.recent_transactions) ? data.recent_transactions : [];
+        const rows = (recentLedger.length ? recentLedger : legacyRecent).slice(0, 4);
         if (!rows.length) {
-            body.innerHTML = `<tr><td colspan="5" class="text-right">No recent transactions</td></tr>`;
+            body.innerHTML = `<tr><td colspan="6" class="text-right">No recent ledger transactions</td></tr>`;
             return;
         }
         let html = '';
+        let reverseBalance = closingBal;
         rows.forEach(r => {
-            html += `<tr><td>${formatDateShort(r.date)}</td><td>${r.bill_no || ''}</td><td>${r.type || ''}</td><td>${r.mode || ''}</td><td class="text-right">${formatMoney(r.amount || 0)}</td></tr>`;
+            const amount = Number(r.amount || 0);
+            let bal = Number(r.balance);
+            if (!Number.isFinite(bal)) {
+                bal = reverseBalance;
+                const tnorm = String(r.type || '').trim().toLowerCase();
+                if (tnorm === 'sale') {
+                    reverseBalance -= amount;
+                } else if (tnorm === 'receipt' || tnorm === 'reciept' || tnorm === 'sale return') {
+                    reverseBalance += amount;
+                }
+            }
+            const balLabel = bal < 0 ? `${formatMoney(Math.abs(bal))} Cr` : `${formatMoney(bal)} Dr`;
+            html += `<tr><td>${formatDateShort(r.date)}</td><td>${r.bill_no || ''}</td><td>${r.type || ''}</td><td>${r.mode || ''}</td><td class="text-right">${formatMoney(amount)}</td><td class="text-right">${balLabel}</td></tr>`;
         });
         body.innerHTML = html;
     } catch (e) {
         meta.textContent = 'Failed to load details';
         action.textContent = '';
-        body.innerHTML = `<tr><td colspan="5" class="text-right">No Data</td></tr>`;
+        body.innerHTML = `<tr><td colspan="6" class="text-right">No Data</td></tr>`;
     }
 }
 
@@ -2913,14 +2947,48 @@ async function loadFinancialYears(retries = 5) {
     if (!select.innerHTML) {
         select.innerHTML = '<option value="">Loading financial years...</option>';
     }
+
+    function financialYearForDate(dateObj) {
+        const y = dateObj.getFullYear();
+        const m = dateObj.getMonth() + 1;
+        const start = m >= 4 ? y : y - 1;
+        return `${start}-${start + 1}`;
+    }
+
+    function populateFallbackYears() {
+        const now = new Date();
+        const current = financialYearForDate(now);
+        const prevStart = Number(current.split('-')[0]) - 1;
+        const prev = `${prevStart}-${prevStart + 1}`;
+        const nextStart = Number(current.split('-')[0]) + 1;
+        const next = `${nextStart}-${nextStart + 1}`;
+        const years = [next, current, prev];
+
+        select.innerHTML = '';
+        years.forEach(y => {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = y;
+            select.appendChild(opt);
+        });
+        select.value = current;
+    }
+
     try {
         const res = await fetchWithTimeout('http://127.0.0.1:8000/financial-years');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+            if (res.status === 404) {
+                populateFallbackYears();
+                showToast('Financial year API not found on backend. Using local defaults.', 'info');
+                return;
+            }
+            throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
         const years = (data && data.years) ? data.years : [];
         select.innerHTML = '';
         if (!years.length) {
-            select.innerHTML = '<option value="">No financial years found</option>';
+            populateFallbackYears();
             return;
         }
         years.forEach(y => {
@@ -2936,8 +3004,8 @@ async function loadFinancialYears(retries = 5) {
         if (retries > 0) {
             setTimeout(() => loadFinancialYears(retries - 1), 1000);
         } else {
-            select.innerHTML = '<option value="">Failed to load financial years</option>';
-            showToast('Error loading financial years', 'error');
+            populateFallbackYears();
+            showToast('Could not load financial years. Using local defaults.', 'error');
         }
     }
 }
@@ -2955,11 +3023,18 @@ async function handleLogin() {
     }
 
     try {
-        await fetch('http://127.0.0.1:8000/financial-year/select', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year: financialYear })
-        });
+        try {
+            const fyRes = await fetch('http://127.0.0.1:8000/financial-year/select', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ year: financialYear })
+            });
+            if (!fyRes.ok && fyRes.status !== 404) {
+                throw new Error(`HTTP ${fyRes.status}`);
+            }
+        } catch (_) {
+            // Backward compatibility: continue login for older backends without FY endpoint.
+        }
 
         const res = await fetch('http://127.0.0.1:8000/login', {
             method: 'POST',

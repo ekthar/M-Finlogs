@@ -37,10 +37,21 @@ let backendProcess = null;
 
 function applyTitleBarTheme(theme) {
     if (!mainWindow || process.platform !== 'win32') return;
-    const isDark = theme === 'dark';
+    const mode = (theme || 'splash').toLowerCase();
+    let color = '#22364a';
+    let symbolColor = '#eaf2ff';
+
+    if (mode === 'dark') {
+        color = '#050c14';
+        symbolColor = '#f5f5f5';
+    } else if (mode === 'white' || mode === 'light') {
+        color = '#f3f4f6';
+        symbolColor = '#111827';
+    }
+
     mainWindow.setTitleBarOverlay({
-        color: isDark ? '#050c14' : '#22364a',
-        symbolColor: '#eaf2ff',
+        color,
+        symbolColor,
         height: 30
     });
 }
@@ -78,7 +89,7 @@ function createMainWindow() {
         }
     });
     mainWindow.loadFile('index.html');
-    applyTitleBarTheme('dark');
+    applyTitleBarTheme('splash');
 
     wireAutoUpdaterEvents();
 
@@ -99,23 +110,34 @@ function isPortFree(port, host = '127.0.0.1') {
     });
 }
 
-function isBackendResponsive(timeoutMs = 1500) {
+function httpGetStatus(pathname, timeoutMs = 1500) {
     return new Promise((resolve) => {
         const req = http.get({
             hostname: '127.0.0.1',
             port: 8000,
-            path: '/companies',
+            path: pathname,
             timeout: timeoutMs
         }, (res) => {
             res.resume();
-            resolve(true);
+            resolve(res.statusCode || 0);
         });
-        req.on('error', () => resolve(false));
+        req.on('error', () => resolve(0));
         req.on('timeout', () => {
             req.destroy();
-            resolve(false);
+            resolve(0);
         });
     });
+}
+
+async function isBackendResponsive(timeoutMs = 1500) {
+    // Compatibility check: app now expects both core and FY endpoints.
+    const companiesStatus = await httpGetStatus('/companies', timeoutMs);
+    if (companiesStatus < 200 || companiesStatus >= 300) return false;
+
+    const fyStatus = await httpGetStatus('/financial-years', timeoutMs);
+    if (fyStatus < 200 || fyStatus >= 300) return false;
+
+    return true;
 }
 
 function killPort8000() {
@@ -135,7 +157,16 @@ async function startBackend() {
     const envVars = { ...process.env, FINLOGS_CONFIG_DIR: app.getPath('userData') };
 
     let portFree = await isPortFree(8000, '127.0.0.1');
-    if (!portFree) {
+    if (!portFree && !app.isPackaged) {
+        await killPort8000();
+        portFree = await isPortFree(8000, '127.0.0.1');
+        if (!portFree) {
+            console.warn('Backend not started: port 8000 still in use.');
+            return false;
+        }
+    }
+
+    if (!portFree && app.isPackaged) {
         const responsive = await isBackendResponsive();
         if (responsive) {
             console.warn('Backend already running on port 8000.');
