@@ -631,7 +631,18 @@ def get_ledger(party: str, start: str = None, end: str = None):
             }
 
         # Opening balance is cumulative before start date (supports April 1 opening = March 31 closing).
-        opening_query = "SELECT SUM(CASE WHEN txn_type = 'Sale' THEN amount WHEN txn_type IN ('Receipt', 'Sale Return') THEN -amount ELSE 0 END) FROM transactions WHERE party_id=? AND txn_date < ?"
+        # Include common legacy spelling variant "Reciept" and case/space variations.
+        opening_query = """
+            SELECT SUM(
+                CASE
+                    WHEN UPPER(LTRIM(RTRIM(txn_type))) = 'SALE' THEN amount
+                    WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN -amount
+                    ELSE 0
+                END
+            )
+            FROM transactions
+            WHERE party_id=? AND txn_date < ?
+        """
         cursor.execute(opening_query, (party_id, start_date.isoformat()))
         opening_result = cursor.fetchone()
         opening_balance = float(opening_result[0] or 0) if opening_result else 0
@@ -645,7 +656,7 @@ def get_ledger(party: str, start: str = None, end: str = None):
         params.append(start_date.isoformat())
         params.append(end_date.isoformat())
 
-        query += " ORDER BY txn_date"
+        query += " ORDER BY txn_date, txn_id"
         cursor.execute(query, params)
         data = cursor.fetchall()
         conn.close() 
@@ -658,9 +669,11 @@ def get_ledger(party: str, start: str = None, end: str = None):
             # Credit: Receipt and Sale Return decrease receivable
             # Other transactions (Expense, Purchase) should not affect customer receivable balance
             
-            if t == "Sale":
+            txn_type_norm = str(t or '').strip().lower()
+
+            if txn_type_norm == "sale":
                 balance += float(a)
-            elif t in ["Receipt", "Sale Return"]:
+            elif txn_type_norm in ["receipt", "reciept", "sale return"]:
                 balance -= float(a) 
             # Note: Expense, Purchase, and other types are NOT included in customer receivable balance
 
@@ -1052,17 +1065,15 @@ def get_outstanding_report():
     _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT p.name, 
-               SUM(CASE WHEN t.txn_type = 'Sale' THEN t.amount ELSE 0 END) as sales,
-               SUM(CASE WHEN t.txn_type IN ('Receipt', 'Sale Return') THEN t.amount ELSE 0 END) as credits,
-               MAX(CASE WHEN t.txn_type = 'Receipt' THEN t.txn_date END) as last_receipt_date,
-               MIN(CASE WHEN t.txn_type = 'Sale' THEN t.txn_date END) as first_sale_date
+               SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) = 'SALE' THEN t.amount ELSE 0 END) as sales,
+               SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN t.amount ELSE 0 END) as credits,
+               MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT') THEN t.txn_date END) as last_receipt_date,
+               MIN(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) = 'SALE' THEN t.txn_date END) as first_sale_date
         FROM parties p
         LEFT JOIN transactions t ON p.party_id = t.party_id
-          AND t.txn_date >= ?
-          AND t.txn_date <= ?
         WHERE p.type = 'Credit Customer'
         GROUP BY p.name
-    """, (fy_start.isoformat(), fy_end.isoformat()))
+    """)
     rows = cursor.fetchall()
     conn.close()
 
@@ -1121,54 +1132,75 @@ def get_outstanding_report():
 def get_outstanding_party_detail(party: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    _, fy_start, fy_end = get_financial_year_bounds(cursor)
 
-    cursor.execute("SELECT party_id FROM parties WHERE name = ?", (party,))
+    cursor.execute("SELECT COUNT(*) FROM parties WHERE UPPER(LTRIM(RTRIM(name))) = UPPER(LTRIM(RTRIM(?)))", (party,))
     row = cursor.fetchone()
-    if not row:
+    if not row or int(row[0] or 0) == 0:
         conn.close()
         raise HTTPException(status_code=404, detail="Party not found")
 
-    party_id = row[0]
     cursor.execute(
         """
-        SELECT TOP 5 txn_date, bill_no, txn_type, payment_mode, amount
-        FROM transactions
-        WHERE party_id = ?
-          AND txn_date >= ?
-          AND txn_date <= ?
-        ORDER BY txn_date DESC, txn_id DESC
+        SELECT t.txn_date, t.bill_no, t.txn_type, t.payment_mode, t.amount, t.txn_id
+        FROM transactions t
+        INNER JOIN parties p ON p.party_id = t.party_id
+        WHERE UPPER(LTRIM(RTRIM(p.name))) = UPPER(LTRIM(RTRIM(?)))
+        ORDER BY t.txn_date ASC, t.txn_id ASC
         """,
-        (party_id, fy_start.isoformat(), fy_end.isoformat())
+        (party,)
     )
-    recent = cursor.fetchall()
+    ledger_rows = cursor.fetchall()
 
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END),
-            SUM(CASE WHEN txn_type IN ('Receipt', 'Sale Return') THEN amount ELSE 0 END),
-            MAX(CASE WHEN txn_type='Receipt' THEN txn_date END)
-        FROM transactions
-        WHERE party_id = ?
-          AND txn_date >= ?
-          AND txn_date <= ?
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) = 'SALE' THEN t.amount ELSE 0 END),
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN t.amount ELSE 0 END),
+            MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT') THEN t.txn_date END)
+        FROM transactions t
+        INNER JOIN parties p ON p.party_id = t.party_id
+        WHERE UPPER(LTRIM(RTRIM(p.name))) = UPPER(LTRIM(RTRIM(?)))
         """,
-        (party_id, fy_start.isoformat(), fy_end.isoformat())
+        (party,)
     )
     sums = cursor.fetchone()
-    conn.close()
 
     sales = float((sums[0] if sums else 0) or 0)
     receipts = float((sums[1] if sums else 0) or 0)
     outstanding = sales - receipts
     last_receipt = sums[2] if sums else None
     days_unpaid = (datetime.date.today() - last_receipt).days if last_receipt else 0
+
+    running_balance = 0.0
+    ledger_with_balance = []
+    for d, bill_no, txn_type, payment_mode, amount, txn_id in ledger_rows:
+        tnorm = str(txn_type or '').strip().lower()
+        amt = float(amount or 0)
+        if tnorm == 'sale':
+            running_balance += amt
+        elif tnorm in ('receipt', 'reciept', 'sale return'):
+            running_balance -= amt
+
+        ledger_with_balance.append({
+            "date": str(d),
+            "bill_no": bill_no or "",
+            "type": txn_type,
+            "mode": payment_mode,
+            "amount": amt,
+            "balance": float(running_balance),
+            "txn_id": int(txn_id)
+        })
+
+    recent_ledger = list(reversed(ledger_with_balance[-4:]))
+    closing_balance = float(running_balance)
+
     suggested = "Contact politely and confirm payment timeline"
     if days_unpaid >= 30:
         suggested = "Critical follow-up: call today and pause new credit until settlement"
     elif days_unpaid >= 15:
         suggested = "High-risk follow-up: share statement and ask for partial payment"
+
+    conn.close()
 
     return {
         "party": party,
@@ -1176,16 +1208,8 @@ def get_outstanding_party_detail(party: str):
         "days_unpaid": days_unpaid,
         "last_receipt_date": str(last_receipt) if last_receipt else None,
         "suggested_action": suggested,
-        "recent_transactions": [
-            {
-                "date": str(r[0]),
-                "bill_no": r[1] or "",
-                "type": r[2],
-                "mode": r[3],
-                "amount": float(r[4] or 0)
-            }
-            for r in recent
-        ]
+        "closing_balance": closing_balance,
+        "recent_ledger": recent_ledger
     }
 
 @app.get("/report/trial-balance")
