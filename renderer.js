@@ -263,6 +263,76 @@ let editContext = null;
 let isLoadingTransactions = false;
 let isCompactTables = false;
 let outstandingCallListMode = false;
+let softScrollInitialized = false;
+let txnMeasuredRowHeight = TXN_ROW_HEIGHT;
+let dayBookMeasuredRowHeight = 36;
+let auditMeasuredRowHeight = 32;
+
+function getMeasuredRowHeight(tbody, spacerClass, fallback) {
+    if (!tbody) return fallback;
+    const row = tbody.querySelector(`tr:not(.${spacerClass})`);
+    if (!row) return fallback;
+    const height = Math.round(row.getBoundingClientRect().height);
+    return Number.isFinite(height) && height > 8 ? height : fallback;
+}
+
+function resetVirtualRowHeights() {
+    txnMeasuredRowHeight = TXN_ROW_HEIGHT;
+    dayBookMeasuredRowHeight = DAYBOOK_ROW_HEIGHT;
+    auditMeasuredRowHeight = AUDIT_ROW_HEIGHT;
+}
+
+function initSoftScroll() {
+    if (softScrollInitialized) return;
+    softScrollInitialized = true;
+
+    // Keep native wheel behavior for virtualized tables; custom wheel animation
+    // causes jitter when scroll position drives virtual rendering.
+    const selectors = ['.main-content'];
+    const states = new WeakMap();
+
+    const attach = (container) => {
+        if (!container || container.dataset.softScrollBound === '1') return;
+        container.dataset.softScrollBound = '1';
+        container.addEventListener('wheel', (e) => {
+            if (e.target && e.target.closest('.txn-table-container, .daybook-table-container, .audit-table-container')) return;
+            if (e.ctrlKey || e.metaKey) return;
+            if (Math.abs(e.deltaY) < 1) return;
+            if (container.scrollHeight <= container.clientHeight) return;
+
+            e.preventDefault();
+
+            const unit = e.deltaMode === 1 ? 32 : (e.deltaMode === 2 ? container.clientHeight * 0.9 : 1);
+            const delta = e.deltaY * unit;
+            const max = Math.max(0, container.scrollHeight - container.clientHeight);
+
+            const state = states.get(container) || { target: container.scrollTop, raf: 0 };
+            state.target = Math.min(max, Math.max(0, state.target + delta));
+
+            const animate = () => {
+                const dist = state.target - container.scrollTop;
+                if (Math.abs(dist) < 0.7) {
+                    container.scrollTop = state.target;
+                    state.raf = 0;
+                    states.set(container, state);
+                    return;
+                }
+                container.scrollTop += dist * 0.18;
+                state.raf = requestAnimationFrame(animate);
+                states.set(container, state);
+            };
+
+            if (!state.raf) {
+                state.raf = requestAnimationFrame(animate);
+            }
+            states.set(container, state);
+        }, { passive: false });
+    };
+
+    selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach(attach);
+    });
+}
 
 function initTxnVirtualScroll() {
     if (txnVirtualInitialized) return;
@@ -388,12 +458,15 @@ function renderVirtualizedTransactions(resetScroll = false) {
     const containerHeight = container.clientHeight || 520;
     const scrollTop = container.scrollTop || 0;
 
-    const start = Math.max(0, Math.floor(scrollTop / TXN_ROW_HEIGHT) - TXN_OVERSCAN);
-    const visibleCount = Math.ceil(containerHeight / TXN_ROW_HEIGHT) + TXN_OVERSCAN * 2;
+    const measured = getMeasuredRowHeight(tbody, 'txn-spacer', txnMeasuredRowHeight);
+    txnMeasuredRowHeight = measured || txnMeasuredRowHeight;
+    const rowHeight = txnMeasuredRowHeight;
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - TXN_OVERSCAN);
+    const visibleCount = Math.ceil(containerHeight / rowHeight) + TXN_OVERSCAN * 2;
     const end = Math.min(total, start + visibleCount);
 
-    const topPad = start * TXN_ROW_HEIGHT;
-    const bottomPad = Math.max(0, (total - end) * TXN_ROW_HEIGHT);
+    const topPad = start * rowHeight;
+    const bottomPad = Math.max(0, (total - end) * rowHeight);
     const colspan = currentRole === 'admin' ? 7 : 6;
 
     let rowsHTML = '';
@@ -781,6 +854,7 @@ function toggleTableDensity() {
     document.body.classList.toggle('compact-tables', isCompactTables);
     const btn = document.getElementById('densityToggleBtn');
     if (btn) btn.textContent = isCompactTables ? 'Comfortable View' : 'Compact View';
+    resetVirtualRowHeights();
 }
 
 function updateGlobalReportContext(viewId) {
@@ -1782,6 +1856,7 @@ window.onload = function () {
     }
 
     initializeDatePickers();
+    initSoftScroll();
     
     // Failsafe: periodically check if modals are blocking the app
     setInterval(() => {
@@ -1925,12 +2000,15 @@ function renderVirtualizedDayBook(resetScroll = false) {
     const containerHeight = container.clientHeight || 520;
     const scrollTop = container.scrollTop || 0;
 
-    const start = Math.max(0, Math.floor(scrollTop / DAYBOOK_ROW_HEIGHT) - DAYBOOK_OVERSCAN);
-    const visibleCount = Math.ceil(containerHeight / DAYBOOK_ROW_HEIGHT) + DAYBOOK_OVERSCAN * 2;
+    const measured = getMeasuredRowHeight(tbody, 'daybook-spacer', dayBookMeasuredRowHeight);
+    dayBookMeasuredRowHeight = measured || dayBookMeasuredRowHeight;
+    const rowHeight = dayBookMeasuredRowHeight;
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - DAYBOOK_OVERSCAN);
+    const visibleCount = Math.ceil(containerHeight / rowHeight) + DAYBOOK_OVERSCAN * 2;
     const end = Math.min(total, start + visibleCount);
 
-    const topPad = start * DAYBOOK_ROW_HEIGHT;
-    const bottomPad = Math.max(0, (total - end) * DAYBOOK_ROW_HEIGHT);
+    const topPad = start * rowHeight;
+    const bottomPad = Math.max(0, (total - end) * rowHeight);
     const colspan = currentRole === 'admin' ? 7 : 6;
 
     const headerRow = document.querySelector('#dayBookTable thead tr');
@@ -3286,12 +3364,15 @@ function renderAuditVirtual(containerId, resetScroll = false) {
     const containerHeight = container.clientHeight || 420;
     const scrollTop = container.scrollTop || 0;
 
-    const start = Math.max(0, Math.floor(scrollTop / AUDIT_ROW_HEIGHT) - AUDIT_OVERSCAN);
-    const visibleCount = Math.ceil(containerHeight / AUDIT_ROW_HEIGHT) + AUDIT_OVERSCAN * 2;
+    const measured = getMeasuredRowHeight(tbody, 'audit-spacer', auditMeasuredRowHeight);
+    auditMeasuredRowHeight = measured || auditMeasuredRowHeight;
+    const rowHeight = auditMeasuredRowHeight;
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - AUDIT_OVERSCAN);
+    const visibleCount = Math.ceil(containerHeight / rowHeight) + AUDIT_OVERSCAN * 2;
     const end = Math.min(total, start + visibleCount);
 
-    const topPad = start * AUDIT_ROW_HEIGHT;
-    const bottomPad = Math.max(0, (total - end) * AUDIT_ROW_HEIGHT);
+    const topPad = start * rowHeight;
+    const bottomPad = Math.max(0, (total - end) * rowHeight);
     const colspan = 4;
 
     let rowsHTML = '';

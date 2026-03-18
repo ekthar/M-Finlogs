@@ -144,8 +144,17 @@ function killPort8000() {
     return new Promise((resolve) => {
         const command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "' +
             'Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ' +
-            'Select-Object -First 1 -ExpandProperty OwningProcess | ' +
+            'Select-Object -ExpandProperty OwningProcess -Unique | ' +
             'ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"';
+        exec(command, () => resolve());
+    });
+}
+
+function deleteServerTask() {
+    return new Promise((resolve) => {
+        const command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "' +
+            '& "$env:WINDIR\\System32\\schtasks.exe" /Delete /TN "M-FinlogsServer" /F 2>$null; ' +
+            'exit 0"';
         exec(command, () => resolve());
     });
 }
@@ -156,22 +165,14 @@ async function startBackend() {
     
     const envVars = { ...process.env, FINLOGS_CONFIG_DIR: app.getPath('userData') };
 
-    let portFree = await isPortFree(8000, '127.0.0.1');
-    if (!portFree && !app.isPackaged) {
-        await killPort8000();
-        portFree = await isPortFree(8000, '127.0.0.1');
-        if (!portFree) {
-            console.warn('Backend not started: port 8000 still in use.');
-            return false;
-        }
-    }
+    // Force-clean any stale scheduler/port owner so startup is deterministic.
+    killBackend();
+    await deleteServerTask();
+    await killPort8000();
+    await new Promise((r) => setTimeout(r, 180));
 
-    if (!portFree && app.isPackaged) {
-        const responsive = await isBackendResponsive();
-        if (responsive) {
-            console.warn('Backend already running on port 8000.');
-            return true;
-        }
+    let portFree = await isPortFree(8000, '127.0.0.1');
+    if (!portFree) {
         await killPort8000();
         portFree = await isPortFree(8000, '127.0.0.1');
         if (!portFree) {
@@ -373,14 +374,12 @@ ipcMain.handle('folder:openAutoBackup', async () => {
 ipcMain.handle('server:restart', async () => {
     try {
         killBackend();
-        await new Promise((r) => setTimeout(r, 300));
-        const portFree = await isPortFree(8000, '127.0.0.1');
-        if (!portFree) {
-            return { success: false, error: 'Port 8000 is still in use. Stop the existing backend and try again.' };
-        }
+        await deleteServerTask();
+        await killPort8000();
+        await new Promise((r) => setTimeout(r, 220));
         const started = await startBackend();
         if (!started) {
-            return { success: false, error: 'Backend did not start. Port may be in use.' };
+            return { success: false, error: 'Backend did not start. Port 8000 may still be in use.' };
         }
         return { success: true };
     } catch (e) {
@@ -391,23 +390,13 @@ ipcMain.handle('server:restart', async () => {
 ipcMain.handle('server:stop', async () => {
     try {
         killBackend();
-        const { exec } = require('child_process');
-
-        const command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "' +
-            'Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ' +
-            'Select-Object -First 1 -ExpandProperty OwningProcess | ' +
-            'ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"';
-
-        return await new Promise((resolve) => {
-            exec(command, async (err) => {
-                if (err) return resolve({ success: false, error: err.message });
-                const portFree = await isPortFree(8000, '127.0.0.1');
-                if (!portFree) {
-                    return resolve({ success: false, error: 'Port 8000 is still in use.' });
-                }
-                resolve({ success: true });
-            });
-        });
+        await deleteServerTask();
+        await killPort8000();
+        const portFree = await isPortFree(8000, '127.0.0.1');
+        if (!portFree) {
+            return { success: false, error: 'Port 8000 is still in use.' };
+        }
+        return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
     }
