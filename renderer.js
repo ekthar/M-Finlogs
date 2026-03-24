@@ -1793,32 +1793,29 @@ async function requestUpdateCheck() {
 }
 
 function applyTheme(theme) {
-    const selected = (theme || 'splash').toLowerCase();
+    const selected = (theme || 'white').toLowerCase();
+    const effectiveTheme = (selected === 'splash' || selected === 'light') ? 'white' : selected;
     const root = document.documentElement;
 
-    if (selected === 'dark') {
+    if (effectiveTheme === 'dark') {
         root.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
         ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
-    } else if (selected === 'white') {
+    } else {
         root.setAttribute('data-theme', 'white');
         localStorage.setItem('theme', 'white');
         ipcRenderer.invoke('window:setTheme', 'white').catch(() => {});
-    } else {
-        root.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'splash');
-        ipcRenderer.invoke('window:setTheme', 'splash').catch(() => {});
     }
 
     const themeSelect = document.getElementById('themeSelect');
     if (themeSelect) {
-        themeSelect.value = selected === 'light' ? 'white' : selected;
+        themeSelect.value = effectiveTheme === 'dark' ? 'dark' : 'white';
     }
 }
 
 function changeTheme() {
     const themeSelect = document.getElementById('themeSelect');
-    applyTheme(themeSelect ? themeSelect.value : 'splash');
+    applyTheme(themeSelect ? themeSelect.value : 'white');
 }
 
 // Initialize Theme
@@ -1837,7 +1834,7 @@ window.onload = function () {
         updateSystemStatus(false);
     }
     setInterval(checkBackendStatus, 15000);
-    const savedTheme = localStorage.getItem('theme') || 'splash';
+    const savedTheme = localStorage.getItem('theme') || 'white';
     applyTheme(savedTheme);
 
     initUpdateBadge();
@@ -2532,11 +2529,10 @@ function renderOutstanding() {
     let html = '';
     sorted.forEach(row => {
         const riskLevel = row.risk_level || 'normal';
-        const rowClass = riskLevel === 'critical' ? 'risk-critical' : (riskLevel === 'high' ? 'risk-high' : '');
         const riskLabel = riskLevel === 'critical' ? '30+ Critical' : (riskLevel === 'high' ? '15+ Due' : 'Normal');
         const lastReceipt = row.last_receipt_date ? formatDateShort(row.last_receipt_date) : '-';
         html += `
-            <tr${rowClass ? ` class="${rowClass}"` : ''} data-party="${row.party || ''}">
+            <tr data-party="${row.party || ''}">
                 <td>${row.party}</td>
                 <td><span class="outstanding-risk-chip ${riskLevel}">${riskLabel}</span></td>
                 <td class="text-right">${Number(row.days_unpaid || 0)}</td>
