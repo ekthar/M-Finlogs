@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 import pyodbc
 import hashlib
@@ -7,7 +7,11 @@ import time
 import os
 import re
 import logging
-from typing import Optional
+import tempfile
+import smtplib
+import urllib.request
+from email.message import EmailMessage
+from typing import Optional, List
 from config import SQL_DATABASE, SQL_DRIVER, SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
 try:
     from config import BACKUP_TARGET_DIR
@@ -427,6 +431,28 @@ class CompanySelectRequest(BaseModel):
 class FinancialYearSelectRequest(BaseModel):
     year: str
 
+class InventoryProductRow(BaseModel):
+    name: str
+    qty: List[float] = []
+
+class InventoryPdfMailRequest(BaseModel):
+    financial_year: Optional[str] = None
+    month: str
+    rows: List[InventoryProductRow]
+    to_email: str
+    cc_email: Optional[str] = None
+    sender_email: str
+    sender_password: str
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    subject: Optional[str] = None
+    notes: Optional[str] = None
+
+class InventoryPdfPreviewRequest(BaseModel):
+    financial_year: Optional[str] = None
+    month: str
+    rows: List[InventoryProductRow]
+
 # Helper for Audit (Needs its own conn if called separately, but usually called within context? 
 # Actually log_audit is a helper. Let's make it open its own conn to be safe and independent)
 def log_audit(username, action, details, company=None):
@@ -452,6 +478,348 @@ def get_setting(key: str, default_val: float = 0.0) -> float:
     except:
         pass
     return float(default_val)
+
+def _safe_float(v) -> float:
+    try:
+        if v is None or v == "":
+            return 0.0
+        return float(v)
+    except Exception:
+        return 0.0
+
+def _ensure_inter_tight_fonts():
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    regular_name = "InterTight-Regular"
+    semibold_name = "InterTight-SemiBold"
+
+    already = {f.fontName for f in pdfmetrics.getRegisteredFontNames()}
+    if regular_name in already and semibold_name in already:
+        return regular_name, semibold_name
+
+    fonts_dir = os.path.join(CONFIG_DIR, "fonts")
+    os.makedirs(fonts_dir, exist_ok=True)
+
+    regular_path = os.path.join(fonts_dir, "InterTight-Regular.ttf")
+    semibold_path = os.path.join(fonts_dir, "InterTight-SemiBold.ttf")
+
+    regular_url = "https://github.com/google/fonts/raw/main/ofl/intertight/InterTight-Regular.ttf"
+    semibold_url = "https://github.com/google/fonts/raw/main/ofl/intertight/InterTight-SemiBold.ttf"
+
+    try:
+        if not os.path.exists(regular_path):
+            urllib.request.urlretrieve(regular_url, regular_path)
+        if not os.path.exists(semibold_path):
+            urllib.request.urlretrieve(semibold_url, semibold_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to download Inter Tight font files: {str(e)}")
+
+    try:
+        pdfmetrics.registerFont(TTFont(regular_name, regular_path))
+        pdfmetrics.registerFont(TTFont(semibold_name, semibold_path))
+    except Exception as e:
+        raise RuntimeError(f"Failed to register Inter Tight fonts: {str(e)}")
+
+    return regular_name, semibold_name
+
+def _build_inventory_pdf(pdf_path: str, month: str, fy: str, rows: List[InventoryProductRow]):
+    try:
+        import calendar
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import landscape, A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    except Exception as e:
+        raise RuntimeError("Missing reportlab dependency. Install with pip install reportlab") from e
+
+    regular_font, semibold_font = _ensure_inter_tight_fonts()
+
+    def _extract_month_num(month_label: str) -> int:
+        label = (month_label or "").strip().lower()
+        month_map = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        if label in month_map:
+            return month_map[label]
+        try:
+            n = int(label)
+            return n if 1 <= n <= 12 else 1
+        except Exception:
+            return 1
+
+    month_num = _extract_month_num(month)
+    max_days = 0
+    normalized_rows = []
+    for r in rows:
+        qty = [_safe_float(x) for x in (r.qty or [])]
+        max_days = max(max_days, len(qty))
+        normalized_rows.append({"name": (r.name or "").strip(), "qty": qty})
+
+    if max_days <= 0:
+        max_days = 31
+
+    days = list(range(1, max_days + 1))
+    day_chunk_size = 7
+    day_chunks = [days[i:i + day_chunk_size] for i in range(0, len(days), day_chunk_size)]
+
+    month_abbr = calendar.month_abbr[month_num] if 1 <= month_num <= 12 else "Mon"
+    month_title = calendar.month_name[month_num] if 1 <= month_num <= 12 else str(month)
+
+    doc = SimpleDocTemplate(
+        pdf_path,
+        pagesize=landscape(A4),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=16,
+        bottomMargin=16
+    )
+
+    title_style = ParagraphStyle(
+        'InvTitle',
+        fontName=semibold_font,
+        fontSize=15,
+        leading=18,
+        textColor=colors.HexColor('#111827')
+    )
+    sub_style = ParagraphStyle(
+        'InvSub',
+        fontName=regular_font,
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#6B7280')
+    )
+    card_value_style = ParagraphStyle(
+        'InvCardVal',
+        fontName=semibold_font,
+        fontSize=16,
+        leading=18,
+        textColor=colors.HexColor('#111827')
+    )
+    card_label_style = ParagraphStyle(
+        'InvCardLbl',
+        fontName=regular_font,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#6B7280')
+    )
+    section_style = ParagraphStyle(
+        'InvSection',
+        fontName=semibold_font,
+        fontSize=10,
+        leading=12,
+        textColor=colors.HexColor('#334155')
+    )
+
+    elems = []
+
+    grand_total = 0.0
+    for r in normalized_rows:
+        grand_total += sum(_safe_float(v) for v in r["qty"])
+
+    avg_daily = (grand_total / max_days) if max_days > 0 else 0.0
+
+    elems.append(Paragraph("M-Finlogs Inventory Report", title_style))
+    elems.append(Paragraph(f"{month_title} {fy.split('-')[-1]} | {len(normalized_rows)} Products | Total Qty: {grand_total:,.2f}", sub_style))
+    elems.append(Paragraph(f"Generated: {datetime.datetime.now().strftime('%d %b %Y, %H:%M')}", sub_style))
+    elems.append(Spacer(1, 10))
+
+    cards_data = [[
+        [Paragraph(f"{grand_total:,.2f}", card_value_style), Paragraph("Total Quantity", card_label_style)],
+        [Paragraph(f"{len(normalized_rows)}", card_value_style), Paragraph("Products", card_label_style)],
+        [Paragraph(f"{avg_daily:,.1f}", card_value_style), Paragraph("Avg Daily Movement", card_label_style)]
+    ]]
+    cards_table = Table(cards_data, colWidths=[240, 240, 240])
+    cards_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
+        ('BOX', (0, 0), (-1, -1), 0.25, colors.HexColor('#E5E7EB')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#E5E7EB')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP')
+    ]))
+    elems.append(cards_table)
+    elems.append(Spacer(1, 12))
+
+    for idx, chunk in enumerate(day_chunks):
+        header = ["Product", "Total"] + [f"{d} {month_abbr}" for d in chunk]
+        data = [header]
+
+        for r in normalized_rows:
+            qty = r["qty"]
+            row_vals = []
+            for d in chunk:
+                v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
+                row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
+            row_total = sum(_safe_float(v) for v in qty)
+            data.append([r["name"][:42], f"{row_total:,.2f}"] + row_vals)
+
+        col_widths = [180, 70] + [68] * len(chunk)
+        table = Table(data, repeatRows=1, colWidths=col_widths)
+        style_cmds = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#6B7280')),
+            ('FONTNAME', (0, 0), (-1, 0), semibold_font),
+            ('FONTNAME', (0, 1), (-1, -1), regular_font),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#E5E7EB')),
+            ('LINEBELOW', (0, 1), (-1, -1), 0.25, colors.HexColor('#F1F5F9')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+            ('LEFTPADDING', (0, 0), (-1, -1), 8),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 7),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 7)
+        ]
+
+        for ridx in range(1, len(data)):
+            for cidx in range(1, len(data[ridx])):
+                raw_val = data[ridx][cidx]
+                if str(raw_val).strip() in ("0", "0.00", "0.0"):
+                    style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
+
+        table.setStyle(TableStyle(style_cmds))
+
+        elems.append(Paragraph(f"Day View: {chunk[0]} {month_abbr} - {chunk[-1]} {month_abbr}", section_style))
+        elems.append(table)
+
+        if idx < len(day_chunks) - 1:
+            elems.append(PageBreak())
+        else:
+            elems.append(Spacer(1, 6))
+
+    doc.build(elems)
+
+@app.post("/report/inventory/email-pdf")
+def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
+    month = (req.month or "").strip()
+    if not month:
+        raise HTTPException(status_code=400, detail="Month is required")
+
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="No inventory rows provided")
+
+    to_addr = (req.to_email or "").strip()
+    if not to_addr:
+        raise HTTPException(status_code=400, detail="Recipient email is required")
+
+    sender = (req.sender_email or "").strip()
+    if not sender:
+        raise HTTPException(status_code=400, detail="Sender email is required")
+
+    if not (req.sender_password or "").strip():
+        raise HTTPException(status_code=400, detail="Sender app password is required")
+
+    fy = (req.financial_year or get_selected_financial_year()).strip()
+    subject = (req.subject or f"Inventory Report - {month} ({fy})").strip()
+    notes = (req.notes or "").strip()
+
+    temp_pdf = None
+    try:
+        fd, temp_pdf = tempfile.mkstemp(prefix="inventory_report_", suffix=".pdf")
+        os.close(fd)
+
+        _build_inventory_pdf(temp_pdf, month, fy, req.rows)
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg["To"] = to_addr
+        cc_clean = (req.cc_email or "").strip()
+        if cc_clean:
+            msg["Cc"] = cc_clean
+
+        body = [
+            "Please find attached the Inventory Management report.",
+            "",
+            f"Financial Year: {fy}",
+            f"Month: {month}",
+            f"Products: {len(req.rows)}",
+            f"Generated On: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        ]
+        if notes:
+            body += ["", "Notes:", notes]
+        msg.set_content("\n".join(body))
+
+        with open(temp_pdf, "rb") as f:
+            pdf_bytes = f.read()
+        filename = f"Inventory_{month}_{fy}.pdf".replace(" ", "_")
+        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
+
+        recipients = [x.strip() for x in (to_addr + ("," + cc_clean if cc_clean else "")).split(",") if x.strip()]
+        with smtplib.SMTP(req.smtp_host.strip(), int(req.smtp_port), timeout=25) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.login(sender, req.sender_password)
+            smtp.send_message(msg, from_addr=sender, to_addrs=recipients)
+
+        return {
+            "status": "Sent",
+            "detail": f"Inventory PDF mailed successfully to {to_addr}",
+            "pdf_name": filename
+        }
+    except HTTPException:
+        raise
+    except smtplib.SMTPAuthenticationError:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "SMTP authentication failed. Use the correct sender email and app password. "
+                "For Gmail, enable 2-Step Verification and create an App Password."
+            )
+        )
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=400, detail=f"SMTP error: {str(e)}")
+    except Exception as e:
+        log_exception("send_inventory_pdf_mail", e)
+        raise HTTPException(status_code=500, detail=f"Failed to send inventory report mail: {str(e)}")
+    finally:
+        if temp_pdf and os.path.exists(temp_pdf):
+            try:
+                os.remove(temp_pdf)
+            except Exception:
+                pass
+
+@app.post("/report/inventory/pdf-preview")
+def preview_inventory_pdf(req: InventoryPdfPreviewRequest):
+    month = (req.month or "").strip()
+    if not month:
+        raise HTTPException(status_code=400, detail="Month is required")
+
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="No inventory rows provided")
+
+    fy = (req.financial_year or get_selected_financial_year()).strip()
+
+    temp_pdf = None
+    try:
+        fd, temp_pdf = tempfile.mkstemp(prefix="inventory_preview_", suffix=".pdf")
+        os.close(fd)
+
+        _build_inventory_pdf(temp_pdf, month, fy, req.rows)
+
+        with open(temp_pdf, "rb") as f:
+            pdf_bytes = f.read()
+
+        filename = f"Inventory_{month}_{fy}.pdf".replace(" ", "_")
+        headers = {"Content-Disposition": f'inline; filename="{filename}"'}
+        return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log_exception("preview_inventory_pdf", e)
+        raise HTTPException(status_code=500, detail=f"Failed to generate preview PDF: {str(e)}")
+    finally:
+        if temp_pdf and os.path.exists(temp_pdf):
+            try:
+                os.remove(temp_pdf)
+            except Exception:
+                pass
 
 def set_setting(key: str, value: float):
     conn = get_db_connection()
