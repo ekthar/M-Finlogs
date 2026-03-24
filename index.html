@@ -182,7 +182,10 @@
         <div class="sidebar">
             <div class="brand">
                 <img src="assets/finlogs.svg" alt="M-Finlogs" style="width: 28px; height: 28px; margin-right: 2px;">
-                M-Finlogs
+                <span class="brand-text">M-Finlogs</span>
+                <button id="sidebarToggleBtn" class="sidebar-toggle" onclick="toggleSidebar()" title="Minimize sidebar" aria-label="Toggle sidebar">
+                    <ion-icon name="chevron-back-outline"></ion-icon>
+                </button>
             </div>
 
             <a class="nav-item active" onclick="showView('entryView'); activateNav(this)">
@@ -208,6 +211,9 @@
                <a class="nav-item" onclick="showPurchaseReport(); activateNav(this)">
                    <ion-icon name="cart-outline"></ion-icon> Purchase Report
                </a>
+            <a class="nav-item" onclick="showInventoryManagement(); activateNav(this)">
+                <ion-icon name="layers-outline"></ion-icon> Inventory Management
+            </a>
             <a class="nav-item" onclick="showExpenseReport(); activateNav(this)">
                 <ion-icon name="wallet-outline"></ion-icon> Expenses
             </a>
@@ -233,7 +239,7 @@
             </a>
 
             <div style="flex:1;"></div>
-            <div style="margin: 6px 12px 14px; padding: 8px 10px; border-radius: 10px; background: linear-gradient(135deg, rgba(79,70,229,0.18), rgba(16,185,129,0.18)); border: 1px solid rgba(79,70,229,0.25); display:flex; align-items:center; gap:8px;">
+            <div class="sidebar-credit" style="margin: 6px 12px 14px; padding: 8px 10px; border-radius: 10px; background: linear-gradient(135deg, rgba(79,70,229,0.18), rgba(16,185,129,0.18)); border: 1px solid rgba(79,70,229,0.25); display:flex; align-items:center; gap:8px;">
                 <ion-icon name="sparkles-outline" style="font-size:16px; color:#f50606;"></ion-icon>
                 <div style="font-size: 12px; color: var(--text-secondary);">
                     Developed by <span style="color:#000000; font-weight:600; letter-spacing:0.3px;">EKTHAR</span>
@@ -646,6 +652,66 @@
                         <tbody id="purchaseSupplierBody"></tbody>
                     </table>
                     <div id="purchaseSummary" style="margin-top: 16px;"></div>
+                </div>
+
+                <!-- Inventory Management View -->
+                <div id="inventoryView" class="view-section">
+                    <div class="report-header">
+                        <h2>Inventory Management</h2>
+                        <div style="display:flex; gap: 10px; align-items:center;">
+                            <button class="secondary" onclick="document.getElementById('inventoryImportFile').click()">Import Sheet</button>
+                            <input type="file" id="inventoryImportFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importInventorySheet(event)">
+                            <button class="secondary" onclick="previewInventoryPdf()">Preview PDF</button>
+                            <button class="secondary" onclick="exportTableToExcel('inventoryTable', 'Inventory_Stock')">Export Excel</button>
+                            <button class="secondary" onclick="toggleInventoryMailPanel()">Send PDF Mail</button>
+                            <button onclick="saveInventorySnapshot()">Save</button>
+                        </div>
+                    </div>
+
+                    <div id="inventoryMailPanel" class="card inventory-mail-panel" style="display:none; margin-bottom: 12px;">
+                        <div class="inventory-mail-grid">
+                            <input type="email" id="inventoryMailTo" placeholder="To email (comma separated for multiple)">
+                            <input type="text" id="inventoryMailCc" placeholder="CC email (optional)">
+                            <input type="email" id="inventoryMailFrom" placeholder="Sender email">
+                            <input type="password" id="inventoryMailPass" placeholder="Sender app password">
+                            <input type="text" id="inventoryMailHost" placeholder="SMTP host" value="smtp.gmail.com">
+                            <input type="number" id="inventoryMailPort" placeholder="Port" value="587" min="1" max="65535">
+                            <input type="text" id="inventoryMailSubject" placeholder="Subject (optional)">
+                            <input type="text" id="inventoryMailNotes" placeholder="Notes (optional)">
+                        </div>
+                        <div style="margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; margin:0; color: var(--text-secondary); font-size:12px;">
+                                <input type="checkbox" id="inventoryMailRememberPass" style="width:auto;"> Remember app password on this PC
+                            </label>
+                            <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="saveInventoryMailProfile()">Save Profile</button>
+                            <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="clearInventoryMailProfile()">Clear Profile</button>
+                        </div>
+                        <div style="margin-top:10px; display:flex; gap:10px; justify-content:flex-end;">
+                            <button class="secondary" onclick="toggleInventoryMailPanel()">Cancel</button>
+                            <button class="secondary" onclick="previewInventoryPdf()">Preview PDF</button>
+                            <button onclick="sendInventoryPdfMail()">Send Now</button>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 12px; padding: 12px; display:flex; flex-wrap:wrap; gap: 10px; align-items:center;">
+                        <label style="display:flex; align-items:center; gap: 8px; margin: 0;">
+                            Month:
+                            <select id="inventoryMonthSelect" onchange="loadInventoryMonth()" style="width: 170px;"></select>
+                        </label>
+                        <input type="text" id="inventoryProductInput" placeholder="Enter product name" style="width: 240px;" onkeydown="if(event.key==='Enter') addInventoryRow();">
+                        <button class="secondary" onclick="addInventoryRow()">Add Product</button>
+                        <button class="secondary" onclick="removeEmptyInventoryRows()">Clean Empty Rows</button>
+                        <div style="margin-left:auto; color: var(--text-secondary); font-size: 12px;">Tip: Edit quantities directly in table cells.</div>
+                    </div>
+
+                    <div id="inventorySummary" class="report-summary-card">No inventory loaded</div>
+
+                    <div class="inventory-table-wrap">
+                        <table id="inventoryTable" class="report-table">
+                            <thead id="inventoryHead"></thead>
+                            <tbody id="inventoryBody"></tbody>
+                        </table>
+                    </div>
                 </div>
 
             <!-- Mode Report View -->

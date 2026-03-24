@@ -844,6 +844,8 @@ function showView(viewId, options = {}) {
         loadLedgerReport();
     } else if (viewId === 'dayBookView') {
         loadDayBook();
+    } else if (viewId === 'inventoryView') {
+        loadInventoryMonth();
     } else if (viewId === 'auditView') {
         loadAuditLog('auditTableBodyView');
     }
@@ -855,6 +857,30 @@ function toggleTableDensity() {
     const btn = document.getElementById('densityToggleBtn');
     if (btn) btn.textContent = isCompactTables ? 'Comfortable View' : 'Compact View';
     resetVirtualRowHeights();
+}
+
+function applySidebarCollapsed(collapsed) {
+    const sidebar = document.querySelector('.sidebar');
+    const toggleBtn = document.getElementById('sidebarToggleBtn');
+    if (!sidebar) return;
+
+    sidebar.classList.toggle('collapsed', !!collapsed);
+    localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+
+    if (toggleBtn) {
+        const icon = toggleBtn.querySelector('ion-icon');
+        if (icon) {
+            icon.setAttribute('name', collapsed ? 'chevron-forward-outline' : 'chevron-back-outline');
+        }
+        toggleBtn.title = collapsed ? 'Expand sidebar' : 'Minimize sidebar';
+        toggleBtn.setAttribute('aria-label', toggleBtn.title);
+    }
+}
+
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+    applySidebarCollapsed(!sidebar.classList.contains('collapsed'));
 }
 
 function updateGlobalReportContext(viewId) {
@@ -880,6 +906,12 @@ function updateGlobalReportContext(viewId) {
         const s = document.getElementById('shortFrom')?.value;
         const e = document.getElementById('shortTo')?.value;
         range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+    } else if (viewId === 'inventoryView') {
+        const monthSelect = document.getElementById('inventoryMonthSelect');
+        const label = monthSelect && monthSelect.options.length
+            ? monthSelect.options[monthSelect.selectedIndex].text
+            : 'Selected month';
+        range = label;
     }
 
     el.textContent = `FY: ${fy} | Range: ${range}`;
@@ -1836,6 +1868,7 @@ window.onload = function () {
     setInterval(checkBackendStatus, 15000);
     const savedTheme = localStorage.getItem('theme') || 'white';
     applyTheme(savedTheme);
+    applySidebarCollapsed(localStorage.getItem('sidebarCollapsed') === '1');
 
     initUpdateBadge();
 
@@ -2298,6 +2331,10 @@ async function showPurchaseReport() {
 }
 
 let purchaseSupplierData = [];
+const INVENTORY_STORAGE_PREFIX = 'inventoryStock';
+const INVENTORY_MAIL_PROFILE_KEY = 'inventoryMailProfile';
+let inventoryModel = { month: null, days: 31, rows: [] };
+let inventorySaveTimer = null;
 
 function renderPurchaseSupplier() {
     const supplierBody = document.getElementById('purchaseSupplierBody');
@@ -2349,6 +2386,495 @@ function renderPurchaseSupplier() {
             <div style="padding: 12px 14px; background: var(--card-bg); border-radius: 8px; text-align:center; font-weight: 600;">
                 Total Purchase: ${formatMoney(supplierTotal)} | Parties: ${sorted.length}
             </div>`;
+    }
+}
+
+function showInventoryManagement() {
+    showView('inventoryView');
+}
+
+function getInventoryFinancialYear() {
+    const fy = (sessionStorage.getItem('financialYear') || '').trim();
+    if (/^\d{4}-\d{4}$/.test(fy)) return fy;
+    const now = new Date();
+    const y = now.getFullYear();
+    const start = (now.getMonth() + 1) >= 4 ? y : y - 1;
+    return `${start}-${start + 1}`;
+}
+
+function getInventoryYearForMonth(fy, monthNum) {
+    const parts = String(fy).split('-').map(Number);
+    const startYear = Number(parts[0]);
+    const endYear = Number(parts[1]);
+    return monthNum >= 4 ? startYear : endYear;
+}
+
+function getInventoryStorageKey(fy, monthNum) {
+    return `${INVENTORY_STORAGE_PREFIX}:${fy}:${String(monthNum).padStart(2, '0')}`;
+}
+
+function ensureInventoryMonthOptions() {
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    if (!monthSelect || monthSelect.options.length) return;
+
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    monthSelect.innerHTML = monthNames
+        .map((name, idx) => `<option value="${idx + 1}">${name}</option>`)
+        .join('');
+
+    monthSelect.value = String(new Date().getMonth() + 1);
+}
+
+function sanitizeInventoryRows(rows, dayCount) {
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => {
+        const qty = Array.from({ length: dayCount }, (_, i) => {
+            const val = Number((row && Array.isArray(row.qty)) ? row.qty[i] : 0);
+            return Number.isFinite(val) ? val : 0;
+        });
+        return {
+            name: String((row && row.name) || '').trim(),
+            qty
+        };
+    });
+}
+
+function loadInventoryMonth() {
+    ensureInventoryMonthOptions();
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    if (!monthSelect) return;
+
+    const monthNum = Number(monthSelect.value || (new Date().getMonth() + 1));
+    const fy = getInventoryFinancialYear();
+    const yearForMonth = getInventoryYearForMonth(fy, monthNum);
+    const dayCount = new Date(yearForMonth, monthNum, 0).getDate();
+    const storageKey = getInventoryStorageKey(fy, monthNum);
+
+    let saved = null;
+    try {
+        saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    } catch (_) {
+        saved = null;
+    }
+
+    inventoryModel = {
+        month: monthNum,
+        days: dayCount,
+        rows: sanitizeInventoryRows(saved && saved.rows, dayCount)
+    };
+
+    renderInventoryTable();
+    updateGlobalReportContext('inventoryView');
+}
+
+function renderInventoryTable() {
+    const thead = document.getElementById('inventoryHead');
+    const tbody = document.getElementById('inventoryBody');
+    const summary = document.getElementById('inventorySummary');
+    if (!thead || !tbody || !summary) return;
+
+    const mm = String(inventoryModel.month || 1).padStart(2, '0');
+    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th>';
+    for (let d = 1; d <= inventoryModel.days; d += 1) {
+        headerHtml += `<th class="text-right">${d}.${mm}</th>`;
+    }
+    headerHtml += '</tr>';
+    thead.innerHTML = headerHtml;
+
+    if (!inventoryModel.rows.length) {
+        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 1}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
+        summary.textContent = '0 products | Total qty: 0';
+        return;
+    }
+
+    let bodyHtml = '';
+    let totalQty = 0;
+    inventoryModel.rows.forEach((row, rowIndex) => {
+        bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
+        for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
+            const value = Number(row.qty[dayIndex] || 0);
+            totalQty += value;
+            bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1"></td>`;
+        }
+        bodyHtml += '</tr>';
+    });
+    tbody.innerHTML = bodyHtml;
+    summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)}`;
+
+    tbody.querySelectorAll('input[data-kind="name"]').forEach((input) => {
+        input.addEventListener('input', (e) => {
+            const idx = Number(e.target.getAttribute('data-row'));
+            if (!Number.isInteger(idx) || !inventoryModel.rows[idx]) return;
+            inventoryModel.rows[idx].name = String(e.target.value || '').trimStart();
+            queueInventoryAutoSave();
+        });
+    });
+
+    tbody.querySelectorAll('input[data-kind="qty"]').forEach((input) => {
+        input.addEventListener('focus', (e) => {
+            e.target.select();
+        });
+        input.addEventListener('input', (e) => {
+            const rowIdx = Number(e.target.getAttribute('data-row'));
+            const dayIdx = Number(e.target.getAttribute('data-day'));
+            if (!Number.isInteger(rowIdx) || !Number.isInteger(dayIdx) || !inventoryModel.rows[rowIdx]) return;
+            const val = Number(e.target.value);
+            inventoryModel.rows[rowIdx].qty[dayIdx] = Number.isFinite(val) ? val : 0;
+            queueInventoryAutoSave();
+        });
+    });
+}
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function addInventoryRow() {
+    const input = document.getElementById('inventoryProductInput');
+    const name = (input ? input.value : '').trim();
+    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0) });
+    if (input) input.value = '';
+    renderInventoryTable();
+    saveInventorySnapshot(true);
+}
+
+function removeEmptyInventoryRows() {
+    const before = inventoryModel.rows.length;
+    inventoryModel.rows = inventoryModel.rows.filter((row) => {
+        const hasName = String(row.name || '').trim().length > 0;
+        const hasQty = Array.isArray(row.qty) && row.qty.some((v) => Number(v || 0) !== 0);
+        return hasName || hasQty;
+    });
+    renderInventoryTable();
+    if (before !== inventoryModel.rows.length) {
+        saveInventorySnapshot(true);
+        showToast('Empty rows removed', 'success');
+    }
+}
+
+function queueInventoryAutoSave() {
+    if (inventorySaveTimer) clearTimeout(inventorySaveTimer);
+    inventorySaveTimer = setTimeout(() => saveInventorySnapshot(true), 400);
+}
+
+function saveInventorySnapshot(silent = false) {
+    ensureInventoryMonthOptions();
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || 1));
+    const fy = getInventoryFinancialYear();
+    const key = getInventoryStorageKey(fy, monthNum);
+    const payload = {
+        fy,
+        month: monthNum,
+        rows: sanitizeInventoryRows(inventoryModel.rows, inventoryModel.days),
+        updated_at: new Date().toISOString()
+    };
+    localStorage.setItem(key, JSON.stringify(payload));
+    if (!silent) {
+        showToast('Inventory saved', 'success');
+    }
+}
+
+async function importInventorySheet(event) {
+    const file = event && event.target && event.target.files ? event.target.files[0] : null;
+    if (!file) return;
+    if (!XLSX) {
+        showToast('XLSX parser is not available in this build', 'error');
+        return;
+    }
+
+    try {
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = wb.SheetNames && wb.SheetNames[0];
+        if (!firstSheetName) {
+            showToast('No sheet found in file', 'error');
+            return;
+        }
+
+        const sheet = wb.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (!Array.isArray(rows) || rows.length < 2) {
+            showToast('Sheet is empty or invalid', 'error');
+            return;
+        }
+
+        const header = rows[0].map((h) => String(h || '').trim());
+        let productCol = header.findIndex((h) => h.toLowerCase() === 'product name');
+        if (productCol < 0) {
+            productCol = 0;
+        }
+
+        const monthSelect = document.getElementById('inventoryMonthSelect');
+        const headerMonth = header
+            .map((h) => /^\d{1,2}[.\/-](\d{1,2})$/.exec(h))
+            .find(Boolean);
+        if (headerMonth && monthSelect) {
+            const m = Number(headerMonth[1]);
+            if (m >= 1 && m <= 12) {
+                monthSelect.value = String(m);
+            }
+        }
+
+        loadInventoryMonth();
+
+        const importedRows = [];
+        for (let i = 1; i < rows.length; i += 1) {
+            const row = rows[i] || [];
+            const name = String(row[productCol] || '').trim();
+            if (!name) continue;
+
+            const qty = Array.from({ length: inventoryModel.days }, () => 0);
+            header.forEach((colName, colIdx) => {
+                if (colIdx === productCol) return;
+                const match = /^(\d{1,2})(?:[.\/-](\d{1,2}))?$/.exec(colName);
+                if (!match) return;
+                const day = Number(match[1]);
+                if (!day || day < 1 || day > inventoryModel.days) return;
+                const raw = String(row[colIdx] ?? '').replace(/,/g, '').trim();
+                const val = Number(raw);
+                if (Number.isFinite(val)) {
+                    qty[day - 1] = val;
+                }
+            });
+
+            importedRows.push({ name, qty });
+        }
+
+        if (!importedRows.length) {
+            showToast('No product rows found in the imported sheet', 'error');
+            return;
+        }
+
+        inventoryModel.rows = importedRows;
+        renderInventoryTable();
+        saveInventorySnapshot(true);
+        showToast(`Inventory imported: ${importedRows.length} products`, 'success');
+    } catch (e) {
+        showToast('Inventory import failed: ' + e.message, 'error');
+    } finally {
+        if (event && event.target) event.target.value = '';
+    }
+}
+
+function toggleInventoryMailPanel() {
+    const panel = document.getElementById('inventoryMailPanel');
+    if (!panel) return;
+    const willOpen = panel.style.display === 'none' || !panel.style.display;
+    panel.style.display = willOpen ? 'block' : 'none';
+    if (willOpen) {
+        loadInventoryMailProfile();
+        const subject = document.getElementById('inventoryMailSubject');
+        const monthSelect = document.getElementById('inventoryMonthSelect');
+        const monthText = monthSelect && monthSelect.options.length
+            ? monthSelect.options[monthSelect.selectedIndex].text
+            : 'Month';
+        if (subject && !subject.value.trim()) {
+            subject.value = `Inventory Report - ${monthText} (${getInventoryFinancialYear()})`;
+        }
+    }
+}
+
+function loadInventoryMailProfile() {
+    let profile = null;
+    try {
+        profile = JSON.parse(localStorage.getItem(INVENTORY_MAIL_PROFILE_KEY) || 'null');
+    } catch (_) {
+        profile = null;
+    }
+    if (!profile || typeof profile !== 'object') return;
+
+    const map = [
+        ['inventoryMailTo', 'to_email'],
+        ['inventoryMailCc', 'cc_email'],
+        ['inventoryMailFrom', 'sender_email'],
+        ['inventoryMailHost', 'smtp_host'],
+        ['inventoryMailPort', 'smtp_port'],
+        ['inventoryMailSubject', 'subject'],
+        ['inventoryMailNotes', 'notes']
+    ];
+
+    map.forEach(([id, key]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (profile[key] !== undefined && profile[key] !== null) {
+            el.value = String(profile[key]);
+        }
+    });
+
+    const remember = !!profile.remember_password;
+    const rememberEl = document.getElementById('inventoryMailRememberPass');
+    if (rememberEl) rememberEl.checked = remember;
+
+    const passEl = document.getElementById('inventoryMailPass');
+    if (passEl) {
+        passEl.value = remember && profile.sender_password ? String(profile.sender_password) : '';
+    }
+}
+
+function saveInventoryMailProfile() {
+    const rememberPassword = !!document.getElementById('inventoryMailRememberPass')?.checked;
+    const profile = {
+        to_email: (document.getElementById('inventoryMailTo')?.value || '').trim(),
+        cc_email: (document.getElementById('inventoryMailCc')?.value || '').trim(),
+        sender_email: (document.getElementById('inventoryMailFrom')?.value || '').trim(),
+        sender_password: rememberPassword ? (document.getElementById('inventoryMailPass')?.value || '').trim() : '',
+        smtp_host: (document.getElementById('inventoryMailHost')?.value || 'smtp.gmail.com').trim(),
+        smtp_port: Number(document.getElementById('inventoryMailPort')?.value || 587),
+        subject: (document.getElementById('inventoryMailSubject')?.value || '').trim(),
+        notes: (document.getElementById('inventoryMailNotes')?.value || '').trim(),
+        remember_password: rememberPassword
+    };
+
+    localStorage.setItem(INVENTORY_MAIL_PROFILE_KEY, JSON.stringify(profile));
+    showToast('Mail profile saved', 'success');
+}
+
+function clearInventoryMailProfile() {
+    localStorage.removeItem(INVENTORY_MAIL_PROFILE_KEY);
+    const ids = [
+        'inventoryMailTo',
+        'inventoryMailCc',
+        'inventoryMailFrom',
+        'inventoryMailPass',
+        'inventoryMailHost',
+        'inventoryMailPort',
+        'inventoryMailSubject',
+        'inventoryMailNotes'
+    ];
+    ids.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const hostEl = document.getElementById('inventoryMailHost');
+    const portEl = document.getElementById('inventoryMailPort');
+    if (hostEl) hostEl.value = 'smtp.gmail.com';
+    if (portEl) portEl.value = '587';
+    const rememberEl = document.getElementById('inventoryMailRememberPass');
+    if (rememberEl) rememberEl.checked = false;
+    showToast('Mail profile cleared', 'info');
+}
+
+function getInventoryMailRows() {
+    return (inventoryModel.rows || [])
+        .map((r) => ({
+            name: String(r.name || '').trim(),
+            qty: Array.isArray(r.qty) ? r.qty.map((v) => Number(v || 0)) : []
+        }))
+        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0));
+}
+
+async function previewInventoryPdf() {
+    const rows = getInventoryMailRows();
+    if (!rows.length) return showToast('No inventory rows to preview', 'error');
+
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthText = monthSelect && monthSelect.options.length
+        ? monthSelect.options[monthSelect.selectedIndex].text
+        : String(inventoryModel.month || 'Month');
+
+    const payload = {
+        financial_year: getInventoryFinancialYear(),
+        month: monthText,
+        rows
+    };
+
+    showToast('Generating PDF preview...', 'info');
+    try {
+        const res = await fetch('http://127.0.0.1:8000/report/inventory/pdf-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.detail || `HTTP ${res.status}`);
+        }
+
+        const pdfBlob = await res.blob();
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        const win = window.open(blobUrl, '_blank');
+        if (!win) {
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `Inventory_${monthText}_${getInventoryFinancialYear()}.pdf`.replace(/\s+/g, '_');
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+    } catch (e) {
+        showToast('Preview failed: ' + e.message, 'error');
+    }
+}
+
+async function sendInventoryPdfMail() {
+    const toEmail = (document.getElementById('inventoryMailTo')?.value || '').trim();
+    const ccEmail = (document.getElementById('inventoryMailCc')?.value || '').trim();
+    const senderEmail = (document.getElementById('inventoryMailFrom')?.value || '').trim();
+    const senderPassword = (document.getElementById('inventoryMailPass')?.value || '').trim();
+    const smtpHost = (document.getElementById('inventoryMailHost')?.value || 'smtp.gmail.com').trim();
+    const smtpPort = Number(document.getElementById('inventoryMailPort')?.value || 587);
+    const subject = (document.getElementById('inventoryMailSubject')?.value || '').trim();
+    const notes = (document.getElementById('inventoryMailNotes')?.value || '').trim();
+
+    if (!toEmail) return showToast('Recipient email is required', 'error');
+    if (!senderEmail) return showToast('Sender email is required', 'error');
+    if (!senderPassword) return showToast('Sender app password is required', 'error');
+    if (!smtpHost) return showToast('SMTP host is required', 'error');
+    if (!Number.isFinite(smtpPort) || smtpPort <= 0) return showToast('SMTP port is invalid', 'error');
+
+    const rows = getInventoryMailRows();
+    if (!rows.length) return showToast('No inventory rows to send', 'error');
+
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthText = monthSelect && monthSelect.options.length
+        ? monthSelect.options[monthSelect.selectedIndex].text
+        : String(inventoryModel.month || 'Month');
+
+    const payload = {
+        financial_year: getInventoryFinancialYear(),
+        month: monthText,
+        rows,
+        to_email: toEmail,
+        cc_email: ccEmail,
+        sender_email: senderEmail,
+        sender_password: senderPassword,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        subject,
+        notes
+    };
+
+    showToast('Preparing structured PDF and sending mail...', 'info');
+    try {
+        const res = await fetch('http://127.0.0.1:8000/report/inventory/email-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data.detail || `HTTP ${res.status}`);
+        }
+
+        showToast(data.detail || 'Inventory PDF mailed successfully', 'success');
+        const passInput = document.getElementById('inventoryMailPass');
+        if (passInput) passInput.value = '';
+        toggleInventoryMailPanel();
+    } catch (e) {
+        showToast('Mail send failed: ' + e.message, 'error');
     }
 }
 
