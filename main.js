@@ -37,7 +37,7 @@ let backendProcess = null;
 
 function applyTitleBarTheme(theme) {
     if (!mainWindow || process.platform !== 'win32') return;
-    const mode = (theme || 'splash').toLowerCase();
+    const mode = (theme || 'white').toLowerCase();
     let color = '#22364a';
     let symbolColor = '#eaf2ff';
 
@@ -78,7 +78,7 @@ function createMainWindow() {
         title: "M-Finlogs",
         autoHideMenuBar: true,
         show: false,
-        backgroundColor: '#071726',
+        backgroundColor: '#f4eedf',
         icon: path.join(__dirname, 'assets', 'finlogs.ico'),
         roundedCorners: true,
         titleBarStyle: 'hidden',
@@ -89,7 +89,7 @@ function createMainWindow() {
         }
     });
     mainWindow.loadFile('index.html');
-    applyTitleBarTheme('splash');
+    applyTitleBarTheme('white');
 
     wireAutoUpdaterEvents();
 

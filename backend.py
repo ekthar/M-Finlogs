@@ -1395,7 +1395,7 @@ def backup_database(path: str = None):
         cursor = conn.cursor()
         
         # Always use C:\Finlogs for backups
-        backup_dir = "C:\\Finlogs"
+        backup_dir = "C:\\Finlogs-12"
         os.makedirs(backup_dir, exist_ok=True)
         server_backup_path = os.path.join(backup_dir, f"{database}_{timestamp}.bak")
         # SQL Server BACKUP command
