@@ -499,12 +499,12 @@ function renderVirtualizedTransactions(resetScroll = false) {
         if (currentRole === 'admin') {
             actionCell = `<td class="action-cell">
                 <button class="btn-action edit" onclick="openEditModal('${txn.id}')" title="Edit">
-                    <ion-icon name="create-outline"></ion-icon>
+                    <span class="material-symbols-rounded" aria-hidden="true">edit</span>
                     <span>Edit</span>
                 </button>
                 <button class="btn-action delete" onclick="if(!window.isDeleting) deleteTransaction('${txn.id}')" title="Delete">
-                    <ion-icon name="trash-outline"></ion-icon>
-                    <span>Del</span>
+                    <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+                    <span>Delete</span>
                 </button>
             </td>`;
         }
@@ -1004,7 +1004,10 @@ async function loadLedgerReport() {
         let actionCell = "";
         if (currentRole === 'admin') {
             actionCell = `<td class="action-cell">
-                <button class="btn-action edit" onclick="openEditModal('${row.id}')">Edit</button>
+                <button class="btn-action edit" onclick="openEditModal('${row.id}')" title="Edit">
+                    <span class="material-symbols-rounded" aria-hidden="true">edit</span>
+                    <span>Edit</span>
+                </button>
             </td>`;
         }
 
@@ -2098,12 +2101,12 @@ function renderVirtualizedDayBook(resetScroll = false) {
         if (currentRole === 'admin') {
             actionCell = `<td class="action-cell">
                 <button class="btn-action edit" onclick="openEditModal('${row.id}')" title="Edit">
-                    <ion-icon name="create-outline"></ion-icon>
+                    <span class="material-symbols-rounded" aria-hidden="true">edit</span>
                     <span>Edit</span>
                 </button>
                 <button class="btn-action delete" onclick="if(!window.isDeleting) deleteTransaction('${row.id}')" title="Delete">
-                    <ion-icon name="trash-outline"></ion-icon>
-                    <span>Del</span>
+                    <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+                    <span>Delete</span>
                 </button>
             </td>`;
         }
@@ -2366,6 +2369,7 @@ async function showPurchaseReport() {
 
 let purchaseSupplierData = [];
 const INVENTORY_STORAGE_PREFIX = 'inventoryStock';
+const INVENTORY_PRODUCT_MASTER_PREFIX = 'inventoryProductMaster';
 const INVENTORY_MAIL_PROFILE_KEY = 'inventoryMailProfile';
 let inventoryModel = { month: null, days: 31, rows: [] };
 let inventorySaveTimer = null;
@@ -2447,6 +2451,93 @@ function getInventoryStorageKey(fy, monthNum) {
     return `${INVENTORY_STORAGE_PREFIX}:${fy}:${String(monthNum).padStart(2, '0')}`;
 }
 
+function getInventoryMasterKey(fy) {
+    return `${INVENTORY_PRODUCT_MASTER_PREFIX}:${fy}`;
+}
+
+function loadInventoryProductMaster(fy) {
+    let rows = [];
+    try {
+        const raw = JSON.parse(localStorage.getItem(getInventoryMasterKey(fy)) || '[]');
+        rows = Array.isArray(raw) ? raw : [];
+    } catch (_) {
+        rows = [];
+    }
+
+    const seen = new Set();
+    const cleaned = [];
+    rows.forEach((row) => {
+        const name = String((row && row.name) || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        const minStock = Number(row && row.min_stock);
+        cleaned.push({
+            name,
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
+        });
+    });
+
+    return cleaned;
+}
+
+function saveInventoryProductMaster(fy, rows) {
+    const source = Array.isArray(rows) ? rows : [];
+    const seen = new Set();
+    const master = [];
+
+    source.forEach((row) => {
+        const name = String((row && row.name) || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        const minStock = Number(row && row.min_stock);
+        master.push({
+            name,
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
+        });
+    });
+
+    localStorage.setItem(getInventoryMasterKey(fy), JSON.stringify(master));
+}
+
+function mergeInventoryRowsWithMaster(monthRows, masterRows, dayCount) {
+    const merged = sanitizeInventoryRows(monthRows, dayCount);
+    const existing = new Map();
+    merged.forEach((row, idx) => {
+        const key = String(row.name || '').trim().toLowerCase();
+        if (key) existing.set(key, idx);
+    });
+
+    (Array.isArray(masterRows) ? masterRows : []).forEach((m) => {
+        const name = String((m && m.name) || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        if (existing.has(key)) {
+            const idx = existing.get(key);
+            if (idx >= 0 && merged[idx]) {
+                const curMin = Number(merged[idx].min_stock || 0);
+                const masterMin = Number(m.min_stock || 0);
+                if (curMin <= 0 && masterMin > 0) {
+                    merged[idx].min_stock = masterMin;
+                }
+            }
+            return;
+        }
+
+        merged.push({
+            name,
+            qty: Array.from({ length: dayCount }, () => 0),
+            min_stock: Number(m.min_stock || 0) > 0 ? Number(m.min_stock || 0) : 0
+        });
+        existing.set(key, merged.length - 1);
+    });
+
+    return merged;
+}
+
 function ensureInventoryMonthOptions() {
     const monthSelect = document.getElementById('inventoryMonthSelect');
     if (!monthSelect || monthSelect.options.length) return;
@@ -2499,7 +2590,11 @@ function loadInventoryMonth() {
     inventoryModel = {
         month: monthNum,
         days: dayCount,
-        rows: sanitizeInventoryRows(saved && saved.rows, dayCount)
+        rows: mergeInventoryRowsWithMaster(
+            saved && saved.rows,
+            loadInventoryProductMaster(fy),
+            dayCount
+        )
     };
 
     renderInventoryTable();
@@ -2629,6 +2724,7 @@ function saveInventorySnapshot(silent = false) {
         updated_at: new Date().toISOString()
     };
     localStorage.setItem(key, JSON.stringify(payload));
+    saveInventoryProductMaster(fy, payload.rows);
     if (!silent) {
         showToast('Inventory saved', 'success');
     }
