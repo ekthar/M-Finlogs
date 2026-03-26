@@ -2,6 +2,8 @@
 To make it flawless:
 
 Run backend on server 24/7
+Set a strong JWT secret before starting backend:
+$env:JWT_SECRET_KEY="replace-with-a-random-secret-at-least-32-characters"
 python -m uvicorn backend:app --host 0.0.0.0 --port 8000
 Set API base URL in the client (e.g., http://SERVER_IP:8000).
 Right now it’s hardcoded to 127.0.0.1. I can make this configurable in the login screen so each client sets the server IP once.

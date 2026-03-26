@@ -1,16 +1,6 @@
-const { ipcRenderer } = require('electron');
-let ExcelJS = null;
-let XLSX = null;
-try {
-    ExcelJS = require('exceljs');
-} catch (_) {
-    // Optional dependency in production builds; fallback handled in export function.
-}
-try {
-    XLSX = require('xlsx');
-} catch (_) {
-    // If both are unavailable, export will show a user-facing error.
-}
+var electronAPI = window.electronAPI;
+var ExcelJS = null;
+var XLSX = window.XLSX || null;
 
 // Global cache for party types
 const partyTypes = {};
@@ -30,24 +20,17 @@ function normalizeApiBase(url) {
 
 async function loadClientConfig() {
     try {
-        const fs = require('fs');
-        const path = require('path');
-        const userDataPath = await ipcRenderer.invoke('app:getUserDataPath');
-        const configPath = path.join(userDataPath, 'db_config.json');
-        if (!fs.existsSync(configPath)) return {};
-        const raw = fs.readFileSync(configPath, 'utf8');
-        return JSON.parse(raw || '{}');
+        return await electronAPI.invoke('config:readClient');
     } catch (e) {
         return {};
     }
 }
 
 async function saveClientConfig(configJson) {
-    const fs = require('fs');
-    const path = require('path');
-    const userDataPath = await ipcRenderer.invoke('app:getUserDataPath');
-    const configPath = path.join(userDataPath, 'db_config.json');
-    fs.writeFileSync(configPath, JSON.stringify(configJson, null, 2), 'utf8');
+    const res = await electronAPI.invoke('config:writeClient', configJson);
+    if (!res || !res.success) {
+        throw new Error((res && res.error) || 'Failed to write client config');
+    }
 }
 
 async function initApiBase() {
@@ -68,6 +51,31 @@ window.fetch = (url, options) => {
 // Database Configuration Functions - defined early for inline handlers
 function showDbConfig() {
     const accessModal = document.getElementById('dbConfigAccessModal');
+    if (!accessModal) {
+        showToast('Configuration access modal not found', 'error');
+        return;
+    }
+    
+    // First, check if DB config unlock password needs to be set up
+    fetch('http://127.0.0.1:8000/dbconfig/unlock-status')
+        .then(r => r.json())
+        .then(data => {
+            if (data.needs_setup) {
+                // First-time setup: show setup dialog
+                showDbConfigSetupModal();
+            } else {
+                // Password already set: show unlock dialog
+                showDbConfigAccessModal();
+            }
+        })
+        .catch(e => {
+            // If backend unavailable, just show access modal
+            showDbConfigAccessModal();
+        });
+}
+
+function showDbConfigAccessModal() {
+    const accessModal = document.getElementById('dbConfigAccessModal');
     const passEl = document.getElementById('dbConfigAccessPass');
     const errEl = document.getElementById('dbConfigAccessError');
     if (!accessModal || !passEl) {
@@ -77,31 +85,115 @@ function showDbConfig() {
     if (errEl) errEl.textContent = '';
     passEl.value = '';
     accessModal.style.display = 'flex';
+    passEl.style.display = 'block';
+    setTimeout(() => passEl.focus(), 0);
+}
+
+function showDbConfigSetupModal() {
+    const accessModal = document.getElementById('dbConfigAccessModal');
+    const passEl = document.getElementById('dbConfigAccessPass');
+    const errEl = document.getElementById('dbConfigAccessError');
+    const titleEl = accessModal ? accessModal.querySelector('.login-subtitle') : null;
+    const submitBtn = accessModal ? accessModal.querySelector('button.login-btn:not(.login-btn--ghost)') : null;
+    
+    if (!accessModal || !passEl) {
+        showToast('Configuration modal not found', 'error');
+        return;
+    }
+    
+    // Set up for first-time password creation
+    if (titleEl) titleEl.textContent = 'Create DB Config Unlock Password';
+    if (submitBtn) submitBtn.textContent = 'Create Password';
+    if (errEl) errEl.textContent = '';
+    passEl.value = '';
+    passEl.placeholder = 'Create unlock password (min 6 chars)';
+    passEl.dataset.issetup = 'true';
+    accessModal.style.display = 'flex';
     setTimeout(() => passEl.focus(), 0);
 }
 
 function closeDbConfigAccessModal() {
     const accessModal = document.getElementById('dbConfigAccessModal');
+    const passEl = document.getElementById('dbConfigAccessPass');
+    const titleEl = accessModal ? accessModal.querySelector('.login-subtitle') : null;
+    const submitBtn = accessModal ? accessModal.querySelector('button.login-btn:not(.login-btn--ghost)') : null;
+    
     if (accessModal) accessModal.style.display = 'none';
+    
+    // Reset modal to default state
+    if (titleEl) titleEl.textContent = 'Enter password to open Configure Database';
+    if (submitBtn) submitBtn.textContent = 'Unlock';
+    if (passEl) {
+        passEl.dataset.issetup = 'false';
+        passEl.placeholder = 'Enter password';
+    }
 }
 
 function submitDbConfigAccess() {
     const passEl = document.getElementById('dbConfigAccessPass');
     const errEl = document.getElementById('dbConfigAccessError');
     const dbModal = document.getElementById('dbConfigModal');
+    const isSetup = passEl?.dataset.issetup === 'true';
+    
     if (!passEl || !dbModal) return;
 
-    if ((passEl.value || '').trim() !== 'ekthar') {
-        if (errEl) errEl.textContent = 'Incorrect password';
-        showToast('Incorrect password', 'error');
+    if (!passEl.value.trim()) {
+        if (errEl) errEl.textContent = isSetup ? 'Enter a password' : 'Incorrect password';
+        showToast(isSetup ? 'Enter a password' : 'Incorrect password', 'error');
         passEl.focus();
         passEl.select();
         return;
     }
 
-    closeDbConfigAccessModal();
-    dbModal.style.display = 'flex';
-    loadDbConfig();
+    if (isSetup) {
+        // First-time setup: create the unlock password (pre-login allowed)
+
+        fetch('http://127.0.0.1:8000/dbconfig/unlock/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: passEl.value })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'Setup complete') {
+                showToast('DB Config unlock password created!', 'success');
+                closeDbConfigAccessModal();
+                dbModal.style.display = 'flex';
+                loadDbConfig();
+            } else {
+                if (errEl) errEl.textContent = data.detail || 'Setup failed';
+                showToast(data.detail || 'Setup failed', 'error');
+            }
+        })
+        .catch(e => {
+            if (errEl) errEl.textContent = 'Error: ' + e.message;
+            showToast('Error: ' + e.message, 'error');
+        });
+    } else {
+        // Password verification: unlock DB config
+        fetch('http://127.0.0.1:8000/dbconfig/unlock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: passEl.value })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'Success') {
+                closeDbConfigAccessModal();
+                dbModal.style.display = 'flex';
+                loadDbConfig();
+            } else {
+                if (errEl) errEl.textContent = 'Incorrect password';
+                showToast('Incorrect password', 'error');
+                passEl.focus();
+                passEl.select();
+            }
+        })
+        .catch(e => {
+            if (errEl) errEl.textContent = 'Error: ' + e.message;
+            showToast('Error: ' + e.message, 'error');
+        });
+    }
 }
 
 function closeDbConfig() {
@@ -495,6 +587,12 @@ function renderVirtualizedTransactions(resetScroll = false) {
     for (let i = start; i < end; i += 1) {
         const txn = data[i];
         const rowClass = getTxnHighlightClass(txn.id);
+        const safeDate = escapeHtml(formatDateShort(txn.date));
+        const safeBillNo = escapeHtml(txn.bill_no || '');
+        const safeParty = escapeHtml(txn.party || '');
+        const safeType = escapeHtml(txn.type || '');
+        const safeMode = escapeHtml(txn.mode || '');
+        const safeAmount = escapeHtml(formatMoney(txn.amount));
         let actionCell = "";
         if (currentRole === 'admin') {
             actionCell = `<td class="action-cell">
@@ -511,12 +609,12 @@ function renderVirtualizedTransactions(resetScroll = false) {
 
         rowsHTML += `
         <tr${rowClass ? ` class="${rowClass}"` : ''}>
-            <td>${formatDateShort(txn.date)}</td>
-            <td>${txn.bill_no || ''}</td>
-            <td>${txn.party}</td>
-            <td>${txn.type}</td>
-            <td>${txn.mode}</td>
-            <td>${formatMoney(txn.amount)}</td>
+            <td>${safeDate}</td>
+            <td>${safeBillNo}</td>
+            <td>${safeParty}</td>
+            <td>${safeType}</td>
+            <td>${safeMode}</td>
+            <td>${safeAmount}</td>
             ${actionCell}
         </tr>`;
     }
@@ -865,6 +963,8 @@ function showView(viewId, options = {}) {
         loadDayBook();
     } else if (viewId === 'inventoryView') {
         loadInventoryMonth();
+    } else if (viewId === 'inventoryValueView') {
+        loadInventoryValueMonth();
     } else if (viewId === 'auditView') {
         loadAuditLog('auditTableBodyView');
     }
@@ -927,6 +1027,12 @@ function updateGlobalReportContext(viewId) {
         range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
     } else if (viewId === 'inventoryView') {
         const monthSelect = document.getElementById('inventoryMonthSelect');
+        const label = monthSelect && monthSelect.options.length
+            ? monthSelect.options[monthSelect.selectedIndex].text
+            : 'Selected month';
+        range = label;
+    } else if (viewId === 'inventoryValueView') {
+        const monthSelect = document.getElementById('inventoryValueMonthSelect');
         const label = monthSelect && monthSelect.options.length
             ? monthSelect.options[monthSelect.selectedIndex].text
             : 'Selected month';
@@ -1152,12 +1258,15 @@ async function updateTransaction(id, date, bill, party, type, mode, amount) {
         ];
         
         for (const update of updates) {
+            const token = sessionStorage.getItem('access_token');
             const res = await fetch("http://127.0.0.1:8000/transaction/edit", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+                },
                 body: JSON.stringify({
                     txn_id: parseInt(id),
-                    admin_user: sessionStorage.getItem("username"),
                     field: update.field,
                     new_value: update.value
                 })
@@ -1271,12 +1380,15 @@ async function submitTxnEdit() {
     if (!val) return showToast("Enter a value", "error");
 
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetch("http://127.0.0.1:8000/transaction/edit", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
                 txn_id: parseInt(id),
-                admin_user: sessionStorage.getItem("username"),
                 field: field,
                 new_value: val
             })
@@ -1356,12 +1468,15 @@ async function performDelete(id) {
     isDeleting = true;
     
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetchWithTimeout("http://127.0.0.1:8000/transaction/delete", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({
-                txn_id: parseInt(id),
-                admin_user: sessionStorage.getItem("username")
+                txn_id: parseInt(id)
             })
         });
 
@@ -1786,7 +1901,7 @@ async function requestUpdateCheck() {
     const restartBtn = document.getElementById('updateRestartBtn');
     if (statusEl) statusEl.textContent = 'Checking for updates...';
     try {
-        const res = await ipcRenderer.invoke('update:check');
+        const res = await electronAPI.invoke('update:check');
         if (statusEl) {
             statusEl.textContent = res && res.status ? res.status : 'Update check completed.';
         }
@@ -1801,7 +1916,7 @@ async function requestUpdateCheck() {
 async function requestUpdateRestart() {
     const statusEl = document.getElementById('updateStatus');
     try {
-        const res = await ipcRenderer.invoke('update:restart');
+        const res = await electronAPI.invoke('update:restart');
         if (statusEl) statusEl.textContent = res && res.status ? res.status : 'Restarting...';
     } catch (e) {
         if (statusEl) statusEl.textContent = 'Restart failed.';
@@ -1812,14 +1927,14 @@ async function initUpdateBadge() {
     const badge = document.getElementById('updateVersionBadge');
     if (!badge) return;
     try {
-        const version = await ipcRenderer.invoke('app:getVersion');
+        const version = await electronAPI.invoke('app:getVersion');
         badge.textContent = `Version: v${version}`;
     } catch (e) {
         badge.textContent = 'Version: --';
     }
 }
 
-ipcRenderer.on('update:status', (_event, payload) => {
+electronAPI.onUpdateStatus((payload) => {
     const statusEl = document.getElementById('updateStatus');
     const restartBtn = document.getElementById('updateRestartBtn');
     if (statusEl && payload && payload.message) {
@@ -1835,7 +1950,7 @@ async function requestUpdateCheck() {
     const lastCheckedEl = document.getElementById('updateLastChecked');
     if (statusEl) statusEl.textContent = 'Checking for updates...';
     try {
-        const res = await ipcRenderer.invoke('update:check');
+        const res = await electronAPI.invoke('update:check');
         if (statusEl) {
             statusEl.textContent = res && res.status ? res.status : 'Update check completed.';
         }
@@ -1854,11 +1969,11 @@ function applyTheme(theme) {
     if (effectiveTheme === 'dark') {
         root.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
-        ipcRenderer.invoke('window:setTheme', 'dark').catch(() => {});
+        electronAPI.invoke('window:setTheme', 'dark').catch(() => {});
     } else {
         root.setAttribute('data-theme', 'white');
         localStorage.setItem('theme', 'white');
-        ipcRenderer.invoke('window:setTheme', 'white').catch(() => {});
+        electronAPI.invoke('window:setTheme', 'white').catch(() => {});
     }
 
     const themeSelect = document.getElementById('themeSelect');
@@ -2431,6 +2546,37 @@ function showInventoryManagement() {
     showView('inventoryView');
 }
 
+function showInventoryValueReport() {
+    showView('inventoryValueView');
+}
+
+function ensureInventoryValueMonthOptions() {
+    ensureInventoryMonthOptions();
+    const src = document.getElementById('inventoryMonthSelect');
+    const dst = document.getElementById('inventoryValueMonthSelect');
+    if (!src || !dst) return;
+    if (!dst.options.length) {
+        dst.innerHTML = src.innerHTML;
+    }
+    if (!dst.value) {
+        dst.value = src.value || String(new Date().getMonth() + 1);
+    }
+}
+
+function loadInventoryValueMonth() {
+    ensureInventoryValueMonthOptions();
+    const src = document.getElementById('inventoryMonthSelect');
+    const dst = document.getElementById('inventoryValueMonthSelect');
+    if (!src || !dst) return;
+
+    if (src.value !== dst.value) {
+        src.value = dst.value;
+    }
+
+    loadInventoryMonth();
+    updateGlobalReportContext('inventoryValueView');
+}
+
 function getInventoryFinancialYear() {
     const fy = (sessionStorage.getItem('financialYear') || '').trim();
     if (/^\d{4}-\d{4}$/.test(fy)) return fy;
@@ -2473,9 +2619,11 @@ function loadInventoryProductMaster(fy) {
         if (seen.has(key)) return;
         seen.add(key);
         const minStock = Number(row && row.min_stock);
+        const cost = Number(row && row.cost);
         cleaned.push({
             name,
-            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
+            cost: Number.isFinite(cost) && cost > 0 ? cost : 0
         });
     });
 
@@ -2494,9 +2642,11 @@ function saveInventoryProductMaster(fy, rows) {
         if (seen.has(key)) return;
         seen.add(key);
         const minStock = Number(row && row.min_stock);
+        const cost = Number(row && row.cost);
         master.push({
             name,
-            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
+            cost: Number.isFinite(cost) && cost > 0 ? cost : 0
         });
     });
 
@@ -2520,8 +2670,12 @@ function mergeInventoryRowsWithMaster(monthRows, masterRows, dayCount) {
             if (idx >= 0 && merged[idx]) {
                 const curMin = Number(merged[idx].min_stock || 0);
                 const masterMin = Number(m.min_stock || 0);
+                const masterCost = Number(m.cost || 0);
                 if (curMin <= 0 && masterMin > 0) {
                     merged[idx].min_stock = masterMin;
+                }
+                if (Number(merged[idx].cost || 0) <= 0 && masterCost > 0) {
+                    merged[idx].cost = masterCost;
                 }
             }
             return;
@@ -2530,7 +2684,8 @@ function mergeInventoryRowsWithMaster(monthRows, masterRows, dayCount) {
         merged.push({
             name,
             qty: Array.from({ length: dayCount }, () => 0),
-            min_stock: Number(m.min_stock || 0) > 0 ? Number(m.min_stock || 0) : 0
+            min_stock: Number(m.min_stock || 0) > 0 ? Number(m.min_stock || 0) : 0,
+            cost: Number(m.cost || 0) > 0 ? Number(m.cost || 0) : 0
         });
         existing.set(key, merged.length - 1);
     });
@@ -2561,10 +2716,12 @@ function sanitizeInventoryRows(rows, dayCount) {
             return Number.isFinite(val) ? val : 0;
         });
         const minStock = Number(row && row.min_stock);
+        const cost = Number(row && row.cost);
         return {
             name: String((row && row.name) || '').trim(),
             qty,
-            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
+            cost: Number.isFinite(cost) && cost > 0 ? cost : 0
         };
     });
 }
@@ -2608,7 +2765,7 @@ function renderInventoryTable() {
     if (!thead || !tbody || !summary) return;
 
     const mm = String(inventoryModel.month || 1).padStart(2, '0');
-    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th><th class="text-right">MIN STOCK</th>';
+    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th><th class="text-right">COST</th><th class="text-right">MIN STOCK</th>';
     for (let d = 1; d <= inventoryModel.days; d += 1) {
         headerHtml += `<th class="text-right">${d}.${mm}</th>`;
     }
@@ -2616,25 +2773,31 @@ function renderInventoryTable() {
     thead.innerHTML = headerHtml;
 
     if (!inventoryModel.rows.length) {
-        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 2}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 3}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
         summary.textContent = '0 products | Total qty: 0';
+        renderInventoryValueReport();
         return;
     }
 
     let bodyHtml = '';
     let totalQty = 0;
+    let currentStockValue = 0;
     inventoryModel.rows.forEach((row, rowIndex) => {
         bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
+        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-kind="cost" value="${Number(row.cost || 0) === 0 ? '' : Number(row.cost || 0)}" min="0" step="0.01" placeholder="0"></td>`;
         bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
         for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
             const value = Number(row.qty[dayIndex] || 0);
             totalQty += value;
+            if (dayIndex === inventoryModel.days - 1) {
+                currentStockValue += value * Number(row.cost || 0);
+            }
             bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1"></td>`;
         }
         bodyHtml += '</tr>';
     });
     tbody.innerHTML = bodyHtml;
-    summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)}`;
+    summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)} | Current stock value: ${formatMoney(currentStockValue)}`;
 
     tbody.querySelectorAll('input[data-kind="name"]').forEach((input) => {
         input.addEventListener('input', (e) => {
@@ -2671,6 +2834,66 @@ function renderInventoryTable() {
             queueInventoryAutoSave();
         });
     });
+
+    tbody.querySelectorAll('input[data-kind="cost"]').forEach((input) => {
+        input.addEventListener('focus', (e) => {
+            e.target.select();
+        });
+        input.addEventListener('input', (e) => {
+            const rowIdx = Number(e.target.getAttribute('data-row'));
+            if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
+            const val = Number(e.target.value);
+            inventoryModel.rows[rowIdx].cost = Number.isFinite(val) && val > 0 ? val : 0;
+            queueInventoryAutoSave();
+        });
+    });
+
+    renderInventoryValueReport();
+}
+
+function renderInventoryValueReport() {
+    const body = document.getElementById('inventoryValueBody');
+    const summary = document.getElementById('inventoryValueSummary');
+    const totalEl = document.getElementById('inventoryValueTotal');
+    if (!body || !summary) return;
+
+    if (!inventoryModel.rows.length || !inventoryModel.days) {
+        body.innerHTML = '<tr><td colspan="3" class="text-right">No value report available</td></tr>';
+        summary.textContent = 'No value report available';
+        if (totalEl) totalEl.textContent = 'Total Stock Value: 0.00';
+        return;
+    }
+
+    let html = '';
+    let monthValueTotal = 0;
+    let latestDayValue = 0;
+    for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
+        let dayQtyTotal = 0;
+        let dayValueTotal = 0;
+        inventoryModel.rows.forEach((row) => {
+            const qty = Number((row.qty || [])[dayIndex] || 0);
+            const cost = Number(row.cost || 0);
+            dayQtyTotal += qty;
+            dayValueTotal += qty * cost;
+        });
+
+        monthValueTotal += dayValueTotal;
+        if (dayIndex === inventoryModel.days - 1) {
+            latestDayValue = dayValueTotal;
+        }
+        html += `<tr>
+            <td>${dayIndex + 1}.${String(inventoryModel.month || 1).padStart(2, '0')}</td>
+            <td class="text-right">${formatMoney(dayQtyTotal)}</td>
+            <td class="text-right">${formatMoney(dayValueTotal)}</td>
+        </tr>`;
+    }
+
+    body.innerHTML = html;
+    const avgDayValue = monthValueTotal / Math.max(inventoryModel.days, 1);
+    summary.textContent = `Days: ${inventoryModel.days} | Avg daily stock value: ${formatMoney(avgDayValue)}`;
+    if (totalEl) {
+        totalEl.textContent = `Total Stock Value (Latest Day): ${formatMoney(latestDayValue)}`;
+    }
 }
 
 function escapeHtml(text) {
@@ -2685,7 +2908,7 @@ function escapeHtml(text) {
 function addInventoryRow() {
     const input = document.getElementById('inventoryProductInput');
     const name = (input ? input.value : '').trim();
-    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0), min_stock: 0 });
+    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0), min_stock: 0, cost: 0 });
     if (input) input.value = '';
     renderInventoryTable();
     saveInventorySnapshot(true);
@@ -2697,7 +2920,8 @@ function removeEmptyInventoryRows() {
         const hasName = String(row.name || '').trim().length > 0;
         const hasQty = Array.isArray(row.qty) && row.qty.some((v) => Number(v || 0) !== 0);
         const hasMinStock = Number(row.min_stock || 0) > 0;
-        return hasName || hasQty || hasMinStock;
+        const hasCost = Number(row.cost || 0) > 0;
+        return hasName || hasQty || hasMinStock || hasCost;
     });
     renderInventoryTable();
     if (before !== inventoryModel.rows.length) {
@@ -2759,6 +2983,10 @@ async function importInventorySheet(event) {
         if (productCol < 0) {
             productCol = 0;
         }
+        const costCol = header.findIndex((h) => {
+            const k = String(h || '').trim().toLowerCase();
+            return k === 'cost' || k === 'unit cost' || k === 'price';
+        });
 
         const monthSelect = document.getElementById('inventoryMonthSelect');
         const headerMonth = header
@@ -2793,7 +3021,16 @@ async function importInventorySheet(event) {
                 }
             });
 
-            importedRows.push({ name, qty, min_stock: 0 });
+            let cost = 0;
+            if (costCol >= 0) {
+                const rawCost = String(row[costCol] ?? '').replace(/,/g, '').trim();
+                const parsedCost = Number(rawCost);
+                if (Number.isFinite(parsedCost) && parsedCost > 0) {
+                    cost = parsedCost;
+                }
+            }
+
+            importedRows.push({ name, qty, min_stock: 0, cost });
         }
 
         if (!importedRows.length) {
@@ -2931,9 +3168,10 @@ function getInventoryMailRows() {
         .map((r) => ({
             name: String(r.name || '').trim(),
             qty: Array.isArray(r.qty) ? r.qty.map((v) => Number(v || 0)) : [],
-            min_stock: Number.isFinite(Number(r.min_stock)) && Number(r.min_stock) > 0 ? Number(r.min_stock) : 0
+            min_stock: Number.isFinite(Number(r.min_stock)) && Number(r.min_stock) > 0 ? Number(r.min_stock) : 0,
+            cost: Number.isFinite(Number(r.cost)) && Number(r.cost) > 0 ? Number(r.cost) : 0
         }))
-        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0) || Number(r.min_stock || 0) > 0);
+        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0) || Number(r.min_stock || 0) > 0 || Number(r.cost || 0) > 0);
 }
 
 async function previewInventoryPdf() {
@@ -3417,7 +3655,7 @@ async function runAutoBackupNow() {
 
 async function openAutoBackupFolder() {
     try {
-        const res = await ipcRenderer.invoke('folder:openAutoBackup');
+        const res = await electronAPI.invoke('folder:openAutoBackup');
         if (!res.success) {
             showToast('Open folder failed: ' + res.error, 'error');
         }
@@ -3427,7 +3665,7 @@ async function openAutoBackupFolder() {
 }
 
 async function restoreDB() {
-    const path = await ipcRenderer.invoke('dialog:openBackup');
+    const path = await electronAPI.invoke('dialog:openBackup');
     if (!path) return;
     if (!confirm("WARNING: This will overwrite the current database. Continue?")) return;
     try {
@@ -3442,7 +3680,7 @@ async function restoreDB() {
 
 async function installServerMode() {
     try {
-        const res = await ipcRenderer.invoke('server:install');
+        const res = await electronAPI.invoke('server:install');
         if (res.success) {
             showToast('Server mode installed. Backend will start on boot.', 'success');
         } else {
@@ -3455,7 +3693,7 @@ async function installServerMode() {
 
 async function uninstallServerMode() {
     try {
-        const res = await ipcRenderer.invoke('server:uninstall');
+        const res = await electronAPI.invoke('server:uninstall');
         if (res.success) {
             showToast('Server mode removed.', 'success');
         } else {
@@ -3468,7 +3706,7 @@ async function uninstallServerMode() {
 
 async function restartBackend() {
     try {
-        const res = await ipcRenderer.invoke('server:restart');
+        const res = await electronAPI.invoke('server:restart');
         if (res.success) {
             showToast('Backend restarted.', 'success');
             setTimeout(() => location.reload(), 500);
@@ -3482,7 +3720,7 @@ async function restartBackend() {
 
 async function stopBackend() {
     try {
-        const res = await ipcRenderer.invoke('server:stop');
+        const res = await electronAPI.invoke('server:stop');
         if (res.success) {
             showToast('Backend stopped.', 'success');
             updateSystemStatus(false);
@@ -3582,7 +3820,7 @@ async function exportTableToExcel(tableId, filename = '', sheetName = 'Report') 
         const defaultName = filename ? filename + '.xlsx' : 'report.xlsx';
 
         // Ask Main Process for Save Path
-        const filePath = await ipcRenderer.invoke('dialog:save', defaultName);
+        const filePath = await electronAPI.invoke('dialog:save', defaultName);
         if (!filePath) return; // User canceled
 
         if (ExcelJS) {
@@ -3817,6 +4055,7 @@ async function handleLogin() {
         const data = await res.json();
         sessionStorage.setItem('username', data.username);
         sessionStorage.setItem('role', data.role);
+        sessionStorage.setItem('access_token', data.access_token);
         sessionStorage.setItem('financialYear', financialYear);
 
         checkAuth();
@@ -3944,9 +4183,13 @@ async function createUser() {
     if (!u || !p) return showToast("Enter username & password", "error");
 
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetch('http://127.0.0.1:8000/users', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify({ username: u, password: p, role: r })
         });
         const data = await res.json();
@@ -3965,7 +4208,10 @@ async function loadUsers() {
     const tbody = document.getElementById('usersTableBody');
     tbody.innerHTML = 'Loading...';
     try {
-        const res = await fetchWithTimeout('http://127.0.0.1:8000/users');
+        const token = sessionStorage.getItem('access_token');
+        const res = await fetchWithTimeout('http://127.0.0.1:8000/users', {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
         const users = await res.json();
         tbody.innerHTML = '';
         users.forEach(u => {
@@ -3989,10 +4235,14 @@ async function changeUserPassword() {
     if (!username || !newPassword) return showToast("Enter username & new password", "error");
 
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetch('http://127.0.0.1:8000/users/password', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, new_password: newPassword, admin_user: adminUser })
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({ username, new_password: newPassword })
         });
         const data = await res.json();
         if (data.status === "Password Updated") {
@@ -4010,7 +4260,11 @@ async function changeUserPassword() {
 async function deleteUser(username) {
     if (!confirm("Are you sure?")) return;
     try {
-        const res = await fetch(`http://127.0.0.1:8000/users/${username}`, { method: 'DELETE' });
+        const token = sessionStorage.getItem('access_token');
+        const res = await fetch(`http://127.0.0.1:8000/users/${username}`, {
+            method: 'DELETE',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
         loadUsers();
     } catch (e) { showToast("Error deleting", "error"); }
 }
@@ -4092,7 +4346,10 @@ function renderAuditVirtual(containerId, resetScroll = false) {
 
 async function loadAuditLog(targetBodyId = 'auditTableBody') {
     try {
-        const res = await fetchWithTimeout('http://127.0.0.1:8000/audit');
+        const token = sessionStorage.getItem('access_token');
+        const res = await fetchWithTimeout('http://127.0.0.1:8000/audit', {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
         const logs = await res.json();
         auditLogsData = logs || [];
         const containerId = targetBodyId === 'auditTableBodyView' ? 'auditTableContainerView' : 'auditTableContainer';
@@ -4107,7 +4364,11 @@ async function loadDbConfig() {
         const localCfg = await loadClientConfig();
         document.getElementById('cfgApiBase').value = localCfg.api_base || apiBase;
 
-        const res = await fetch('http://127.0.0.1:8000/config/database', { signal: AbortSignal.timeout(2000) });
+        const token = sessionStorage.getItem('access_token');
+        const res = await fetch('http://127.0.0.1:8000/config/database', {
+            signal: AbortSignal.timeout(2000),
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
         const config = await res.json();
         document.getElementById('cfgServer').value = config.server || '';
         document.getElementById('cfgDatabase').value = config.database || '';
@@ -4153,9 +4414,13 @@ async function testDbConnection() {
     };
     
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetch('http://127.0.0.1:8000/config/database/test', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify(config)
         });
         const result = await res.json();
@@ -4219,9 +4484,13 @@ async function saveDbConfig() {
     }
     
     try {
+        const token = sessionStorage.getItem('access_token');
         const res = await fetch('http://127.0.0.1:8000/config/database', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
             body: JSON.stringify(config)
         });
         const result = await res.json();

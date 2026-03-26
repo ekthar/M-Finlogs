@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Depends, Header
 from pydantic import BaseModel
 import pyodbc
 import hashlib
@@ -10,6 +10,10 @@ import logging
 import tempfile
 import smtplib
 import urllib.request
+import jwt
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError, InvalidHashError
+from functools import wraps
 from email.message import EmailMessage
 from typing import Optional, List
 from config import SQL_DATABASE, SQL_DRIVER, SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
@@ -54,6 +58,88 @@ def get_backup_target_dir() -> str:
 
 app = FastAPI()
 
+# JWT Configuration
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+if not JWT_SECRET_KEY or len(JWT_SECRET_KEY.strip()) < 32:
+    raise RuntimeError("JWT_SECRET_KEY must be set to a strong secret with at least 32 characters")
+
+# Password hashing configuration (Argon2id)
+password_hasher = PasswordHasher(
+    time_cost=3,
+    memory_cost=65536,
+    parallelism=2,
+    hash_len=32,
+    salt_len=16,
+)
+
+
+def hash_user_password(plain_password: str) -> str:
+    return password_hasher.hash(plain_password)
+
+
+def is_legacy_sha256_hash(stored_hash: Optional[str]) -> bool:
+    return bool(stored_hash and re.fullmatch(r"[a-f0-9]{64}", stored_hash))
+
+
+def verify_user_password(stored_hash: Optional[str], plain_password: str) -> tuple[bool, bool]:
+    """
+    Returns: (is_valid, needs_upgrade)
+    needs_upgrade is True for legacy SHA-256 hashes so caller can migrate.
+    """
+    if not stored_hash:
+        return False, False
+
+    if is_legacy_sha256_hash(stored_hash):
+        legacy_hash = hashlib.sha256(plain_password.encode()).hexdigest()
+        return legacy_hash == stored_hash, True
+
+    try:
+        return password_hasher.verify(stored_hash, plain_password), password_hasher.check_needs_rehash(stored_hash)
+    except (VerifyMismatchError, InvalidHashError):
+        return False, False
+
+def create_access_token(username: str, role: str) -> str:
+    """Create a JWT access token"""
+    payload = {
+        "username": username,
+        "role": role,
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.datetime.utcnow()
+    }
+    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return token
+
+def verify_token(token: str) -> dict:
+    """Verify JWT token and return payload"""
+    try:
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def verify_auth_header(authorization: Optional[str] = Header(None)) -> dict:
+    """Extract and verify token from Authorization header"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    
+    token = parts[1]
+    return verify_token(token)
+
+def require_admin(payload: dict):
+    """Verify user has admin role"""
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return payload
+
 logger = logging.getLogger("mfinlogs")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -63,6 +149,19 @@ def log_exception(context: str, err: Exception):
         logger.exception("%s: %s", context, err)
     except Exception:
         pass
+
+
+def close_conn_safely(conn):
+    try:
+        if conn:
+            conn.close()
+    except Exception as err:
+        log_exception("close_conn_safely", err)
+
+
+def safe_error_response(context: str, err: Exception, message: str = "Operation failed"):
+    log_exception(context, err)
+    return {"status": "Error", "detail": message}
 
 REPORT_CACHE_TTL_SEC = 300
 report_cache = {}
@@ -322,16 +421,14 @@ def init_db(company_name: str):
         CREATE INDEX idx_parties_normalized ON parties(normalized_name)
     """)
 
-    # Default admin/user
+    # Initialize users table without default credentials
+    # First-run setup will force admin password creation
     cursor.execute("SELECT COUNT(*) FROM users WHERE username='admin'")
     if cursor.fetchone()[0] == 0:
-        default_hash = hashlib.sha256("admin1020".encode()).hexdigest()
-        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ('admin', default_hash, 'admin'))
-
-    cursor.execute("SELECT COUNT(*) FROM users WHERE username='user'")
-    if cursor.fetchone()[0] == 0:
-        default_hash = hashlib.sha256("user123".encode()).hexdigest()
-        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ('user', default_hash, 'accounts'))
+        # Create admin user WITHOUT password (password_hash = NULL means account disabled)
+        cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ('admin', None, 'admin'))
+    
+    # Don't create default 'user' account - ensure explicit user creation
 
     # Insert default company setting if not exists
     cursor.execute("IF NOT EXISTS (SELECT 1 FROM app_settings WHERE setting_key='company_name') INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", ("company_name", company_name))
@@ -398,6 +495,9 @@ class LoginRequest(BaseModel):
     username: str
     password: str
 
+class SetupAdminRequest(BaseModel):
+    password: str
+
 class CreateUserRequest(BaseModel):
     username: str
     password: str
@@ -435,6 +535,7 @@ class InventoryProductRow(BaseModel):
     name: str
     qty: List[float] = []
     min_stock: Optional[float] = 0.0
+    cost: Optional[float] = 0.0
 
 class InventoryPdfMailRequest(BaseModel):
     financial_year: Optional[str] = None
@@ -468,8 +569,8 @@ def log_audit(username, action, details, company=None):
         cursor.execute("INSERT INTO audit_logs (username, action, details, company) VALUES (?, ?, ?, ?)", (username, action, details, comp))
         conn.close()
         invalidate_report_cache()
-    except:
-        pass
+    except Exception as err:
+        log_exception("log_audit", err)
 
 def get_setting(key: str, default_val: float = 0.0) -> float:
     try:
@@ -480,8 +581,8 @@ def get_setting(key: str, default_val: float = 0.0) -> float:
         conn.close()
         if row and row[0] is not None:
             return float(row[0])
-    except:
-        pass
+    except Exception as err:
+        log_exception("get_setting", err)
     return float(default_val)
 
 def _safe_float(v) -> float:
@@ -624,7 +725,8 @@ def _build_inventory_pdf(
         normalized_rows.append({
             "name": (r.name or "").strip(),
             "qty": qty,
-            "min_stock": _safe_float(getattr(r, "min_stock", 0.0))
+            "min_stock": _safe_float(getattr(r, "min_stock", 0.0)),
+            "cost": _safe_float(getattr(r, "cost", 0.0))
         })
 
     if max_days <= 0:
@@ -688,20 +790,37 @@ def _build_inventory_pdf(
 
     report_rows = []
     grand_total = 0.0
+    grand_value = 0.0
+    total_daily_outflow = 0.0
+    max_avg_days_used = 0
     reorder_count = 0
     for r in normalized_rows:
         qty = r["qty"]
-        row_total = sum(_safe_float(v) for v in qty)
+        # Stock total should represent latest available stock, not sum of daily snapshots.
+        row_total = _safe_float(qty[max_days - 1] if (max_days - 1) < len(qty) else (qty[-1] if qty else 0))
+        cost = _safe_float(r.get("cost", 0.0))
+        row_value = row_total * cost
         grand_total += row_total
+        grand_value += row_value
         current_qty = _safe_float(qty[max_days - 1] if (max_days - 1) < len(qty) else (qty[-1] if qty else 0))
 
-        days_for_avg = max_days
-        avg_base_vals = qty
+        # Daily outflow (sales/consumption) from stock deltas:
+        # if stock drops from previous day, it is treated as movement-out.
+        outflow_deltas = []
+        for i in range(1, len(qty)):
+            prev_qty = _safe_float(qty[i - 1])
+            cur_qty = _safe_float(qty[i])
+            outflow_deltas.append(max(prev_qty - cur_qty, 0.0))
+
+        days_for_avg = max(max_days - 1, 1)
+        avg_base_vals = outflow_deltas
         if avg_mode == "last7":
-            days_for_avg = min(7, max_days)
-            avg_base_vals = qty[-days_for_avg:] if days_for_avg > 0 else []
+            days_for_avg = min(7, len(outflow_deltas)) if outflow_deltas else 1
+            avg_base_vals = outflow_deltas[-days_for_avg:] if days_for_avg > 0 and outflow_deltas else []
 
         avg_for_product = (sum(_safe_float(v) for v in avg_base_vals) / max(days_for_avg, 1)) if avg_base_vals else 0.0
+        total_daily_outflow += sum(_safe_float(v) for v in avg_base_vals)
+        max_avg_days_used = max(max_avg_days_used, days_for_avg)
         min_stock = _safe_float(r.get("min_stock", 0.0))
         threshold = min_stock if min_stock > 0 else avg_for_product
         is_reorder = threshold > 0 and current_qty < threshold
@@ -713,9 +832,11 @@ def _build_inventory_pdf(
             "name": r["name"],
             "qty": qty,
             "row_total": row_total,
+            "row_value": row_value,
             "current_qty": current_qty,
             "avg": avg_for_product,
             "min_stock": min_stock,
+            "cost": cost,
             "threshold": threshold,
             "is_reorder": is_reorder,
             "status": "REORDER" if is_reorder else "NORMAL"
@@ -726,7 +847,7 @@ def _build_inventory_pdf(
         if not report_rows:
             raise RuntimeError("No reorder products found for selected month and rule")
 
-    avg_daily = (grand_total / max_days) if max_days > 0 else 0.0
+    avg_daily = (total_daily_outflow / max(max_avg_days_used, 1)) if total_daily_outflow > 0 else 0.0
 
     elems.append(Paragraph("M-Finlogs Inventory Report", title_style))
 
@@ -751,13 +872,13 @@ def _build_inventory_pdf(
 
     rows_label = len(report_rows) if only_reorder else len(normalized_rows)
     mode_label = "Last 7 Days" if avg_mode == "last7" else "Monthly Average"
-    elems.append(Paragraph(f"{fy} | Products: {rows_label} | Total Qty: {grand_total:,.2f} | Rule: {mode_label}", sub_style))
+    elems.append(Paragraph(f"{fy} | Products: {rows_label} | Current Qty: {grand_total:,.2f} | Current Value: {grand_value:,.2f} | Rule: {mode_label}", sub_style))
     elems.append(Paragraph(f"Generated: {datetime.datetime.now().strftime('%d %b %Y, %H:%M')}", sub_style))
     elems.append(Spacer(1, 10))
 
     cards_data = [[
-        [Paragraph(f"{grand_total:,.2f}", card_value_style), Paragraph("Total Quantity", card_label_style)],
-        [Paragraph(f"{rows_label}", card_value_style), Paragraph("Products", card_label_style)],
+        [Paragraph(f"{grand_total:,.2f}", card_value_style), Paragraph("Current Quantity", card_label_style)],
+        [Paragraph(f"{grand_value:,.2f}", card_value_style), Paragraph("Current Stock Value", card_label_style)],
         [Paragraph(f"{avg_daily:,.1f}", card_value_style), Paragraph("Avg Daily Movement", card_label_style)],
         [Paragraph(f"{reorder_count}", card_value_style), Paragraph("Reorder Products", card_label_style)]
     ]]
@@ -776,7 +897,7 @@ def _build_inventory_pdf(
     elems.append(Spacer(1, 12))
 
     page_width = landscape(A4)[0] - doc.leftMargin - doc.rightMargin
-    fixed_width = 292  # Product + total + min + status
+    fixed_width = 352  # Product + current + cost + min + status
     target_day_col_width = 28
     days_per_table = max(8, int((page_width - fixed_width) / target_day_col_width))
     days_per_table = min(max(days_per_table, 8), max(len(days), 1))
@@ -786,7 +907,7 @@ def _build_inventory_pdf(
         day_chunks = [days]
 
     for chunk_index, day_chunk in enumerate(day_chunks):
-        header = ["Product", "Total", "Min", "Status"] + [str(d) for d in day_chunk]
+        header = ["Product", "Current", "Cost", "Min", "Status"] + [str(d) for d in day_chunk]
         data = [header]
         reorder_rows = []
 
@@ -800,6 +921,7 @@ def _build_inventory_pdf(
             data.append([
                 r["name"][:26],
                 f"{r['row_total']:,.2f}",
+                f"{r['cost']:,.2f}" if r['cost'] > 0 else "-",
                 f"{r['min_stock']:,.2f}" if r['min_stock'] > 0 else "-",
                 r["status"]
             ] + row_vals)
@@ -808,7 +930,7 @@ def _build_inventory_pdf(
                 reorder_rows.append(len(data) - 1)
 
         day_col_width = max(24, min(34, (page_width - fixed_width) / max(len(day_chunk), 1)))
-        col_widths = [112, 68, 48, 64] + [day_col_width] * len(day_chunk)
+        col_widths = [112, 62, 52, 46, 64] + [day_col_width] * len(day_chunk)
 
         table = Table(data, repeatRows=1, colWidths=col_widths)
         style_cmds = [
@@ -816,22 +938,22 @@ def _build_inventory_pdf(
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
             ('FONTNAME', (0, 0), (-1, 0), semibold_font),
             ('FONTNAME', (0, 1), (-1, -1), regular_font),
-            ('FONTSIZE', (0, 0), (3, 0), 7),
-            ('FONTSIZE', (4, 0), (-1, 0), 6.5),
-            ('FONTSIZE', (0, 1), (3, -1), 7.5),
-            ('FONTSIZE', (4, 1), (-1, -1), 6.5),
+            ('FONTSIZE', (0, 0), (4, 0), 7),
+            ('FONTSIZE', (5, 0), (-1, 0), 6.5),
+            ('FONTSIZE', (0, 1), (4, -1), 7.5),
+            ('FONTSIZE', (5, 1), (-1, -1), 6.5),
             ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (2, -1), 'RIGHT'),
-            ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-            ('ALIGN', (4, 0), (-1, 0), 'CENTER'),
-            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
+            ('ALIGN', (1, 0), (3, -1), 'RIGHT'),
+            ('ALIGN', (4, 0), (4, -1), 'CENTER'),
+            ('ALIGN', (5, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (5, 1), (-1, -1), 'RIGHT'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
-            ('LEFTPADDING', (0, 0), (3, -1), 6),
-            ('RIGHTPADDING', (0, 0), (3, -1), 6),
-            ('LEFTPADDING', (4, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (4, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (4, -1), 6),
+            ('RIGHTPADDING', (0, 0), (4, -1), 6),
+            ('LEFTPADDING', (5, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (5, 0), (-1, -1), 3),
             ('TOPPADDING', (0, 0), (-1, -1), 4),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
         ]
@@ -858,6 +980,44 @@ def _build_inventory_pdf(
         elems.append(table)
         if chunk_index < len(day_chunks) - 1:
             elems.append(Spacer(1, 8))
+
+    # Per-day stock value summary
+    day_value_data = [["Day", "Total Qty", "Stock Value"]]
+    for d in days:
+        day_qty_total = 0.0
+        day_value_total = 0.0
+        for r in report_rows:
+            qty_list = r.get("qty", [])
+            q = _safe_float(qty_list[d - 1] if d - 1 < len(qty_list) else 0)
+            c = _safe_float(r.get("cost", 0.0))
+            day_qty_total += q
+            day_value_total += q * c
+        day_value_data.append([
+            f"{d}",
+            f"{day_qty_total:,.2f}",
+            f"{day_value_total:,.2f}"
+        ])
+
+    elems.append(Spacer(1, 8))
+    elems.append(Paragraph("Per-Day Stock Value", section_style))
+    value_table = Table(day_value_data, repeatRows=1, colWidths=[90, 130, 150])
+    value_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
+        ('FONTNAME', (0, 0), (-1, 0), semibold_font),
+        ('FONTNAME', (0, 1), (-1, -1), regular_font),
+        ('FONTSIZE', (0, 0), (-1, 0), 7),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
+    ]))
+    elems.append(value_table)
 
     elems.append(Spacer(1, 6))
 
@@ -1030,7 +1190,8 @@ def list_companies():
         conn.close()
         company_name = row[0] if row and row[0] else "default"
         return [{"name": company_name, "key": normalize_company(company_name)}]
-    except:
+    except Exception as err:
+        log_exception("list_companies", err)
         return [{"name": "default", "key": "default"}]
 
 @app.post("/companies")
@@ -1300,14 +1461,14 @@ def get_transactions(page: int = 1, limit: int = 50, days: int = 30, from_date: 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     
     # Get total count
-    cursor.execute(f"SELECT COUNT(*) FROM transactions t WITH (NOLOCK) {where_sql}", params)
+    cursor.execute(f"SELECT COUNT(*) FROM transactions t {where_sql}", params)
     total = cursor.fetchone()[0]
     
     offset = (page - 1) * limit
     cursor.execute(f"""
         SELECT t.txn_id, t.txn_date, t.bill_no, p.name, t.txn_type, t.payment_mode, t.amount
-        FROM transactions t WITH (NOLOCK)
-        JOIN parties p WITH (NOLOCK) ON t.party_id = p.party_id
+        FROM transactions t
+        JOIN parties p ON t.party_id = p.party_id
         {where_sql}
         ORDER BY t.txn_date DESC, t.txn_id DESC
         OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
@@ -1343,8 +1504,8 @@ def get_transactions_by_date(date: str):
     _, fy_start, fy_end = get_financial_year_bounds(cursor)
     cursor.execute("""
         SELECT t.txn_id, t.txn_date, t.bill_no, p.name, t.txn_type, t.payment_mode, t.amount
-        FROM transactions t WITH (NOLOCK)
-        JOIN parties p WITH (NOLOCK) ON t.party_id = p.party_id
+        FROM transactions t
+        JOIN parties p ON t.party_id = p.party_id
         WHERE t.txn_date = ?
           AND t.txn_date >= ?
           AND t.txn_date <= ?
@@ -1373,8 +1534,8 @@ def get_single_transaction(txn_id: int):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT t.txn_id, t.txn_date, t.bill_no, p.name, t.txn_type, t.payment_mode, t.amount
-        FROM transactions t WITH (NOLOCK)
-        JOIN parties p WITH (NOLOCK) ON t.party_id = p.party_id
+        FROM transactions t
+        JOIN parties p ON t.party_id = p.party_id
         WHERE t.txn_id = ?
     """, (txn_id,))
     row = cursor.fetchone()
@@ -2420,11 +2581,8 @@ def rename_party(req: RenamePartyRequest):
         log_audit(req.admin_user, "Rename Party", f"Renamed {req.old_name} to {req.new_name}")
         return {"status": "Renamed Successfully"}
     except Exception as e:
-        # conn.close() # Might fail if conn not open? No, local. 
-        # Safe to let garbage collector handle if we return, but explicitly closing is better.
-        try: conn.close() 
-        except: pass
-        return {"status": "Error", "detail": str(e)}
+        close_conn_safely(conn)
+        return safe_error_response("rename_party", e, "Unable to rename party")
 
 class CheckUserRequest(BaseModel):
     username: str
@@ -2438,23 +2596,89 @@ def check_user(req: CheckUserRequest):
     conn.close()
     return {"exists": exists}
 
+@app.get("/setup/status")
+def get_setup_status():
+    """Check if first-run admin setup is needed"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password_hash FROM users WHERE username='admin'")
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return {"needs_setup": True, "reason": "Admin user not found"}
+    
+    # If admin has NULL password, setup is needed
+    needs_setup = row[0] is None
+    return {"needs_setup": needs_setup, "reason": "Admin password not configured" if needs_setup else "Setup already completed"}
+
+@app.post("/setup/admin")
+def setup_admin(req: SetupAdminRequest):
+    """First-run: Set admin password (only allowed if admin has no password)"""
+    if not req.password or len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Verify admin exists and has no password
+        cursor.execute("SELECT password_hash FROM users WHERE username='admin'")
+        row = cursor.fetchone()
+        
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=500, detail="Admin user not initialized")
+        
+        if row[0] is not None:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Setup already completed. Please login instead.")
+        
+        # Set admin password using Argon2id
+        hashed = hash_user_password(req.password)
+        cursor.execute("UPDATE users SET password_hash=? WHERE username='admin'", (hashed,))
+        conn.close()
+        
+        log_audit("system", "Setup", "Admin password set during first-run setup")
+        return {"status": "Setup complete", "message": "Admin account configured. Please login."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        close_conn_safely(conn)
+        return safe_error_response("setup_admin", e, "Unable to complete setup")
+
 @app.post("/login")
 def login(req: LoginRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
-    hashed = hashlib.sha256(req.password.encode()).hexdigest()
-    cursor.execute("SELECT role FROM users WHERE username=? AND password_hash=?", (req.username, hashed))
+    cursor.execute("SELECT role, password_hash FROM users WHERE username=?", (req.username,))
     row = cursor.fetchone()
-    conn.close()
-    
-    if row:
-        log_audit(req.username, "Login", "User logged in")
-        return {"status": "Success", "username": req.username, "role": row[0]}
-    else:
+
+    if not row:
+        conn.close()
         raise HTTPException(status_code=401, detail="Invalid Credentials")
 
+    role, stored_hash = row[0], row[1]
+    is_valid, needs_upgrade = verify_user_password(stored_hash, req.password)
+    if not is_valid:
+        conn.close()
+        raise HTTPException(status_code=401, detail="Invalid Credentials")
+
+    # Upgrade legacy SHA-256 hash to Argon2id transparently on successful login.
+    if needs_upgrade:
+        upgraded_hash = hash_user_password(req.password)
+        cursor.execute("UPDATE users SET password_hash=? WHERE username=?", (upgraded_hash, req.username))
+
+    conn.close()
+    token = create_access_token(req.username, role)
+    log_audit(req.username, "Login", "User logged in")
+    return {"status": "Success", "username": req.username, "role": role, "access_token": token, "token_type": "bearer"}
+
 @app.get("/users")
-def get_users():
+def get_users(authorization: Optional[str] = Header(None)):
+    """Get all users - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT username, role FROM users")
@@ -2463,7 +2687,12 @@ def get_users():
     return data
 
 @app.post("/users")
-def create_user(req: CreateUserRequest):
+def create_user(req: CreateUserRequest, authorization: Optional[str] = Header(None)):
+    """Create new user - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    admin_user = payload.get("username")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     # Check if exists
@@ -2472,19 +2701,23 @@ def create_user(req: CreateUserRequest):
         conn.close()
         raise HTTPException(status_code=400, detail="User already exists")
     
-    hashed = hashlib.sha256(req.password.encode()).hexdigest()
+    hashed = hash_user_password(req.password)
     try:
         cursor.execute("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", (req.username, hashed, req.role))
         conn.close()
-        log_audit("admin", "Create User", f"Created user {req.username} as {req.role}") # Assuming admin context for now
+        log_audit(admin_user, "Create User", f"Created user {req.username} as {req.role}")
         return {"status": "User Created"}
     except Exception as e:
-        try: conn.close() 
-        except: pass
-        return {"status": "Error", "detail": str(e)}
+        close_conn_safely(conn)
+        return safe_error_response("create_user", e, "Unable to create user")
 
 @app.post("/users/password")
-def change_user_password(req: ChangePasswordRequest):
+def change_user_password(req: ChangePasswordRequest, authorization: Optional[str] = Header(None)):
+    """Change user password - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    admin_user = payload.get("username")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -2493,19 +2726,23 @@ def change_user_password(req: ChangePasswordRequest):
             conn.close()
             raise HTTPException(status_code=404, detail="User not found")
 
-        hashed = hashlib.sha256(req.new_password.encode()).hexdigest()
+        hashed = hash_user_password(req.new_password)
         cursor.execute("UPDATE users SET password_hash=? WHERE username=?", (hashed, req.username))
         conn.close()
 
-        log_audit(req.admin_user, "Change Password", f"Password changed for {req.username}")
+        log_audit(admin_user, "Change Password", f"Password changed for {req.username}")
         return {"status": "Password Updated"}
     except Exception as e:
-        try: conn.close()
-        except: pass
-        return {"status": "Error", "detail": str(e)}
+        close_conn_safely(conn)
+        return safe_error_response("change_user_password", e, "Unable to change password")
 
 @app.delete("/users/{username}")
-def delete_user(username: str):
+def delete_user(username: str, authorization: Optional[str] = Header(None)):
+    """Delete user - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    admin_user = payload.get("username")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     if username == "admin":
@@ -2514,11 +2751,15 @@ def delete_user(username: str):
     
     cursor.execute("DELETE FROM users WHERE username=?", (username,))
     conn.close()
-    log_audit("admin", "Delete User", f"Deleted user {username}")
+    log_audit(admin_user, "Delete User", f"Deleted user {username}")
     return {"status": "User Deleted"}
 
 @app.get("/audit")
-def get_audit_logs():
+def get_audit_logs(authorization: Optional[str] = Header(None)):
+    """Get audit logs - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     comp = current_company or "default"
@@ -2531,45 +2772,59 @@ def get_audit_logs():
 # Transaction Editing (Admin Only)
 class EditTxnRequest(BaseModel):
     txn_id: int
-    admin_user: str
     field: str
     new_value: str
 
 @app.post("/transaction/edit")
-def edit_transaction(req: EditTxnRequest):
+def edit_transaction(req: EditTxnRequest, authorization: Optional[str] = Header(None)):
+    """Edit transaction - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    admin_user = payload.get("username")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Whitelist fields
-        allowed_fields = ["txn_date", "bill_no", "txn_type", "payment_mode", "amount"]
-        if req.field not in allowed_fields:
+        # Static map prevents brittle SQL interpolation if request field names drift.
+        field_map = {
+            "txn_date": "txn_date",
+            "bill_no": "bill_no",
+            "txn_type": "txn_type",
+            "payment_mode": "payment_mode",
+            "amount": "amount",
+        }
+        db_field = field_map.get(req.field)
+        if not db_field:
             raise HTTPException(status_code=400, detail="Invalid field")
 
         # Get old value for audit
-        # Note: field name in SELECT must be safe because we whitelisted it above
-        cursor.execute(f"SELECT {req.field} FROM transactions WHERE txn_id=?", (req.txn_id,))
+        cursor.execute(f"SELECT {db_field} FROM transactions WHERE txn_id=?", (req.txn_id,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Transaction not found")
         
         old_val = str(row[0])
             
-        cursor.execute(f"UPDATE transactions SET {req.field}=? WHERE txn_id=?", (req.new_value, req.txn_id))
+        cursor.execute(f"UPDATE transactions SET {db_field}=? WHERE txn_id=?", (req.new_value, req.txn_id))
         conn.close()
         invalidate_report_cache()
         
-        log_audit(req.admin_user, "Edit Transaction", f"Changed {req.field} from {old_val} to {req.new_value} for Txn ID {req.txn_id}")
+        log_audit(admin_user, "Edit Transaction", f"Changed {db_field} from {old_val} to {req.new_value} for Txn ID {req.txn_id}")
         return {"status": "Updated Successfully"}
     except Exception as e:
-        conn.close() # Ensure close on error
-        return {"status": "Error", "detail": str(e)}
+        close_conn_safely(conn)
+        return safe_error_response("edit_transaction", e, "Unable to update transaction")
 
 class DeleteTxnRequest(BaseModel):
     txn_id: int
-    admin_user: str
 
 @app.post("/transaction/delete")
-def delete_transaction(req: DeleteTxnRequest):
+def delete_transaction(req: DeleteTxnRequest, authorization: Optional[str] = Header(None)):
+    """Delete transaction - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    admin_user = payload.get("username")
+    
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -2585,8 +2840,93 @@ def delete_transaction(req: DeleteTxnRequest):
         conn.close()
         invalidate_report_cache()
         
-        log_audit(req.admin_user, "Delete Transaction", f"Deleted Txn ID {req.txn_id}. {details}")
+        log_audit(admin_user, "Delete Transaction", f"Deleted Txn ID {req.txn_id}. {details}")
         return {"status": "Deleted Successfully"}
+    except Exception as e:
+        close_conn_safely(conn)
+        return safe_error_response("delete_transaction", e, "Unable to delete transaction")
+
+# Database Configuration Unlock (No Auth Required - used before login)
+class DbConfigUnlockRequest(BaseModel):
+    password: str
+
+class DbConfigUnlockSetupRequest(BaseModel):
+    password: str
+
+@app.get("/dbconfig/unlock-status")
+def get_dbconfig_unlock_status():
+    """Check if DB config unlock password is set (for first-time setup)"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
+        row = cursor.fetchone()
+        conn.close()
+        
+        has_password = row is not None and row[0] is not None
+        return {"needs_setup": not has_password}
+    except Exception:
+        conn.close()
+        return {"needs_setup": True}
+
+@app.post("/dbconfig/unlock")
+def verify_dbconfig_unlock(req: DbConfigUnlockRequest):
+    """Verify DB config unlock password"""
+    if not req.password:
+        raise HTTPException(status_code=400, detail="Password required")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row or row[0] is None:
+            raise HTTPException(status_code=403, detail="DB config not accessible")
+        
+        # Hash the provided password and compare
+        hashed = hashlib.sha256(req.password.encode()).hexdigest()
+        if hashed == row[0]:
+            return {"status": "Success", "message": "Unlocked"}
+        else:
+            raise HTTPException(status_code=401, detail="Incorrect password")
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/dbconfig/unlock/setup")
+def setup_dbconfig_unlock(req: DbConfigUnlockSetupRequest):
+    """Set DB config unlock password (first-run, pre-login)"""
+    
+    if not req.password or len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if already set
+        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
+        row = cursor.fetchone()
+        
+        if row and row[0] is not None:
+            conn.close()
+            raise HTTPException(status_code=400, detail="DB config unlock password already configured")
+        
+        # Hash and set the password
+        hashed = hashlib.sha256(req.password.encode()).hexdigest()
+        if row:
+            cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", (hashed, "db_config_unlock_password"))
+        else:
+            cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", ("db_config_unlock_password", hashed))
+        
+        conn.close()
+        log_audit("system", "Setup", "DB config unlock password configured")
+        return {"status": "Setup complete"}
+    except HTTPException:
+        raise
     except Exception as e:
         conn.close()
         return {"status": "Error", "detail": str(e)}
@@ -2601,8 +2941,11 @@ class DbConfigRequest(BaseModel):
     backup_dir: str = ""
 
 @app.get("/config/database")
-def get_db_config():
-    """Get current database configuration"""
+def get_db_config(authorization: Optional[str] = Header(None)):
+    """Get current database configuration - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    
     cfg = load_runtime_config()
     return {
         "server": cfg["server"],
@@ -2613,8 +2956,11 @@ def get_db_config():
     }
 
 @app.post("/config/database/test")
-def test_db_config(req: DbConfigRequest):
-    """Test database connection with provided settings"""
+def test_db_config(req: DbConfigRequest, authorization: Optional[str] = Header(None)):
+    """Test database connection - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    
     try:
         if req.auth_type == "windows":
             conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={req.server};DATABASE={req.database};Trusted_Connection=yes;TrustServerCertificate=yes;"
@@ -2630,8 +2976,11 @@ def test_db_config(req: DbConfigRequest):
         return {"success": False, "error": str(e)}
 
 @app.post("/config/database")
-def save_db_config(req: DbConfigRequest):
-    """Save database configuration to file"""
+def save_db_config(req: DbConfigRequest, authorization: Optional[str] = Header(None)):
+    """Save database configuration - admin only"""
+    payload = verify_auth_header(authorization)
+    require_admin(payload)
+    
     try:
         import json
         

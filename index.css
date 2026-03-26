@@ -339,13 +339,15 @@ body::before {
     display: flex;
     flex-direction: column;
     padding: 20px;
+    overflow-y: auto;
+    min-height: 0;
     transition: width 0.2s ease, padding 0.2s ease;
 }
 
 .brand {
     font-size: 24px;
     font-weight: 700;
-    margin-bottom: 40px;
+    margin-bottom: 25px;
     color: var(--text-primary);
     display: flex;
     align-items: center;
@@ -406,7 +408,7 @@ body::before {
 }
 
 .nav-item {
-    padding: 12px 16px;
+    padding: 8px 12px;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
     text-decoration: none;
@@ -708,7 +710,7 @@ table {
 
 #inventoryTable th:not(:first-child),
 #inventoryTable td:not(:first-child) {
-    min-width: 66px;
+    min-width: 120px;
 }
 
 #inventoryTable .inventory-sticky-col {
