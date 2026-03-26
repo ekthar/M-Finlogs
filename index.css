@@ -1032,6 +1032,13 @@ td.text-right {
     gap: 6px;
     align-items: center;
     white-space: nowrap;
+    width: 156px;
+    min-width: 156px;
+}
+
+.action-header {
+    min-width: 156px;
+    width: 156px;
 }
 
 .btn-action {
@@ -1042,6 +1049,7 @@ td.text-right {
     cursor: pointer;
     color: #111827;
     line-height: 1;
+    width: 72px;
     min-width: 72px;
     height: 28px;
     text-align: center;
@@ -1049,8 +1057,10 @@ td.text-right {
     align-items: center;
     justify-content: center;
     gap: 6px;
+    flex: 0 0 72px;
     background: #fff;
     box-shadow: 0 2px 6px rgba(17, 24, 39, 0.08);
+    transition: none;
 }
 
 .btn-action.edit {
@@ -1070,8 +1080,17 @@ td.text-right {
 }
 
 .btn-action:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(17, 24, 39, 0.12);
+    box-shadow: 0 2px 6px rgba(17, 24, 39, 0.08);
+}
+
+.txn-table-container.is-scrolling .btn-action,
+.daybook-table-container.is-scrolling .btn-action {
+    pointer-events: none;
+}
+
+.txn-table-container.is-scrolling .btn-action:hover,
+.daybook-table-container.is-scrolling .btn-action:hover {
+    box-shadow: 0 2px 6px rgba(17, 24, 39, 0.08);
 }
 
 tr:last-child td {
@@ -1146,6 +1165,11 @@ tr.row-deleted td {
 #entryTable th,
 #entryTable td {
     border-right: 1px solid var(--border);
+}
+
+#entryTable td.action-cell,
+#dayBookTable td.action-cell {
+    border-bottom: 1px solid var(--border);
 }
 
 #entryTable th:last-child,

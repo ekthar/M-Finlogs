@@ -12,7 +12,7 @@ SQL_DATABASE = "finlogs"  # database name
 SQL_USERNAME = ""  # SQL Server username (leave empty for Windows Auth)
 SQL_PASSWORD = ""  # SQL Server password (leave empty for Windows Auth)
 SQL_DRIVER = "{ODBC Driver 17 for SQL Server}"  # or "{SQL Server}" for older versions
-BACKUP_TARGET_DIR = ""  # UNC share path for SQL Server backups (optional)
+BACKUP_TARGET_DIR = "D:\\finlogs"  # UNC share path for SQL Server backups (optional)
 
 # Connection string - Windows Authentication
 CONNECTION_STRING = f"DRIVER={SQL_DRIVER};SERVER={SQL_SERVER};DATABASE={SQL_DATABASE};Trusted_Connection=yes;TrustServerCertificate=yes;"

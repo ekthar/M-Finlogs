@@ -253,6 +253,7 @@ let txnPageCache = { key: null, ts: 0, data: null };
 let allTransactions = [];
 const TXN_ROW_HEIGHT = 36;
 const TXN_OVERSCAN = 8;
+const TXN_STATIC_RENDER_THRESHOLD = 200;
 let txnVirtualInitialized = false;
 const TXN_HIGHLIGHT_TTL_MS = 24 * 60 * 60 * 1000;
 let txnHighlightMap = null;
@@ -267,6 +268,10 @@ let softScrollInitialized = false;
 let txnMeasuredRowHeight = TXN_ROW_HEIGHT;
 let dayBookMeasuredRowHeight = 36;
 let auditMeasuredRowHeight = 32;
+let txnRenderVersion = 0;
+let txnLastRenderKey = '';
+let dayBookRenderVersion = 0;
+let dayBookLastRenderKey = '';
 
 function getMeasuredRowHeight(tbody, spacerClass, fallback) {
     if (!tbody) return fallback;
@@ -339,8 +344,14 @@ function initTxnVirtualScroll() {
     const container = document.getElementById('txnTableContainer');
     if (!container) return;
     txnVirtualInitialized = true;
+    let scrollIdleTimer = null;
     let ticking = false;
     container.addEventListener('scroll', () => {
+        container.classList.add('is-scrolling');
+        if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            container.classList.remove('is-scrolling');
+        }, 90);
         if (ticking) return;
         ticking = true;
         requestAnimationFrame(() => {
@@ -461,12 +472,18 @@ function renderVirtualizedTransactions(resetScroll = false) {
     const measured = getMeasuredRowHeight(tbody, 'txn-spacer', txnMeasuredRowHeight);
     txnMeasuredRowHeight = measured || txnMeasuredRowHeight;
     const rowHeight = txnMeasuredRowHeight;
-    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - TXN_OVERSCAN);
-    const visibleCount = Math.ceil(containerHeight / rowHeight) + TXN_OVERSCAN * 2;
+    const useStaticRender = total <= TXN_STATIC_RENDER_THRESHOLD;
+    const start = useStaticRender ? 0 : Math.max(0, Math.floor(scrollTop / rowHeight) - TXN_OVERSCAN);
+    const visibleCount = useStaticRender ? total : Math.ceil(containerHeight / rowHeight) + TXN_OVERSCAN * 2;
     const end = Math.min(total, start + visibleCount);
+    const renderKey = `${txnRenderVersion}:${currentRole || ''}:${start}:${end}:${total}`;
+    if (!resetScroll && renderKey === txnLastRenderKey) {
+        return;
+    }
+    txnLastRenderKey = renderKey;
 
-    const topPad = start * rowHeight;
-    const bottomPad = Math.max(0, (total - end) * rowHeight);
+    const topPad = useStaticRender ? 0 : start * rowHeight;
+    const bottomPad = useStaticRender ? 0 : Math.max(0, (total - end) * rowHeight);
     const colspan = currentRole === 'admin' ? 7 : 6;
 
     let rowsHTML = '';
@@ -582,8 +599,8 @@ async function loadTransactions(page = 1, force = false, options = {}) {
             return String(b.bill_no || '').localeCompare(String(a.bill_no || ''));
         });
 
-        // Admin Edit Column Header (Recent Transactions Table)
-        const headerRow = document.querySelector('#recentTxnTable thead tr');
+        // Admin action column header (Daily Transactions table)
+        const headerRow = document.querySelector('#entryTable thead tr');
         if (headerRow) {
             const existHeader = headerRow.querySelector('.action-header');
             if (existHeader) existHeader.remove();
@@ -597,6 +614,8 @@ async function loadTransactions(page = 1, force = false, options = {}) {
         }
 
         allTransactions = sortedData;
+        txnRenderVersion += 1;
+        txnLastRenderKey = '';
         initTxnVirtualScroll();
         const container = document.getElementById('txnTableContainer');
         const prevScrollTop = container ? container.scrollTop : 0;
@@ -1998,6 +2017,7 @@ function showDayBook() {
 let dayBookRows = [];
 const DAYBOOK_ROW_HEIGHT = 36;
 const DAYBOOK_OVERSCAN = 8;
+const DAYBOOK_STATIC_RENDER_THRESHOLD = 300;
 let dayBookVirtualInitialized = false;
 
 function initDayBookVirtualScroll() {
@@ -2005,8 +2025,14 @@ function initDayBookVirtualScroll() {
     const container = document.getElementById('dayBookTableContainer');
     if (!container) return;
     dayBookVirtualInitialized = true;
+    let scrollIdleTimer = null;
     let ticking = false;
     container.addEventListener('scroll', () => {
+        container.classList.add('is-scrolling');
+        if (scrollIdleTimer) clearTimeout(scrollIdleTimer);
+        scrollIdleTimer = setTimeout(() => {
+            container.classList.remove('is-scrolling');
+        }, 90);
         if (ticking) return;
         ticking = true;
         requestAnimationFrame(() => {
@@ -2033,12 +2059,18 @@ function renderVirtualizedDayBook(resetScroll = false) {
     const measured = getMeasuredRowHeight(tbody, 'daybook-spacer', dayBookMeasuredRowHeight);
     dayBookMeasuredRowHeight = measured || dayBookMeasuredRowHeight;
     const rowHeight = dayBookMeasuredRowHeight;
-    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - DAYBOOK_OVERSCAN);
-    const visibleCount = Math.ceil(containerHeight / rowHeight) + DAYBOOK_OVERSCAN * 2;
+    const useStaticRender = total <= DAYBOOK_STATIC_RENDER_THRESHOLD;
+    const start = useStaticRender ? 0 : Math.max(0, Math.floor(scrollTop / rowHeight) - DAYBOOK_OVERSCAN);
+    const visibleCount = useStaticRender ? total : Math.ceil(containerHeight / rowHeight) + DAYBOOK_OVERSCAN * 2;
     const end = Math.min(total, start + visibleCount);
+    const renderKey = `${dayBookRenderVersion}:${currentRole || ''}:${start}:${end}:${total}`;
+    if (!resetScroll && renderKey === dayBookLastRenderKey) {
+        return;
+    }
+    dayBookLastRenderKey = renderKey;
 
-    const topPad = start * rowHeight;
-    const bottomPad = Math.max(0, (total - end) * rowHeight);
+    const topPad = useStaticRender ? 0 : start * rowHeight;
+    const bottomPad = useStaticRender ? 0 : Math.max(0, (total - end) * rowHeight);
     const colspan = currentRole === 'admin' ? 7 : 6;
 
     const headerRow = document.querySelector('#dayBookTable thead tr');
@@ -2151,6 +2183,8 @@ function renderDayBookRows(rows) {
         if (ba !== bb) return ba - bb;
         return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
     });
+    dayBookRenderVersion += 1;
+    dayBookLastRenderKey = '';
     initDayBookVirtualScroll();
     renderVirtualizedDayBook(true);
 }
@@ -2435,9 +2469,11 @@ function sanitizeInventoryRows(rows, dayCount) {
             const val = Number((row && Array.isArray(row.qty)) ? row.qty[i] : 0);
             return Number.isFinite(val) ? val : 0;
         });
+        const minStock = Number(row && row.min_stock);
         return {
             name: String((row && row.name) || '').trim(),
-            qty
+            qty,
+            min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0
         };
     });
 }
@@ -2477,7 +2513,7 @@ function renderInventoryTable() {
     if (!thead || !tbody || !summary) return;
 
     const mm = String(inventoryModel.month || 1).padStart(2, '0');
-    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th>';
+    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th><th class="text-right">MIN STOCK</th>';
     for (let d = 1; d <= inventoryModel.days; d += 1) {
         headerHtml += `<th class="text-right">${d}.${mm}</th>`;
     }
@@ -2485,7 +2521,7 @@ function renderInventoryTable() {
     thead.innerHTML = headerHtml;
 
     if (!inventoryModel.rows.length) {
-        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 1}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 2}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
         summary.textContent = '0 products | Total qty: 0';
         return;
     }
@@ -2494,6 +2530,7 @@ function renderInventoryTable() {
     let totalQty = 0;
     inventoryModel.rows.forEach((row, rowIndex) => {
         bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
+        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
         for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
             const value = Number(row.qty[dayIndex] || 0);
             totalQty += value;
@@ -2526,6 +2563,19 @@ function renderInventoryTable() {
             queueInventoryAutoSave();
         });
     });
+
+    tbody.querySelectorAll('input[data-kind="min_stock"]').forEach((input) => {
+        input.addEventListener('focus', (e) => {
+            e.target.select();
+        });
+        input.addEventListener('input', (e) => {
+            const rowIdx = Number(e.target.getAttribute('data-row'));
+            if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
+            const val = Number(e.target.value);
+            inventoryModel.rows[rowIdx].min_stock = Number.isFinite(val) && val > 0 ? val : 0;
+            queueInventoryAutoSave();
+        });
+    });
 }
 
 function escapeHtml(text) {
@@ -2540,7 +2590,7 @@ function escapeHtml(text) {
 function addInventoryRow() {
     const input = document.getElementById('inventoryProductInput');
     const name = (input ? input.value : '').trim();
-    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0) });
+    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0), min_stock: 0 });
     if (input) input.value = '';
     renderInventoryTable();
     saveInventorySnapshot(true);
@@ -2551,7 +2601,8 @@ function removeEmptyInventoryRows() {
     inventoryModel.rows = inventoryModel.rows.filter((row) => {
         const hasName = String(row.name || '').trim().length > 0;
         const hasQty = Array.isArray(row.qty) && row.qty.some((v) => Number(v || 0) !== 0);
-        return hasName || hasQty;
+        const hasMinStock = Number(row.min_stock || 0) > 0;
+        return hasName || hasQty || hasMinStock;
     });
     renderInventoryTable();
     if (before !== inventoryModel.rows.length) {
@@ -2646,7 +2697,7 @@ async function importInventorySheet(event) {
                 }
             });
 
-            importedRows.push({ name, qty });
+            importedRows.push({ name, qty, min_stock: 0 });
         }
 
         if (!importedRows.length) {
@@ -2718,6 +2769,15 @@ function loadInventoryMailProfile() {
     if (passEl) {
         passEl.value = remember && profile.sender_password ? String(profile.sender_password) : '';
     }
+
+    const avgModeEl = document.getElementById('inventoryMailAvgMode');
+    if (avgModeEl) {
+        const mode = String(profile.average_mode || 'monthly').toLowerCase();
+        avgModeEl.value = mode === 'last7' ? 'last7' : 'monthly';
+    }
+
+    const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
+    if (onlyReorderEl) onlyReorderEl.checked = !!profile.only_reorder;
 }
 
 function saveInventoryMailProfile() {
@@ -2731,6 +2791,8 @@ function saveInventoryMailProfile() {
         smtp_port: Number(document.getElementById('inventoryMailPort')?.value || 587),
         subject: (document.getElementById('inventoryMailSubject')?.value || '').trim(),
         notes: (document.getElementById('inventoryMailNotes')?.value || '').trim(),
+        average_mode: (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim(),
+        only_reorder: !!document.getElementById('inventoryMailOnlyReorder')?.checked,
         remember_password: rememberPassword
     };
 
@@ -2748,7 +2810,8 @@ function clearInventoryMailProfile() {
         'inventoryMailHost',
         'inventoryMailPort',
         'inventoryMailSubject',
-        'inventoryMailNotes'
+        'inventoryMailNotes',
+        'inventoryMailAvgMode'
     ];
     ids.forEach((id) => {
         const el = document.getElementById(id);
@@ -2758,8 +2821,12 @@ function clearInventoryMailProfile() {
     const portEl = document.getElementById('inventoryMailPort');
     if (hostEl) hostEl.value = 'smtp.gmail.com';
     if (portEl) portEl.value = '587';
+    const avgModeEl = document.getElementById('inventoryMailAvgMode');
+    if (avgModeEl) avgModeEl.value = 'monthly';
     const rememberEl = document.getElementById('inventoryMailRememberPass');
     if (rememberEl) rememberEl.checked = false;
+    const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
+    if (onlyReorderEl) onlyReorderEl.checked = false;
     showToast('Mail profile cleared', 'info');
 }
 
@@ -2767,9 +2834,10 @@ function getInventoryMailRows() {
     return (inventoryModel.rows || [])
         .map((r) => ({
             name: String(r.name || '').trim(),
-            qty: Array.isArray(r.qty) ? r.qty.map((v) => Number(v || 0)) : []
+            qty: Array.isArray(r.qty) ? r.qty.map((v) => Number(v || 0)) : [],
+            min_stock: Number.isFinite(Number(r.min_stock)) && Number(r.min_stock) > 0 ? Number(r.min_stock) : 0
         }))
-        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0));
+        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0) || Number(r.min_stock || 0) > 0);
 }
 
 async function previewInventoryPdf() {
@@ -2784,7 +2852,9 @@ async function previewInventoryPdf() {
     const payload = {
         financial_year: getInventoryFinancialYear(),
         month: monthText,
-        rows
+        rows,
+        average_mode: (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim(),
+        only_reorder: !!document.getElementById('inventoryMailOnlyReorder')?.checked
     };
 
     showToast('Generating PDF preview...', 'info');
@@ -2827,6 +2897,8 @@ async function sendInventoryPdfMail() {
     const smtpPort = Number(document.getElementById('inventoryMailPort')?.value || 587);
     const subject = (document.getElementById('inventoryMailSubject')?.value || '').trim();
     const notes = (document.getElementById('inventoryMailNotes')?.value || '').trim();
+    const averageMode = (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim();
+    const onlyReorder = !!document.getElementById('inventoryMailOnlyReorder')?.checked;
 
     if (!toEmail) return showToast('Recipient email is required', 'error');
     if (!senderEmail) return showToast('Sender email is required', 'error');
@@ -2846,6 +2918,8 @@ async function sendInventoryPdfMail() {
         financial_year: getInventoryFinancialYear(),
         month: monthText,
         rows,
+        average_mode: averageMode,
+        only_reorder: onlyReorder,
         to_email: toEmail,
         cc_email: ccEmail,
         sender_email: senderEmail,

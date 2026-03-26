@@ -434,6 +434,7 @@ class FinancialYearSelectRequest(BaseModel):
 class InventoryProductRow(BaseModel):
     name: str
     qty: List[float] = []
+    min_stock: Optional[float] = 0.0
 
 class InventoryPdfMailRequest(BaseModel):
     financial_year: Optional[str] = None
@@ -447,11 +448,15 @@ class InventoryPdfMailRequest(BaseModel):
     smtp_port: int = 587
     subject: Optional[str] = None
     notes: Optional[str] = None
+    average_mode: str = "monthly"  # monthly | last7
+    only_reorder: bool = False
 
 class InventoryPdfPreviewRequest(BaseModel):
     financial_year: Optional[str] = None
     month: str
     rows: List[InventoryProductRow]
+    average_mode: str = "monthly"  # monthly | last7
+    only_reorder: bool = False
 
 # Helper for Audit (Needs its own conn if called separately, but usually called within context? 
 # Actually log_audit is a helper. Let's make it open its own conn to be safe and independent)
@@ -487,53 +492,114 @@ def _safe_float(v) -> float:
     except Exception:
         return 0.0
 
-def _ensure_inter_tight_fonts():
+def _ensure_space_mono_fonts():
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    regular_name = "InterTight-Regular"
-    semibold_name = "InterTight-SemiBold"
+    regular_name = "SpaceMono-Regular"
+    semibold_name = "SpaceMono-Bold"
 
-    already = {f.fontName for f in pdfmetrics.getRegisteredFontNames()}
+    already = set(pdfmetrics.getRegisteredFontNames())
     if regular_name in already and semibold_name in already:
         return regular_name, semibold_name
 
-    fonts_dir = os.path.join(CONFIG_DIR, "fonts")
-    os.makedirs(fonts_dir, exist_ok=True)
+    # Local-only lookup. PDF generation is intentionally restricted to Space Mono.
+    candidate_dirs = [
+        os.path.join(CONFIG_DIR, "fonts"),
+        os.path.join(os.getcwd(), "assets", "fonts"),
+        os.path.join(os.path.dirname(__file__), "assets", "fonts"),
+        os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")
+    ]
 
-    regular_path = os.path.join(fonts_dir, "InterTight-Regular.ttf")
-    semibold_path = os.path.join(fonts_dir, "InterTight-SemiBold.ttf")
+    regular_candidates = [
+        "SpaceMono-Regular.ttf",
+        "Space Mono Regular.ttf"
+    ]
+    semibold_candidates = [
+        "SpaceMono-Bold.ttf",
+        "Space Mono Bold.ttf"
+    ]
 
-    regular_url = "https://github.com/google/fonts/raw/main/ofl/intertight/InterTight-Regular.ttf"
-    semibold_url = "https://github.com/google/fonts/raw/main/ofl/intertight/InterTight-SemiBold.ttf"
+    regular_path = None
+    semibold_path = None
 
-    try:
-        if not os.path.exists(regular_path):
-            urllib.request.urlretrieve(regular_url, regular_path)
-        if not os.path.exists(semibold_path):
-            urllib.request.urlretrieve(semibold_url, semibold_path)
-    except Exception as e:
-        raise RuntimeError(f"Failed to download Inter Tight font files: {str(e)}")
+    for d in candidate_dirs:
+        for name in regular_candidates:
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                regular_path = p
+                break
+        if regular_path:
+            break
+
+    for d in candidate_dirs:
+        for name in semibold_candidates:
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                semibold_path = p
+                break
+        if semibold_path:
+            break
+
+    if not regular_path or not semibold_path:
+        # Attempt one-time download into config fonts folder to avoid manual setup.
+        fonts_dir = os.path.join(CONFIG_DIR, "fonts")
+        os.makedirs(fonts_dir, exist_ok=True)
+        download_targets = [
+            (
+                "https://github.com/google/fonts/raw/main/ofl/spacemono/SpaceMono-Regular.ttf",
+                os.path.join(fonts_dir, "SpaceMono-Regular.ttf")
+            ),
+            (
+                "https://github.com/google/fonts/raw/main/ofl/spacemono/SpaceMono-Bold.ttf",
+                os.path.join(fonts_dir, "SpaceMono-Bold.ttf")
+            )
+        ]
+        try:
+            for url, target in download_targets:
+                if not os.path.exists(target):
+                    urllib.request.urlretrieve(url, target)
+        except Exception as e:
+            raise RuntimeError(
+                "Space Mono font files not found and auto-download failed. "
+                f"Place SpaceMono-Regular.ttf and SpaceMono-Bold.ttf under {CONFIG_DIR}\\fonts or assets\\fonts. "
+                f"Download error: {str(e)}"
+            )
+
+        regular_path = os.path.join(fonts_dir, "SpaceMono-Regular.ttf")
+        semibold_path = os.path.join(fonts_dir, "SpaceMono-Bold.ttf")
+        if not (os.path.exists(regular_path) and os.path.exists(semibold_path)):
+            raise RuntimeError(
+                "Space Mono font files are still missing after auto-download. "
+                f"Place SpaceMono-Regular.ttf and SpaceMono-Bold.ttf under {CONFIG_DIR}\\fonts or assets\\fonts."
+            )
 
     try:
         pdfmetrics.registerFont(TTFont(regular_name, regular_path))
         pdfmetrics.registerFont(TTFont(semibold_name, semibold_path))
     except Exception as e:
-        raise RuntimeError(f"Failed to register Inter Tight fonts: {str(e)}")
+        raise RuntimeError(f"Failed to register Space Mono fonts: {str(e)}")
 
     return regular_name, semibold_name
 
-def _build_inventory_pdf(pdf_path: str, month: str, fy: str, rows: List[InventoryProductRow]):
+def _build_inventory_pdf(
+    pdf_path: str,
+    month: str,
+    fy: str,
+    rows: List[InventoryProductRow],
+    average_mode: str = "monthly",
+    only_reorder: bool = False
+):
     try:
         import calendar
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.lib.styles import ParagraphStyle
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     except Exception as e:
         raise RuntimeError("Missing reportlab dependency. Install with pip install reportlab") from e
 
-    regular_font, semibold_font = _ensure_inter_tight_fonts()
+    regular_font, semibold_font = _ensure_space_mono_fonts()
 
     def _extract_month_num(month_label: str) -> int:
         label = (month_label or "").strip().lower()
@@ -555,14 +621,16 @@ def _build_inventory_pdf(pdf_path: str, month: str, fy: str, rows: List[Inventor
     for r in rows:
         qty = [_safe_float(x) for x in (r.qty or [])]
         max_days = max(max_days, len(qty))
-        normalized_rows.append({"name": (r.name or "").strip(), "qty": qty})
+        normalized_rows.append({
+            "name": (r.name or "").strip(),
+            "qty": qty,
+            "min_stock": _safe_float(getattr(r, "min_stock", 0.0))
+        })
 
     if max_days <= 0:
         max_days = 31
 
     days = list(range(1, max_days + 1))
-    day_chunk_size = 7
-    day_chunks = [days[i:i + day_chunk_size] for i in range(0, len(days), day_chunk_size)]
 
     month_abbr = calendar.month_abbr[month_num] if 1 <= month_num <= 12 else "Mon"
     month_title = calendar.month_name[month_num] if 1 <= month_num <= 12 else str(month)
@@ -614,23 +682,86 @@ def _build_inventory_pdf(pdf_path: str, month: str, fy: str, rows: List[Inventor
 
     elems = []
 
+    avg_mode = (average_mode or "monthly").strip().lower()
+    if avg_mode not in ("monthly", "last7"):
+        avg_mode = "monthly"
+
+    report_rows = []
     grand_total = 0.0
+    reorder_count = 0
     for r in normalized_rows:
-        grand_total += sum(_safe_float(v) for v in r["qty"])
+        qty = r["qty"]
+        row_total = sum(_safe_float(v) for v in qty)
+        grand_total += row_total
+        current_qty = _safe_float(qty[max_days - 1] if (max_days - 1) < len(qty) else (qty[-1] if qty else 0))
+
+        days_for_avg = max_days
+        avg_base_vals = qty
+        if avg_mode == "last7":
+            days_for_avg = min(7, max_days)
+            avg_base_vals = qty[-days_for_avg:] if days_for_avg > 0 else []
+
+        avg_for_product = (sum(_safe_float(v) for v in avg_base_vals) / max(days_for_avg, 1)) if avg_base_vals else 0.0
+        min_stock = _safe_float(r.get("min_stock", 0.0))
+        threshold = min_stock if min_stock > 0 else avg_for_product
+        is_reorder = threshold > 0 and current_qty < threshold
+
+        if is_reorder:
+            reorder_count += 1
+
+        report_rows.append({
+            "name": r["name"],
+            "qty": qty,
+            "row_total": row_total,
+            "current_qty": current_qty,
+            "avg": avg_for_product,
+            "min_stock": min_stock,
+            "threshold": threshold,
+            "is_reorder": is_reorder,
+            "status": "REORDER" if is_reorder else "NORMAL"
+        })
+
+    if only_reorder:
+        report_rows = [r for r in report_rows if r["is_reorder"]]
+        if not report_rows:
+            raise RuntimeError("No reorder products found for selected month and rule")
 
     avg_daily = (grand_total / max_days) if max_days > 0 else 0.0
 
     elems.append(Paragraph("M-Finlogs Inventory Report", title_style))
-    elems.append(Paragraph(f"{month_title} {fy.split('-')[-1]} | {len(normalized_rows)} Products | Total Qty: {grand_total:,.2f}", sub_style))
+
+    month_chip = Table([[Paragraph(f"MONTH: {month_title.upper()}", ParagraphStyle(
+        'InvMonthChip',
+        fontName=semibold_font,
+        fontSize=10,
+        leading=12,
+        textColor=colors.white,
+        alignment=1
+    ))]], colWidths=[170])
+    month_chip.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, 0), colors.HexColor('#1f2937')),
+        ('BOX', (0, 0), (0, 0), 0.25, colors.HexColor('#111827')),
+        ('LEFTPADDING', (0, 0), (0, 0), 8),
+        ('RIGHTPADDING', (0, 0), (0, 0), 8),
+        ('TOPPADDING', (0, 0), (0, 0), 6),
+        ('BOTTOMPADDING', (0, 0), (0, 0), 6),
+    ]))
+    elems.append(month_chip)
+    elems.append(Spacer(1, 6))
+
+    rows_label = len(report_rows) if only_reorder else len(normalized_rows)
+    mode_label = "Last 7 Days" if avg_mode == "last7" else "Monthly Average"
+    elems.append(Paragraph(f"{fy} | Products: {rows_label} | Total Qty: {grand_total:,.2f} | Rule: {mode_label}", sub_style))
     elems.append(Paragraph(f"Generated: {datetime.datetime.now().strftime('%d %b %Y, %H:%M')}", sub_style))
     elems.append(Spacer(1, 10))
 
     cards_data = [[
         [Paragraph(f"{grand_total:,.2f}", card_value_style), Paragraph("Total Quantity", card_label_style)],
-        [Paragraph(f"{len(normalized_rows)}", card_value_style), Paragraph("Products", card_label_style)],
-        [Paragraph(f"{avg_daily:,.1f}", card_value_style), Paragraph("Avg Daily Movement", card_label_style)]
+        [Paragraph(f"{rows_label}", card_value_style), Paragraph("Products", card_label_style)],
+        [Paragraph(f"{avg_daily:,.1f}", card_value_style), Paragraph("Avg Daily Movement", card_label_style)],
+        [Paragraph(f"{reorder_count}", card_value_style), Paragraph("Reorder Products", card_label_style)]
     ]]
-    cards_table = Table(cards_data, colWidths=[240, 240, 240])
+    cards_table = Table(cards_data, colWidths=[180, 180, 180, 180])
     cards_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
         ('BOX', (0, 0), (-1, -1), 0.25, colors.HexColor('#E5E7EB')),
@@ -644,54 +775,74 @@ def _build_inventory_pdf(pdf_path: str, month: str, fy: str, rows: List[Inventor
     elems.append(cards_table)
     elems.append(Spacer(1, 12))
 
-    for idx, chunk in enumerate(day_chunks):
-        header = ["Product", "Total"] + [f"{d} {month_abbr}" for d in chunk]
-        data = [header]
+    header = ["Product", "Total", "Min", "Status"] + [str(d) for d in days]
+    data = [header]
+    reorder_rows = []
 
-        for r in normalized_rows:
-            qty = r["qty"]
-            row_vals = []
-            for d in chunk:
-                v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
-                row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
-            row_total = sum(_safe_float(v) for v in qty)
-            data.append([r["name"][:42], f"{row_total:,.2f}"] + row_vals)
+    for r in report_rows:
+        qty = r["qty"]
+        row_vals = []
+        for d in days:
+            v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
+            row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
+        data.append([
+            r["name"][:26],
+            f"{r['row_total']:,.2f}",
+            f"{r['min_stock']:,.2f}" if r['min_stock'] > 0 else "-",
+            r["status"]
+        ] + row_vals)
+        if r["is_reorder"]:
+            reorder_rows.append(len(data) - 1)
 
-        col_widths = [180, 70] + [68] * len(chunk)
-        table = Table(data, repeatRows=1, colWidths=col_widths)
-        style_cmds = [
-            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#6B7280')),
-            ('FONTNAME', (0, 0), (-1, 0), semibold_font),
-            ('FONTNAME', (0, 1), (-1, -1), regular_font),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LINEBELOW', (0, 0), (-1, 0), 0.5, colors.HexColor('#E5E7EB')),
-            ('LINEBELOW', (0, 1), (-1, -1), 0.25, colors.HexColor('#F1F5F9')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
-            ('LEFTPADDING', (0, 0), (-1, -1), 8),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 7),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 7)
-        ]
+    page_width = landscape(A4)[0] - doc.leftMargin - doc.rightMargin
+    fixed_width = 260  # Product + total + min + status
+    day_col_width = max(14, min(20, (page_width - fixed_width) / max(len(days), 1)))
+    col_widths = [100, 55, 45, 60] + [day_col_width] * len(days)
 
-        for ridx in range(1, len(data)):
-            for cidx in range(1, len(data[ridx])):
-                raw_val = data[ridx][cidx]
-                if str(raw_val).strip() in ("0", "0.00", "0.0"):
-                    style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
+    table = Table(data, repeatRows=1, colWidths=col_widths)
+    style_cmds = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
+        ('FONTNAME', (0, 0), (-1, 0), semibold_font),
+        ('FONTNAME', (0, 1), (-1, -1), regular_font),
+        ('FONTSIZE', (0, 0), (3, 0), 7),
+        ('FONTSIZE', (4, 0), (-1, 0), 6),
+        ('FONTSIZE', (0, 1), (-1, -1), 7.5),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (2, -1), 'RIGHT'),
+        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+        ('ALIGN', (4, 0), (-1, 0), 'CENTER'),
+        ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ROTATE', (4, 0), (-1, 0), 90),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (3, -1), 6),
+        ('TOPPADDING', (4, 0), (-1, 0), 2),
+        ('BOTTOMPADDING', (4, 0), (-1, 0), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6)
+    ]
 
-        table.setStyle(TableStyle(style_cmds))
+    for ridx in range(1, len(data)):
+        for cidx in range(1, len(data[ridx])):
+            raw_val = data[ridx][cidx]
+            if str(raw_val).strip() in ("0", "0.00", "0.0"):
+                style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
 
-        elems.append(Paragraph(f"Day View: {chunk[0]} {month_abbr} - {chunk[-1]} {month_abbr}", section_style))
-        elems.append(table)
+    for ridx in reorder_rows:
+        style_cmds.extend([
+            ('TEXTCOLOR', (0, ridx), (1, ridx), colors.HexColor('#B91C1C')),
+            ('FONTNAME', (0, ridx), (1, ridx), semibold_font),
+            ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#FEF2F2')),
+        ])
 
-        if idx < len(day_chunks) - 1:
-            elems.append(PageBreak())
-        else:
-            elems.append(Spacer(1, 6))
+    table.setStyle(TableStyle(style_cmds))
+
+    elems.append(Paragraph("Daily Stock Grid", section_style))
+    elems.append(table)
+    elems.append(Spacer(1, 6))
 
     doc.build(elems)
 
@@ -724,7 +875,14 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
         fd, temp_pdf = tempfile.mkstemp(prefix="inventory_report_", suffix=".pdf")
         os.close(fd)
 
-        _build_inventory_pdf(temp_pdf, month, fy, req.rows)
+        _build_inventory_pdf(
+            temp_pdf,
+            month,
+            fy,
+            req.rows,
+            average_mode=req.average_mode,
+            only_reorder=req.only_reorder
+        )
 
         msg = EmailMessage()
         msg["Subject"] = subject
@@ -763,6 +921,8 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
             "detail": f"Inventory PDF mailed successfully to {to_addr}",
             "pdf_name": filename
         }
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except smtplib.SMTPAuthenticationError:
@@ -801,7 +961,14 @@ def preview_inventory_pdf(req: InventoryPdfPreviewRequest):
         fd, temp_pdf = tempfile.mkstemp(prefix="inventory_preview_", suffix=".pdf")
         os.close(fd)
 
-        _build_inventory_pdf(temp_pdf, month, fy, req.rows)
+        _build_inventory_pdf(
+            temp_pdf,
+            month,
+            fy,
+            req.rows,
+            average_mode=req.average_mode,
+            only_reorder=req.only_reorder
+        )
 
         with open(temp_pdf, "rb") as f:
             pdf_bytes = f.read()
@@ -809,6 +976,8 @@ def preview_inventory_pdf(req: InventoryPdfPreviewRequest):
         filename = f"Inventory_{month}_{fy}.pdf".replace(" ", "_")
         headers = {"Content-Disposition": f'inline; filename="{filename}"'}
         return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
@@ -1757,19 +1926,31 @@ def backup_database(path: str = None):
     try:
         import datetime
         import shutil
+        import os
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         database = SQL_DATABASE
         conn = get_master_connection()
+        
+        # SQL Server backups cannot run in a transaction.
+        conn.autocommit = True 
+        
         cursor = conn.cursor()
         
         # Always use C:\Finlogs for backups
         backup_dir = "C:\\Finlogs-12"
         os.makedirs(backup_dir, exist_ok=True)
         server_backup_path = os.path.join(backup_dir, f"{database}_{timestamp}.bak")
+        
         # SQL Server BACKUP command
         safe_path = escape_sql_path(server_backup_path)
         backup_query = f"BACKUP DATABASE [{database}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
         cursor.execute(backup_query)
+        
+        # CRITICAL FIX: You MUST consume the progress messages (result sets)
+        # Otherwise, closing the connection aborts the backup silently!
+        while cursor.nextset():
+            pass
+            
         conn.close()
         
         # If user provided a path, try to copy the backup there
@@ -1786,7 +1967,8 @@ def backup_database(path: str = None):
 
         return {"status": "Backup Successful", "path": server_backup_path}
     except Exception as e:
-        return {"status": "Error", "detail": f"Backup failed: {str(e)}. Note: SQL Server backups require admin privileges."}
+        return {"status": "Error", "detail": f"Backup failed: {str(e)}. Note: Ensure the SQL Server Service Account has write access to C:\\Finlogs-12"}
+
 
 @app.post("/backup/auto")
 def backup_database_auto():
@@ -1795,22 +1977,26 @@ def backup_database_auto():
         import datetime
         import shutil
         import tempfile
+        import os
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         conn = get_master_connection()
+        
+        conn.autocommit = True 
+        
         cursor = conn.cursor()
         
         # Auto backups go to C:\Finlogs\Auto
         backup_dir = "C:\\Finlogs\\Auto"
         os.makedirs(backup_dir, exist_ok=True)
 
-        # Permission check (create + delete test file)
+        # Permission check (Note: This checks App permissions, NOT SQL Server permissions)
         try:
             test_file = os.path.join(backup_dir, f".perm_test_{timestamp}.tmp")
             with open(test_file, "w") as f:
                 f.write("test")
             os.remove(test_file)
         except Exception as perm_err:
-            return {"status": "Error", "detail": f"Auto backup failed: No write permission on {backup_dir}. {perm_err}"}
+            return {"status": "Error", "detail": f"Auto backup failed: App has no write permission on {backup_dir}. {perm_err}"}
         
         database = SQL_DATABASE
         backup_path = os.path.join(backup_dir, f"auto_{database}_{timestamp}.bak")
@@ -1818,6 +2004,11 @@ def backup_database_auto():
         safe_path = escape_sql_path(backup_path)
         backup_query = f"BACKUP DATABASE [{database}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
         cursor.execute(backup_query)
+        
+        # CRITICAL FIX: Consume the result sets
+        while cursor.nextset():
+            pass
+            
         conn.close()
 
         # Prune old backups, keep latest 10
@@ -1825,7 +2016,7 @@ def backup_database_auto():
             files = [
                 os.path.join(backup_dir, f)
                 for f in os.listdir(backup_dir)
-                if f.lower().endswith('.bak') and f.startswith('auto_')
+                if f.lower().endswith('.bak') and os.path.basename(f).startswith('auto_')
             ]
             files.sort(key=lambda p: os.path.getmtime(p))
             while len(files) > 10:

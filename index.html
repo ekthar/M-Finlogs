@@ -678,10 +678,17 @@
                             <input type="number" id="inventoryMailPort" placeholder="Port" value="587" min="1" max="65535">
                             <input type="text" id="inventoryMailSubject" placeholder="Subject (optional)">
                             <input type="text" id="inventoryMailNotes" placeholder="Notes (optional)">
+                            <select id="inventoryMailAvgMode">
+                                <option value="monthly">Average Mode: Monthly</option>
+                                <option value="last7">Average Mode: Last 7 Days</option>
+                            </select>
                         </div>
                         <div style="margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px; margin:0; color: var(--text-secondary); font-size:12px;">
                                 <input type="checkbox" id="inventoryMailRememberPass" style="width:auto;"> Remember app password on this PC
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px; margin:0; color: var(--text-secondary); font-size:12px;">
+                                <input type="checkbox" id="inventoryMailOnlyReorder" style="width:auto;"> Send only reorder items
                             </label>
                             <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="saveInventoryMailProfile()">Save Profile</button>
                             <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="clearInventoryMailProfile()">Clear Profile</button>
