@@ -775,73 +775,90 @@ def _build_inventory_pdf(
     elems.append(cards_table)
     elems.append(Spacer(1, 12))
 
-    header = ["Product", "Total", "Min", "Status"] + [str(d) for d in days]
-    data = [header]
-    reorder_rows = []
-
-    for r in report_rows:
-        qty = r["qty"]
-        row_vals = []
-        for d in days:
-            v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
-            row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
-        data.append([
-            r["name"][:26],
-            f"{r['row_total']:,.2f}",
-            f"{r['min_stock']:,.2f}" if r['min_stock'] > 0 else "-",
-            r["status"]
-        ] + row_vals)
-        if r["is_reorder"]:
-            reorder_rows.append(len(data) - 1)
-
     page_width = landscape(A4)[0] - doc.leftMargin - doc.rightMargin
-    fixed_width = 260  # Product + total + min + status
-    day_col_width = max(14, min(20, (page_width - fixed_width) / max(len(days), 1)))
-    col_widths = [100, 55, 45, 60] + [day_col_width] * len(days)
+    fixed_width = 292  # Product + total + min + status
+    target_day_col_width = 28
+    days_per_table = max(8, int((page_width - fixed_width) / target_day_col_width))
+    days_per_table = min(max(days_per_table, 8), max(len(days), 1))
 
-    table = Table(data, repeatRows=1, colWidths=col_widths)
-    style_cmds = [
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
-        ('FONTNAME', (0, 0), (-1, 0), semibold_font),
-        ('FONTNAME', (0, 1), (-1, -1), regular_font),
-        ('FONTSIZE', (0, 0), (3, 0), 7),
-        ('FONTSIZE', (4, 0), (-1, 0), 6),
-        ('FONTSIZE', (0, 1), (-1, -1), 7.5),
-        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-        ('ALIGN', (1, 0), (2, -1), 'RIGHT'),
-        ('ALIGN', (3, 0), (3, -1), 'CENTER'),
-        ('ALIGN', (4, 0), (-1, 0), 'CENTER'),
-        ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ROTATE', (4, 0), (-1, 0), 90),
-        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
-        ('LEFTPADDING', (0, 0), (-1, -1), 6),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (3, -1), 6),
-        ('TOPPADDING', (4, 0), (-1, 0), 2),
-        ('BOTTOMPADDING', (4, 0), (-1, 0), 2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6)
-    ]
+    day_chunks = [days[i:i + days_per_table] for i in range(0, len(days), days_per_table)]
+    if not day_chunks:
+        day_chunks = [days]
 
-    for ridx in range(1, len(data)):
-        for cidx in range(1, len(data[ridx])):
-            raw_val = data[ridx][cidx]
-            if str(raw_val).strip() in ("0", "0.00", "0.0"):
-                style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
+    for chunk_index, day_chunk in enumerate(day_chunks):
+        header = ["Product", "Total", "Min", "Status"] + [str(d) for d in day_chunk]
+        data = [header]
+        reorder_rows = []
 
-    for ridx in reorder_rows:
-        style_cmds.extend([
-            ('TEXTCOLOR', (0, ridx), (1, ridx), colors.HexColor('#B91C1C')),
-            ('FONTNAME', (0, ridx), (1, ridx), semibold_font),
-            ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#FEF2F2')),
-        ])
+        for r in report_rows:
+            qty = r["qty"]
+            row_vals = []
+            for d in day_chunk:
+                v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
+                row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
 
-    table.setStyle(TableStyle(style_cmds))
+            data.append([
+                r["name"][:26],
+                f"{r['row_total']:,.2f}",
+                f"{r['min_stock']:,.2f}" if r['min_stock'] > 0 else "-",
+                r["status"]
+            ] + row_vals)
 
-    elems.append(Paragraph("Daily Stock Grid", section_style))
-    elems.append(table)
+            if r["is_reorder"]:
+                reorder_rows.append(len(data) - 1)
+
+        day_col_width = max(24, min(34, (page_width - fixed_width) / max(len(day_chunk), 1)))
+        col_widths = [112, 68, 48, 64] + [day_col_width] * len(day_chunk)
+
+        table = Table(data, repeatRows=1, colWidths=col_widths)
+        style_cmds = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
+            ('FONTNAME', (0, 0), (-1, 0), semibold_font),
+            ('FONTNAME', (0, 1), (-1, -1), regular_font),
+            ('FONTSIZE', (0, 0), (3, 0), 7),
+            ('FONTSIZE', (4, 0), (-1, 0), 6.5),
+            ('FONTSIZE', (0, 1), (3, -1), 7.5),
+            ('FONTSIZE', (4, 1), (-1, -1), 6.5),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (2, -1), 'RIGHT'),
+            ('ALIGN', (3, 0), (3, -1), 'CENTER'),
+            ('ALIGN', (4, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+            ('LEFTPADDING', (0, 0), (3, -1), 6),
+            ('RIGHTPADDING', (0, 0), (3, -1), 6),
+            ('LEFTPADDING', (4, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (4, 0), (-1, -1), 3),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
+        ]
+
+        for ridx in range(1, len(data)):
+            for cidx in range(1, len(data[ridx])):
+                raw_val = data[ridx][cidx]
+                if str(raw_val).strip() in ("0", "0.00", "0.0"):
+                    style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
+
+        for ridx in reorder_rows:
+            style_cmds.extend([
+                ('TEXTCOLOR', (0, ridx), (1, ridx), colors.HexColor('#B91C1C')),
+                ('FONTNAME', (0, ridx), (1, ridx), semibold_font),
+                ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#FEF2F2')),
+            ])
+
+        table.setStyle(TableStyle(style_cmds))
+
+        if len(day_chunks) == 1:
+            elems.append(Paragraph("Daily Stock Grid", section_style))
+        else:
+            elems.append(Paragraph(f"Daily Stock Grid ({day_chunk[0]}-{day_chunk[-1]})", section_style))
+        elems.append(table)
+        if chunk_index < len(day_chunks) - 1:
+            elems.append(Spacer(1, 8))
+
     elems.append(Spacer(1, 6))
 
     doc.build(elems)

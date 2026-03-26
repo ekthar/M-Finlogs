@@ -69,10 +69,10 @@
 }
 
 [data-theme="white"] {
-    --primary: #2d6a5a;
-    --primary-hover: #245a4c;
-    --primary-light: #e5f0eb;
-    --accent: #6a8f7d;
+    --primary: #2f7a65;
+    --primary-hover: #296a58;
+    --primary-light: #e3f0ea;
+    --accent: #3f7b67;
     --background: #f4eedf;
     --surface: #fbf5e8;
     --sidebar-bg: rgba(247, 239, 223, 0.94);
@@ -218,16 +218,16 @@ body::before {
 
 [data-theme="white"] button.secondary,
 [data-theme="white"] .btn-action {
-    background: #eee4d0;
-    border-color: #cbbd9f;
-    color: #2d3a33;
+    background: #e8f1ed;
+    border-color: #b7cec2;
+    color: #2f5f4f;
     box-shadow: 0 3px 8px rgba(77, 89, 81, 0.12);
 }
 
 [data-theme="white"] button.secondary:hover,
 [data-theme="white"] .btn-action:hover {
-    background: #e4d9c1;
-    border-color: #bcae90;
+    background: #dcebe4;
+    border-color: #9bb9ab;
 }
 
 [data-theme="white"] button:not(.secondary):not(.btn-action):not(.login-btn--ghost) {
@@ -810,7 +810,8 @@ table {
 #entryTable th,
 #entryTable td {
     height: 36px;
-    line-height: 36px;
+    line-height: 1.2;
+    padding: 6px 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -845,7 +846,8 @@ table {
 #dayBookTable th,
 #dayBookTable td {
     height: 36px;
-    line-height: 36px;
+    line-height: 1.2;
+    padding: 6px 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1027,18 +1029,23 @@ td.text-right {
 
 /* Action buttons (Edit/Delete) */
 .action-cell {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 76px;
+    justify-content: center;
+    align-content: center;
+    gap: 8px;
     align-items: center;
+    line-height: 1;
     white-space: nowrap;
-    width: 156px;
-    min-width: 156px;
+    width: 176px;
+    min-width: 176px;
 }
 
 .action-header {
-    min-width: 156px;
-    width: 156px;
+    min-width: 176px;
+    width: 176px;
+    text-align: center;
 }
 
 .btn-action {
@@ -1049,15 +1056,15 @@ td.text-right {
     cursor: pointer;
     color: #111827;
     line-height: 1;
-    width: 72px;
-    min-width: 72px;
-    height: 28px;
+    width: 76px;
+    min-width: 76px;
+    height: 30px;
     text-align: center;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
-    flex: 0 0 72px;
+    flex: 0 0 76px;
     background: #fff;
     box-shadow: 0 2px 6px rgba(17, 24, 39, 0.08);
     transition: none;
@@ -1077,6 +1084,22 @@ td.text-right {
 .btn-action ion-icon {
     font-size: 14px;
     color: inherit;
+}
+
+.btn-action .material-symbols-rounded {
+    font-family: 'Material Symbols Rounded' !important;
+    font-style: normal;
+    font-weight: 500;
+    display: inline-block;
+    font-size: 16px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    white-space: nowrap;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 20;
 }
 
 .btn-action:hover {
@@ -1169,6 +1192,8 @@ tr.row-deleted td {
 
 #entryTable td.action-cell,
 #dayBookTable td.action-cell {
+    padding: 4px 8px;
+    overflow: visible;
     border-bottom: 1px solid var(--border);
 }
 
