@@ -5,6 +5,7 @@ const { execFile, spawn, exec } = require('child_process');
 const net = require('net');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 
 let autoUpdaterRef = null;
 let autoUpdaterReady = false;
@@ -65,7 +66,9 @@ function createSplashWindow() {
         transparent: true,
         resizable: false,
         webPreferences: {
-            nodeIntegration: true
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
         }
     });
     splashWindow.loadFile('splash.html');
@@ -84,12 +87,20 @@ function createMainWindow() {
         titleBarStyle: 'hidden',
         titleBarOverlay: true,
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false
+            nodeIntegration: false,
+            contextIsolation: true,
+            preload: path.join(__dirname, 'preload.js')
         }
     });
     mainWindow.loadFile('index.html');
     applyTitleBarTheme('white');
+
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        if (!url.startsWith('file://')) {
+            event.preventDefault();
+        }
+    });
 
     wireAutoUpdaterEvents();
 
@@ -162,8 +173,33 @@ function deleteServerTask() {
 async function startBackend() {
     // Start backend in both dev and production mode
     const { spawn } = require('child_process');
-    
-    const envVars = { ...process.env, FINLOGS_CONFIG_DIR: app.getPath('userData') };
+
+    const userDataPath = app.getPath('userData');
+    const secretPath = path.join(userDataPath, 'jwt_secret.key');
+    let jwtSecret = (process.env.JWT_SECRET_KEY || '').trim();
+
+    if (jwtSecret.length < 32) {
+        try {
+            if (fs.existsSync(secretPath)) {
+                const fromFile = (fs.readFileSync(secretPath, 'utf8') || '').trim();
+                if (fromFile.length >= 32) {
+                    jwtSecret = fromFile;
+                }
+            }
+            if (jwtSecret.length < 32) {
+                jwtSecret = crypto.randomBytes(48).toString('hex');
+                fs.writeFileSync(secretPath, jwtSecret, { encoding: 'utf8', mode: 0o600 });
+            }
+        } catch (e) {
+            console.error('Failed to initialize JWT secret:', e);
+        }
+    }
+
+    const envVars = {
+        ...process.env,
+        FINLOGS_CONFIG_DIR: userDataPath,
+        JWT_SECRET_KEY: jwtSecret
+    };
 
     // Force-clean any stale scheduler/port owner so startup is deterministic.
     killBackend();
@@ -308,6 +344,27 @@ ipcMain.handle('dialog:openBackup', async () => {
 
 ipcMain.handle('app:getUserDataPath', async () => {
     return app.getPath('userData');
+});
+
+ipcMain.handle('config:readClient', async () => {
+    try {
+        const configPath = path.join(app.getPath('userData'), 'db_config.json');
+        if (!fs.existsSync(configPath)) return {};
+        const raw = fs.readFileSync(configPath, 'utf8');
+        return JSON.parse(raw || '{}');
+    } catch (_e) {
+        return {};
+    }
+});
+
+ipcMain.handle('config:writeClient', async (_event, configJson) => {
+    try {
+        const configPath = path.join(app.getPath('userData'), 'db_config.json');
+        fs.writeFileSync(configPath, JSON.stringify(configJson || {}, null, 2), 'utf8');
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 });
 
 ipcMain.handle('app:getVersion', async () => {
