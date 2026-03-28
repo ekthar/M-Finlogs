@@ -1,0 +1,6 @@
+{
+  "server": "localhost",
+  "database": "Finlogs",
+  "auth_type": "windows",
+  "username": ""
+}
