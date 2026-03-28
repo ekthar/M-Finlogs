@@ -8,8 +8,13 @@
     "start": "electron .",
     "preflight:build": "node scripts/preflight-build.js",
     "build:backend": "py -3.12 -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py || python -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py",
+    "build:server": "npm run build:backend",
+    "package:server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-server.ps1",
     "dist": "set \"ComSpec=C:\\Windows\\System32\\cmd.exe\" && set \"PATH=%SystemRoot%\\System32;%PATH%\" && electron-builder",
-    "dist:with-backend": "npm run preflight:build && npm run build:backend && npm run dist"
+    "dist:with-backend": "npm run preflight:build && npm run build:backend && npm run dist",
+    "dist:server-app": "npm run dist:with-backend",
+    "dist:client": "npm run preflight:build && npm run dist",
+    "dist:production": "npm run build:server && npm run package:server && npm run dist:client"
   },
   "build": {
     "appId": "com.mfinlogs.app",

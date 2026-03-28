@@ -1,4 +1,36 @@
 # M-Finlogs
+Production packaging (separate client and server)
+
+Use these commands from the project root:
+
+If you want full app UI on the server machine too (not backend-only):
+
+0. Build full server app installer:
+npm run dist:server-app
+
+Output:
+- dist/M-Finlogs Setup <version>.exe
+
+1. Build server backend binary:
+npm run build:server
+
+2. Package server deliverable zip:
+npm run package:server
+
+Output:
+- release/M-Finlogs-Server-<version>.zip
+
+Use this zip only when you want backend-only deployment on the server.
+
+3. Build client installer:
+npm run dist:client
+
+Output:
+- dist/M-Finlogs Setup <version>.exe
+
+4. Build both in one flow:
+npm run dist:production
+
 To make it flawless:
 
 Run backend on server 24/7
