@@ -120,3 +120,25 @@ Install ODBC Driver 17 or 18 for SQL Server.
 Python
 
 Install Python 3.11+ and tick Add Python to PATH.
+
+
+Use these two commands now:
+
+Client-only build
+npm run dist:client
+Output:
+
+dist/M-Finlogs Setup 0.1.3.exe
+Client + Server (full app on server machine too)
+npm run dist:server-app
+Output:
+
+dist/M-Finlogs Setup 0.1.3.exe (same installer, includes backend and runs full app)
+Practical deployment:
+
+On server PC: install using output from dist:server-app and configure DB/API there.
+On client PCs: install using output from dist:client and set API URL to http://SERVER_IP:8000.
+If you want backend-only (no UI) package also:
+
+npm run package:server
+Output: M-Finlogs-Server-0.1.3.zip
