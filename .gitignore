@@ -10,6 +10,7 @@ MunnaSoftware-win32-x64/
 out/
 dist/
 build/
+release/
 backend.spec
 backend.exe
 *.bat

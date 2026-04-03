@@ -1,32 +1,33 @@
 /* Fonts */
-/* Ensure Inter is used everywhere */
+/* Keep typography consistent across all views */
 * {
     box-sizing: border-box;
-    font-family: 'Hanken Grotesk', 'Segoe UI', sans-serif !important;
+    font-family: 'Hanken Grotesk', 'Segoe UI', 'Tahoma', sans-serif !important;
 }
 
 :root {
-    /* Blue theme palette */
-    --primary: #00c5ff;
-    --primary-hover: #00aee6;
-    --primary-light: rgba(0, 197, 255, 0.16);
-    --primary-rgb: 0, 197, 255;
-    --secondary: #02d2d6;
-    --tertiary: #00ff9c;
-    --neutral: #0b0f1a;
+    /* Deep teal + slate palette */
+    --primary: #1e8f85;
+    --primary-hover: #17766d;
+    --primary-light: rgba(30, 143, 133, 0.16);
+    --primary-rgb: 30, 143, 133;
+    --secondary: #2f6b94;
+    --tertiary: #38b5a6;
+    --neutral: #0e1a24;
 
-    --accent: #02d2d6;
+    --accent: #2f6b94;
+    --success: #16a34a;
     --danger: #ff6f7f;
     --warning: #F59E0B;
 
-    --background: #081a2b;
-    --surface: rgba(255, 255, 255, 0.11);
-    --sidebar-bg: rgba(7, 23, 38, 0.72);
+    --background: #0d1a25;
+    --surface: rgba(255, 255, 255, 0.09);
+    --sidebar-bg: rgba(9, 22, 32, 0.82);
 
     --text-primary: #edf4ff;
     --text-secondary: #b8c7df;
-    --border: rgba(181, 208, 236, 0.34);
-    --table-header-bg: rgba(10, 35, 58, 0.78);
+    --border: rgba(157, 192, 219, 0.28);
+    --table-header-bg: rgba(14, 34, 52, 0.9);
     --table-header-text: #e7f3ff;
     --risk-high: #ff7587;
     --risk-critical: #ff5f74;
@@ -95,9 +96,9 @@
 
 body {
     background:
-        radial-gradient(circle at 18% 14%, rgba(0, 197, 255, 0.24) 0%, transparent 36%),
-        radial-gradient(circle at 88% 82%, rgba(2, 210, 214, 0.2) 0%, transparent 32%),
-        linear-gradient(140deg, #070d18 0%, #12243a 100%);
+        radial-gradient(circle at 16% 14%, rgba(56, 181, 166, 0.16) 0%, transparent 38%),
+        radial-gradient(circle at 86% 82%, rgba(47, 107, 148, 0.2) 0%, transparent 33%),
+        linear-gradient(144deg, #08111a 0%, #132536 100%);
     color: var(--text-primary);
     margin: 0;
     padding: 0;
@@ -115,8 +116,8 @@ body::before {
     inset: 0;
     pointer-events: none;
     background:
-        radial-gradient(240px 140px at 26% 72%, rgba(2, 210, 214, 0.14), transparent 72%),
-        radial-gradient(280px 160px at 74% 22%, rgba(0, 197, 255, 0.14), transparent 74%);
+        radial-gradient(240px 140px at 26% 72%, rgba(56, 181, 166, 0.14), transparent 72%),
+        radial-gradient(280px 160px at 74% 22%, rgba(47, 107, 148, 0.15), transparent 74%);
     animation: appAuraShift 18s ease-in-out infinite;
     z-index: 0;
 }
@@ -408,11 +409,11 @@ body::before {
 }
 
 .nav-item {
-    padding: 8px 12px;
+    padding: 10px 12px;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
     text-decoration: none;
-    font-weight: 500;
+    font-weight: 600;
     transition: var(--transition);
     cursor: pointer;
     margin-bottom: 4px;
@@ -422,7 +423,7 @@ body::before {
 }
 
 .nav-item:hover {
-    background: rgba(86, 214, 198, 0.14);
+    background: rgba(56, 181, 166, 0.14);
     color: var(--text-primary);
 }
 
@@ -454,7 +455,8 @@ body::before {
 h2,
 h3 {
     font-weight: 600;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
+    letter-spacing: 0.2px;
 }
 
 /* View Section */
@@ -484,7 +486,7 @@ h3 {
     border: 1px solid var(--border);
     position: relative;
     overflow: hidden;
-    backdrop-filter: blur(14px);
+    backdrop-filter: blur(12px) saturate(120%);
 }
 
 :root:not([data-theme]) .card,
@@ -541,7 +543,7 @@ h3 {
 }
 
 .card h3 {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--text-secondary);
     margin: 0 0 12px 0;
@@ -550,11 +552,11 @@ h3 {
 }
 
 .card p {
-    font-size: 36px;
+    font-size: 34px;
     font-weight: 800;
     margin: 0;
     color: var(--text-primary);
-    background: linear-gradient(135deg, #edf4ff 0%, #8fd4ff 100%);
+    background: linear-gradient(135deg, #edf4ff 0%, #80d8c8 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -592,7 +594,7 @@ select {
     border-radius: var(--radius-md);
     font-size: 15px;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    background: rgba(7, 23, 38, 0.45);
+    background: rgba(10, 23, 33, 0.62);
     outline: none;
     box-sizing: border-box;
     color: var(--text-primary);
@@ -601,8 +603,8 @@ select {
 input:focus,
 select:focus {
     border-color: var(--primary);
-    background: rgba(7, 23, 38, 0.64);
-    box-shadow: 0 0 0 4px rgba(86, 214, 198, 0.18);
+    background: rgba(12, 30, 42, 0.82);
+    box-shadow: 0 0 0 3px rgba(30, 143, 133, 0.25);
 }
 
 /* Buttons */
@@ -617,7 +619,7 @@ button {
     transition: all 0.18s ease;
     background: linear-gradient(135deg, var(--secondary), var(--primary));
     color: #fff;
-    box-shadow: 0 10px 20px rgba(16, 45, 78, 0.36);
+    box-shadow: 0 10px 20px rgba(17, 36, 56, 0.34);
 }
 
 button:hover {
@@ -632,15 +634,15 @@ button:active {
 }
 
 button.secondary {
-    background: rgba(7, 23, 38, 0.56);
+    background: rgba(11, 24, 36, 0.64);
     color: var(--text-primary);
     border: 1px solid var(--border);
     box-shadow: 0 4px 10px rgba(2, 10, 24, 0.18);
 }
 
 button.secondary:hover {
-    background: rgba(7, 23, 38, 0.72);
-    border-color: rgba(143, 212, 255, 0.4);
+    background: rgba(14, 31, 45, 0.8);
+    border-color: rgba(129, 198, 223, 0.44);
     box-shadow: 0 8px 14px rgba(2, 10, 24, 0.26);
 }
 
@@ -738,8 +740,8 @@ table {
 .inventory-product-input {
     width: 100%;
     border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 6px 6px;
+    border-radius: 8px;
+    padding: 7px 8px;
     background: transparent;
     color: var(--text-primary);
     font-size: 13px;
@@ -765,8 +767,16 @@ table {
 .inventory-cell-input:focus,
 .inventory-product-input:focus {
     border-color: var(--primary);
-    background: rgba(var(--primary-rgb), 0.08);
-    box-shadow: none;
+    background: rgba(var(--primary-rgb), 0.14);
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.22);
+}
+
+#inventoryTable tbody tr:nth-child(odd) td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+#inventoryTable tbody tr:hover td {
+    background: rgba(var(--primary-rgb), 0.09);
 }
 
 .card .report-table {
@@ -942,7 +952,7 @@ table tr {
 #dashboardView h3,
 #dashboardView p,
 #dashboardView .status-row span {
-    font-family: 'Google Sans', 'Inter', sans-serif;
+    font-family: 'Hanken Grotesk', 'Segoe UI', 'Tahoma', sans-serif;
     letter-spacing: 0.3px;
 }
 
@@ -1123,7 +1133,7 @@ tr:last-child td {
 }
 
 tr:hover td {
-    background: rgba(86, 214, 198, 0.12);
+    background: rgba(var(--primary-rgb), 0.1);
 }
 
 @keyframes appAuraShift {
@@ -2149,13 +2159,16 @@ body.compact-tables .report-table td {
 }
 
 .inventory-mail-panel {
-    padding: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+    box-shadow: var(--shadow-sm);
 }
 
 .inventory-mail-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(180px, 1fr));
-    gap: 10px;
+    gap: 12px;
 }
 
 @media (max-width: 1200px) {
