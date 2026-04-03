@@ -416,7 +416,21 @@ ipcMain.handle('window:setTheme', async (_event, theme) => {
 ipcMain.handle('folder:openAutoBackup', async () => {
     try {
         const fs = require('fs');
-        const backupDir = 'C:\\Finlogs\\Auto';
+        const configPath = path.join(app.getPath('userData'), 'db_config.json');
+        let backupRoot = 'C:\\Finlogs';
+        if (fs.existsSync(configPath)) {
+            try {
+                const raw = fs.readFileSync(configPath, 'utf8');
+                const parsed = JSON.parse(raw || '{}');
+                const configured = typeof parsed.backup_dir === 'string' ? parsed.backup_dir.trim() : '';
+                if (configured) {
+                    backupRoot = configured;
+                }
+            } catch (_e) {
+                // keep fallback
+            }
+        }
+        const backupDir = path.join(backupRoot, 'Auto');
         if (!fs.existsSync(backupDir)) {
             fs.mkdirSync(backupDir, { recursive: true });
         }

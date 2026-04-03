@@ -7,6 +7,11 @@ const partyTypes = {};
 let salesChartInstance = null;
 let expenseChartInstance = null;
 let currentRole = null; // Global variable for user role
+let backendStatusIntervalId = null;
+let uiFailsafeIntervalId = null;
+let appInitDone = false;
+let isSavingEntry = false;
+let isLoggingIn = false;
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
 let apiBase = DEFAULT_API_BASE;
@@ -84,7 +89,7 @@ function showDbConfigAccessModal() {
     }
     if (errEl) errEl.textContent = '';
     passEl.value = '';
-    accessModal.style.display = 'flex';
+    setModalVisible('dbConfigAccessModal', true);
     passEl.style.display = 'block';
     setTimeout(() => passEl.focus(), 0);
 }
@@ -108,7 +113,7 @@ function showDbConfigSetupModal() {
     passEl.value = '';
     passEl.placeholder = 'Create unlock password (min 6 chars)';
     passEl.dataset.issetup = 'true';
-    accessModal.style.display = 'flex';
+    setModalVisible('dbConfigAccessModal', true);
     setTimeout(() => passEl.focus(), 0);
 }
 
@@ -118,7 +123,7 @@ function closeDbConfigAccessModal() {
     const titleEl = accessModal ? accessModal.querySelector('.login-subtitle') : null;
     const submitBtn = accessModal ? accessModal.querySelector('button.login-btn:not(.login-btn--ghost)') : null;
     
-    if (accessModal) accessModal.style.display = 'none';
+    setModalVisible('dbConfigAccessModal', false);
     
     // Reset modal to default state
     if (titleEl) titleEl.textContent = 'Enter password to open Configure Database';
@@ -158,7 +163,7 @@ function submitDbConfigAccess() {
             if (data.status === 'Setup complete') {
                 showToast('DB Config unlock password created!', 'success');
                 closeDbConfigAccessModal();
-                dbModal.style.display = 'flex';
+                setModalVisible('dbConfigModal', true);
                 loadDbConfig();
             } else {
                 if (errEl) errEl.textContent = data.detail || 'Setup failed';
@@ -180,7 +185,7 @@ function submitDbConfigAccess() {
         .then(data => {
             if (data.status === 'Success') {
                 closeDbConfigAccessModal();
-                dbModal.style.display = 'flex';
+                setModalVisible('dbConfigModal', true);
                 loadDbConfig();
             } else {
                 if (errEl) errEl.textContent = 'Incorrect password';
@@ -197,10 +202,7 @@ function submitDbConfigAccess() {
 }
 
 function closeDbConfig() {
-    const modal = document.getElementById('dbConfigModal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
+    setModalVisible('dbConfigModal', false);
 }
 
 function toggleSqlAuth() {
@@ -232,15 +234,49 @@ const PARTY_CACHE_TTL_MS = 5 * 60 * 1000;
 let partyCache = { data: null, ts: 0 };
 const REPORT_TIMEOUT_MS = 20000;
 
+function setModalVisible(modalId, visible, displayMode = 'flex') {
+    const modal = document.getElementById(modalId);
+    if (!modal) return;
+    if (visible) {
+        modal.style.display = displayMode;
+        modal.style.pointerEvents = 'auto';
+        modal.style.visibility = 'visible';
+    } else {
+        modal.style.display = 'none';
+        modal.style.pointerEvents = 'none';
+        modal.style.visibility = 'hidden';
+    }
+}
+
 // Centralized fetch wrapper with timeout and error handling
-async function fetchWithTimeout(url, options = {}, timeout = 5000) {
+async function fetchWithTimeout(url, options = {}, timeout = 5000, allowStatuses = []) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     try {
         const response = await fetch(url, { ...options, signal: controller.signal });
         clearTimeout(timeoutId);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        if (!response.ok && !allowStatuses.includes(response.status)) {
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const contentType = (response.headers.get('content-type') || '').toLowerCase();
+                if (contentType.includes('application/json')) {
+                    const payload = await response.clone().json();
+                    const detail = payload?.detail || payload?.message;
+                    if (detail) {
+                        errorMessage = String(detail);
+                    }
+                } else {
+                    const text = (await response.clone().text() || '').trim();
+                    if (text) {
+                        errorMessage = text.length > 300 ? text.slice(0, 300) : text;
+                    }
+                }
+            } catch (_ignored) {
+                // keep default message
+            }
+            const err = new Error(errorMessage);
+            err.status = response.status;
+            throw err;
         }
         return response;
     } catch (error) {
@@ -314,6 +350,8 @@ async function loadParties(force = false) {
 
         const datalist = document.getElementById("partyList");
         const reportDrop = document.getElementById("reportParty");
+
+        Object.keys(partyTypes).forEach((key) => delete partyTypes[key]);
         
         // Build HTML strings first
         let datalistHTML = "";
@@ -750,8 +788,6 @@ async function loadTransactions(page = 1, force = false, options = {}) {
             appContent.style.setProperty('pointer-events', 'auto', 'important');
             appContent.style.setProperty('filter', 'none', 'important');
             appContent.style.setProperty('opacity', '1', 'important');
-            // Force immediate reflow
-            void appContent.offsetHeight;
         }
     } catch (e) {
         showToast("Error loading transactions: " + e, "error");
@@ -792,6 +828,9 @@ function getBillSortValue(billNo) {
 }
 
 async function saveEntry() {
+    if (isSavingEntry) return;
+    isSavingEntry = true;
+
     const date = document.getElementById("newDate").value;
     const bill = document.getElementById("newBill").value;
     const partyInput = document.getElementById("newParty");
@@ -804,17 +843,20 @@ async function saveEntry() {
         if (!amount || isNaN(amount) || parseFloat(amount) <= 0) {
             showToast("Amount must be greater than 0", "error");
             document.getElementById("newAmount").focus();
+            isSavingEntry = false;
             return;
         }
     
     // Check if we're in edit mode
     if (editingTransactionId) {
         await updateTransaction(editingTransactionId, date, bill, party, type, mode, amount);
+        isSavingEntry = false;
         return;
     }
 
     if (!date || !amount || !type || !mode || !party) {
         showToast("All fields (Date, Party, Type, Mode, Amount) are mandatory.", "error");
+        isSavingEntry = false;
         return;
     }
 
@@ -822,12 +864,14 @@ async function saveEntry() {
         const pType = partyTypes[party];
         if (pType && pType !== "Credit Customer") {
             showToast(`Credit Mode is NOT allowed for '${party}' (Type: ${pType}). Only 'Credit Customer' can take credit.`, "error");
+            isSavingEntry = false;
             return;
         }
     }
 
     if (!party && mode === "Credit") {
         showToast("Credit transactions require a party.", "error");
+        isSavingEntry = false;
         return;
     }
 
@@ -843,11 +887,15 @@ async function saveEntry() {
     if (!partyExists && party !== "") {
         if (isStrict) {
             showToast(`Party '${party}' not found. Create it in 'Manage > Add Party' first.`, "error");
+            isSavingEntry = false;
             return;
         } else {
             if (confirm(`Party '${party}' does not exist. Create new Party?`)) {
                 let pType = prompt("Enter Party Type (Customer, Credit Customer, Supplier, Expense Account, Bank):", "Customer");
-                if (!pType) return;
+                if (!pType) {
+                    isSavingEntry = false;
+                    return;
+                }
 
                 const isCredit = pType === "Credit Customer";
                 await fetchWithTimeout("http://127.0.0.1:8000/party", {
@@ -857,6 +905,7 @@ async function saveEntry() {
                 });
                 await loadParties(true);
             } else {
+                isSavingEntry = false;
                 return;
             }
         }
@@ -893,6 +942,8 @@ async function saveEntry() {
         }
     } catch (e) {
         showToast("Network Error: " + e, "error");
+    } finally {
+        isSavingEntry = false;
     }
 }
 
@@ -1250,6 +1301,7 @@ async function updateTransaction(id, date, bill, party, type, mode, amount) {
     try {
         // Update each field that changed
         const updates = [
+            { field: 'party', value: party },
             { field: 'txn_date', value: date },
             { field: 'bill_no', value: bill },
             { field: 'txn_type', value: type },
@@ -1298,27 +1350,13 @@ async function updateTransaction(id, date, bill, party, type, mode, amount) {
 }
 
 function closeEditModal() {
-    const modal = document.getElementById('editTxnModal');
-    if (!modal) return;
-    
-    // Completely remove modal from layout and paint
-    modal.style.setProperty('display', 'none', 'important');
-    modal.style.setProperty('pointer-events', 'none', 'important');
-    modal.style.setProperty('visibility', 'hidden', 'important');
-    modal.style.setProperty('z-index', '-1', 'important');
-    
-    // Force browser to recalculate layout immediately
-    void modal.offsetHeight;
-    
-    // Also ensure app is unlocked
+    setModalVisible('editTxnModal', false);
     const appContent = document.getElementById('appContent');
     if (appContent) {
-        appContent.style.setProperty('pointer-events', 'auto', 'important');
-        appContent.style.setProperty('filter', 'none', 'important');
-        appContent.style.setProperty('opacity', '1', 'important');
-        void appContent.offsetHeight;
+        appContent.style.pointerEvents = 'auto';
+        appContent.style.filter = 'none';
+        appContent.style.opacity = '1';
     }
-    
 }
 
 function ensureAppInteractive() {
@@ -1337,8 +1375,6 @@ function ensureAppInteractive() {
             appContent.style.setProperty('filter', 'none', 'important');
             appContent.style.setProperty('pointer-events', 'auto', 'important');
             appContent.style.setProperty('opacity', '1', 'important');
-            // Force reflow
-            void appContent.offsetHeight;
         }
     }
 
@@ -1347,7 +1383,6 @@ function ensureAppInteractive() {
         editModal.style.display = 'none';
         editModal.style.pointerEvents = 'none';
         editModal.style.visibility = 'hidden';
-        void editModal.offsetHeight;
     }
     if (confirmModal) {
         confirmModal.style.display = 'none';
@@ -1418,36 +1453,22 @@ async function submitTxnEdit() {
     }
 }
 
-let isDeleting = false;
-let pendingDeleteId = null;
-
 function showConfirmDelete(id) {
-    const modal = document.getElementById('confirmDeleteModal');
     const okBtn = document.getElementById('confirmOkBtn');
     const cancelBtn = document.getElementById('confirmCancelBtn');
     
     pendingDeleteId = id;
-    modal.style.display = 'flex';
-    modal.style.pointerEvents = 'auto';
-    modal.style.visibility = 'visible';
-    modal.style.zIndex = '3000';
-    
-    // Remove any existing listeners
-    const newOkBtn = okBtn.cloneNode(true);
-    const newCancelBtn = cancelBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
-    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-    
-    // Add new listeners
-    document.getElementById('confirmOkBtn').onclick = () => {
-        modal.style.display = 'none';
+    setModalVisible('confirmDeleteModal', true);
+
+    if (okBtn) okBtn.onclick = () => {
+        setModalVisible('confirmDeleteModal', false);
         performDelete(pendingDeleteId);
     };
     
-    document.getElementById('confirmCancelBtn').onclick = () => {
-        modal.style.display = 'none';
+    if (cancelBtn) cancelBtn.onclick = () => {
+        setModalVisible('confirmDeleteModal', false);
         pendingDeleteId = null;
-        openEditModal(id);
+        unlockUiAfterModal();
     };
 }
 
@@ -1465,7 +1486,7 @@ async function deleteTransaction(id) {
 }
 
 async function performDelete(id) {
-    isDeleting = true;
+    setDeleteBusy(true);
     
     try {
         const token = sessionStorage.getItem('access_token');
@@ -1497,15 +1518,15 @@ async function performDelete(id) {
             // CRITICAL: Completely reset input interactivity
             setTimeout(() => {
                 reactivateInputs();
-                isDeleting = false;
+                setDeleteBusy(false);
             }, 100);
         } else {
             showToast("Delete Failed: " + data.detail, "error");
-            isDeleting = false;
+            setDeleteBusy(false);
         }
     } catch (e) {
         showToast("Error: " + e, "error");
-        isDeleting = false;
+        setDeleteBusy(false);
     }
 }
 
@@ -1810,12 +1831,32 @@ function filterTable(tableId, query, isTbody = false) {
 }
 
 // Toast Notifications
+const TOAST_DEDUPE_MS = 1200;
+const MAX_TOASTS = 4;
+let lastToastMeta = { key: "", ts: 0 };
+
 function showToast(message, type = "info") {
     const container = document.getElementById("toast-container");
+    if (!container) return;
+
+    const safeMessage = String(message || "").trim();
+    if (!safeMessage) return;
+
+    const now = Date.now();
+    const key = `${type}|${safeMessage}`;
+    if (lastToastMeta.key === key && (now - lastToastMeta.ts) < TOAST_DEDUPE_MS) {
+        return;
+    }
+    lastToastMeta = { key, ts: now };
+
+    while (container.children.length >= MAX_TOASTS) {
+        container.removeChild(container.firstElementChild);
+    }
+
     const toast = document.createElement("div");
     toast.className = `toast ${type}`;
-    toast.innerHTML = type === "success" ? `<ion-icon name="checkmark-circle"></ion-icon> ${message}` :
-        type === "error" ? `<ion-icon name="alert-circle"></ion-icon> ${message}` : message;
+    toast.innerHTML = type === "success" ? `<ion-icon name="checkmark-circle"></ion-icon> ${safeMessage}` :
+        type === "error" ? `<ion-icon name="alert-circle"></ion-icon> ${safeMessage}` : safeMessage;
 
     container.appendChild(toast);
 
@@ -1989,6 +2030,9 @@ function changeTheme() {
 
 // Initialize Theme
 window.onload = function () {
+    if (appInitDone) return;
+    appInitDone = true;
+
     initApiBase().then(() => {
         startAutoBackup();
         checkAuth();
@@ -2002,7 +2046,8 @@ window.onload = function () {
     if (status === 'offline') {
         updateSystemStatus(false);
     }
-    setInterval(checkBackendStatus, 15000);
+    if (backendStatusIntervalId) clearInterval(backendStatusIntervalId);
+    backendStatusIntervalId = setInterval(checkBackendStatus, 15000);
     const savedTheme = localStorage.getItem('theme') || 'white';
     applyTheme(savedTheme);
     applySidebarCollapsed(localStorage.getItem('sidebarCollapsed') === '1');
@@ -2026,7 +2071,8 @@ window.onload = function () {
     initSoftScroll();
     
     // Failsafe: periodically check if modals are blocking the app
-    setInterval(() => {
+    if (uiFailsafeIntervalId) clearInterval(uiFailsafeIntervalId);
+    uiFailsafeIntervalId = setInterval(() => {
         if (sessionStorage.getItem('username')) {
             const editModal = document.getElementById('editTxnModal');
             const confirmModal = document.getElementById('confirmDeleteModal');
@@ -2056,8 +2102,23 @@ window.onload = function () {
                 console.warn('Failsafe: restored app interactivity');
             }
         }
-    }, 1000); // Check every second
+    }, 2500);
 }
+
+window.addEventListener('beforeunload', () => {
+    if (backendStatusIntervalId) {
+        clearInterval(backendStatusIntervalId);
+        backendStatusIntervalId = null;
+    }
+    if (uiFailsafeIntervalId) {
+        clearInterval(uiFailsafeIntervalId);
+        uiFailsafeIntervalId = null;
+    }
+    if (autoBackupTimer) {
+        clearInterval(autoBackupTimer);
+        autoBackupTimer = null;
+    }
+});
 
 async function checkBackendStatus() {
     try {
@@ -2098,6 +2159,7 @@ async function showDailySummary() {
         return;
     }
 
+    let rowsHtml = '';
     data.forEach(row => {
         let cashInHandCell = `<span>${formatMoney(row.closing_cash)}</span>`;
         if (currentRole === 'admin') {
@@ -2112,7 +2174,7 @@ async function showDailySummary() {
         const shortExcess = Number(row.cash_short_excess || 0);
         const shortExcessColor = shortExcess < 0 ? "var(--danger)" : shortExcess > 0 ? "var(--success)" : "inherit";
 
-        tbody.innerHTML += `
+        rowsHtml += `
             <tr>
                 <td>${formatDateShort(row.date)}</td>
                 <td class="text-right">${formatMoney(row.opening_cash)}</td>
@@ -2126,6 +2188,7 @@ async function showDailySummary() {
                 <td class="text-right">${formatMoney(row.total_sales)}</td>
             </tr>`;
     });
+    tbody.innerHTML = rowsHtml;
 }
 
 function showDayBook() {
@@ -2251,7 +2314,12 @@ async function loadDayBook() {
     if (!date) return showToast('Select a date', 'error');
 
     try {
-        const res = await fetchWithTimeout(`http://127.0.0.1:8000/transactions/by-date?date=${encodeURIComponent(date)}`);
+        const res = await fetchWithTimeout(
+            `http://127.0.0.1:8000/transactions/by-date?date=${encodeURIComponent(date)}`,
+            {},
+            5000,
+            [404]
+        );
         if (res.status === 404) {
             await loadDayBookFallback(date);
             return;
@@ -2292,15 +2360,8 @@ async function loadDayBookFallback(date) {
 }
 
 function renderDayBookRows(rows) {
-    dayBookRows = (rows || []).slice().sort((a, b) => {
-        const da = new Date(a.date || 0).getTime();
-        const db = new Date(b.date || 0).getTime();
-        if (da !== db) return db - da;
-        const bb = getBillSortValue(a.bill_no);
-        const ba = getBillSortValue(b.bill_no);
-        if (ba !== bb) return ba - bb;
-        return String(a.bill_no || '').localeCompare(String(b.bill_no || ''));
-    });
+    // Preserve backend ordering so Day Book matches transaction entry sequence.
+    dayBookRows = (rows || []).slice();
     dayBookRenderVersion += 1;
     dayBookLastRenderKey = '';
     initDayBookVirtualScroll();
@@ -2346,6 +2407,7 @@ async function showShortReport() {
 
     let totalShort = 0;
     const monthAgg = {};
+    let bodyHtml = '';
     data.forEach(row => {
         const shortExcess = Number(row.cash_short_excess || 0);
         const shortExcessColor = shortExcess < 0 ? "var(--danger)" : shortExcess > 0 ? "var(--success)" : "inherit";
@@ -2360,7 +2422,7 @@ async function showShortReport() {
             if (shortExcess > 0) monthAgg[monthKey].excess += shortExcess;
         }
 
-        tbody.innerHTML += `
+        bodyHtml += `
             <tr>
                 <td>${formatDateShort(row.date)}</td>
                 <td class="text-right">${formatMoney(row.opening_cash)}</td>
@@ -2373,7 +2435,7 @@ async function showShortReport() {
     });
 
     if (totalShort !== 0) {
-        tbody.innerHTML += `
+        bodyHtml += `
             <tr style="font-weight:bold;">
                 <td>Total Short</td>
                 <td class="text-right"></td>
@@ -2384,6 +2446,7 @@ async function showShortReport() {
                 <td class="text-right" style="color: var(--danger);">${formatMoney(totalShort)}</td>
             </tr>`;
     }
+    tbody.innerHTML = bodyHtml;
 
     if (summaryDiv) {
         const months = Object.keys(monthAgg).sort().reverse();
@@ -2486,8 +2549,10 @@ let purchaseSupplierData = [];
 const INVENTORY_STORAGE_PREFIX = 'inventoryStock';
 const INVENTORY_PRODUCT_MASTER_PREFIX = 'inventoryProductMaster';
 const INVENTORY_MAIL_PROFILE_KEY = 'inventoryMailProfile';
+const INVENTORY_MAIL_SUBJECT_AUTO_PREFIX = 'Inventory Report - ';
 let inventoryModel = { month: null, days: 31, rows: [] };
 let inventorySaveTimer = null;
+let inventoryMailSubjectHooked = false;
 
 function renderPurchaseSupplier() {
     const supplierBody = document.getElementById('purchaseSupplierBody');
@@ -2727,6 +2792,10 @@ function sanitizeInventoryRows(rows, dayCount) {
 }
 
 function loadInventoryMonth() {
+    if (inventorySaveTimer) {
+        clearTimeout(inventorySaveTimer);
+        inventorySaveTimer = null;
+    }
     ensureInventoryMonthOptions();
     const monthSelect = document.getElementById('inventoryMonthSelect');
     if (!monthSelect) return;
@@ -2754,8 +2823,45 @@ function loadInventoryMonth() {
         )
     };
 
+    initInventoryMailSubjectHook();
+    syncInventoryMailSubjectWithMonth();
     renderInventoryTable();
     updateGlobalReportContext('inventoryView');
+}
+
+function getInventoryAutoSubjectText() {
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthText = monthSelect && monthSelect.options.length
+        ? monthSelect.options[monthSelect.selectedIndex].text
+        : 'Month';
+    return `${INVENTORY_MAIL_SUBJECT_AUTO_PREFIX}${monthText} (${getInventoryFinancialYear()})`;
+}
+
+function initInventoryMailSubjectHook() {
+    if (inventoryMailSubjectHooked) return;
+    const subjectEl = document.getElementById('inventoryMailSubject');
+    if (!subjectEl) return;
+
+    subjectEl.addEventListener('input', () => {
+        const autoText = getInventoryAutoSubjectText();
+        const val = String(subjectEl.value || '').trim();
+        subjectEl.dataset.autoSubject = val && val === autoText ? '1' : '0';
+    });
+
+    inventoryMailSubjectHooked = true;
+}
+
+function syncInventoryMailSubjectWithMonth(force = false) {
+    const subjectEl = document.getElementById('inventoryMailSubject');
+    if (!subjectEl) return;
+    const autoText = getInventoryAutoSubjectText();
+    const current = String(subjectEl.value || '').trim();
+    const isAuto = subjectEl.dataset.autoSubject === '1';
+
+    if (force || !current || isAuto) {
+        subjectEl.value = autoText;
+        subjectEl.dataset.autoSubject = '1';
+    }
 }
 
 function renderInventoryTable() {
@@ -2774,30 +2880,24 @@ function renderInventoryTable() {
 
     if (!inventoryModel.rows.length) {
         tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 3}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
-        summary.textContent = '0 products | Total qty: 0';
+        summary.textContent = '0 products | Total qty: 0.00 | Current stock value: 0.00';
         renderInventoryValueReport();
         return;
     }
 
     let bodyHtml = '';
-    let totalQty = 0;
-    let currentStockValue = 0;
     inventoryModel.rows.forEach((row, rowIndex) => {
-        bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
-        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-kind="cost" value="${Number(row.cost || 0) === 0 ? '' : Number(row.cost || 0)}" min="0" step="0.01" placeholder="0"></td>`;
-        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
+        bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-col="0" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
+        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="1" data-kind="cost" value="${Number(row.cost || 0) === 0 ? '' : Number(row.cost || 0)}" min="0" step="0.01" placeholder="0"></td>`;
+        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="2" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
         for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
             const value = Number(row.qty[dayIndex] || 0);
-            totalQty += value;
-            if (dayIndex === inventoryModel.days - 1) {
-                currentStockValue += value * Number(row.cost || 0);
-            }
-            bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1"></td>`;
+            bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="${3 + dayIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1"></td>`;
         }
         bodyHtml += '</tr>';
     });
     tbody.innerHTML = bodyHtml;
-    summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)} | Current stock value: ${formatMoney(currentStockValue)}`;
+    refreshInventorySummary();
 
     tbody.querySelectorAll('input[data-kind="name"]').forEach((input) => {
         input.addEventListener('input', (e) => {
@@ -2818,6 +2918,8 @@ function renderInventoryTable() {
             if (!Number.isInteger(rowIdx) || !Number.isInteger(dayIdx) || !inventoryModel.rows[rowIdx]) return;
             const val = Number(e.target.value);
             inventoryModel.rows[rowIdx].qty[dayIdx] = Number.isFinite(val) ? val : 0;
+            refreshInventorySummary();
+            renderInventoryValueReport();
             queueInventoryAutoSave();
         });
     });
@@ -2844,11 +2946,103 @@ function renderInventoryTable() {
             if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
             const val = Number(e.target.value);
             inventoryModel.rows[rowIdx].cost = Number.isFinite(val) && val > 0 ? val : 0;
+            refreshInventorySummary();
+            renderInventoryValueReport();
             queueInventoryAutoSave();
         });
     });
 
+    tbody.querySelectorAll('input[data-row][data-col]').forEach((input) => {
+        input.addEventListener('keydown', handleInventoryCellNavigation);
+    });
+
     renderInventoryValueReport();
+}
+
+function computeInventoryTotals() {
+    let totalQty = 0;
+    let currentStockValue = 0;
+    const lastDayIndex = Math.max((inventoryModel.days || 1) - 1, 0);
+    (inventoryModel.rows || []).forEach((row) => {
+        const qty = Array.isArray(row.qty) ? row.qty : [];
+        qty.forEach((v) => {
+            totalQty += Number(v || 0);
+        });
+        const currentQty = Number(qty[lastDayIndex] || 0);
+        currentStockValue += currentQty * Number(row.cost || 0);
+    });
+    return { totalQty, currentStockValue };
+}
+
+function refreshInventorySummary() {
+    const summary = document.getElementById('inventorySummary');
+    if (!summary) return;
+    const { totalQty, currentStockValue } = computeInventoryTotals();
+    summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)} | Current stock value: ${formatMoney(currentStockValue)}`;
+}
+
+function focusInventoryCell(rowIdx, colIdx) {
+    const cell = document.querySelector(`#inventoryBody input[data-row="${rowIdx}"][data-col="${colIdx}"]`);
+    if (!cell) return false;
+    cell.focus();
+    if (typeof cell.select === 'function') cell.select();
+    return true;
+}
+
+function appendInventoryRow(name = '') {
+    inventoryModel.rows.push({
+        name: String(name || '').trim(),
+        qty: Array.from({ length: inventoryModel.days }, () => 0),
+        min_stock: 0,
+        cost: 0
+    });
+}
+
+function handleInventoryCellNavigation(event) {
+    const key = event.key;
+    const rowIdx = Number(event.target.getAttribute('data-row'));
+    const colIdx = Number(event.target.getAttribute('data-col'));
+    if (!Number.isInteger(rowIdx) || !Number.isInteger(colIdx)) return;
+
+    let targetRow = rowIdx;
+    let targetCol = colIdx;
+    let shouldNavigate = false;
+
+    if (key === 'Enter' && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        shouldNavigate = true;
+        targetRow += event.shiftKey ? -1 : 1;
+    } else if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (key === 'ArrowDown') {
+            shouldNavigate = true;
+            targetRow += 1;
+        } else if (key === 'ArrowUp') {
+            shouldNavigate = true;
+            targetRow -= 1;
+        } else if (key === 'ArrowRight') {
+            shouldNavigate = true;
+            targetCol += 1;
+        } else if (key === 'ArrowLeft') {
+            shouldNavigate = true;
+            targetCol -= 1;
+        }
+    }
+
+    if (!shouldNavigate) return;
+    event.preventDefault();
+
+    const maxCol = inventoryModel.days + 2;
+    targetCol = Math.max(0, Math.min(maxCol, targetCol));
+
+    if (targetRow < 0) {
+        targetRow = 0;
+    } else if (targetRow >= inventoryModel.rows.length) {
+        appendInventoryRow('');
+        renderInventoryTable();
+        queueInventoryAutoSave();
+        targetRow = inventoryModel.rows.length - 1;
+    }
+
+    focusInventoryCell(targetRow, targetCol);
 }
 
 function renderInventoryValueReport() {
@@ -2908,7 +3102,7 @@ function escapeHtml(text) {
 function addInventoryRow() {
     const input = document.getElementById('inventoryProductInput');
     const name = (input ? input.value : '').trim();
-    inventoryModel.rows.push({ name, qty: Array.from({ length: inventoryModel.days }, () => 0), min_stock: 0, cost: 0 });
+    appendInventoryRow(name);
     if (input) input.value = '';
     renderInventoryTable();
     saveInventorySnapshot(true);
@@ -2932,7 +3126,38 @@ function removeEmptyInventoryRows() {
 
 function queueInventoryAutoSave() {
     if (inventorySaveTimer) clearTimeout(inventorySaveTimer);
-    inventorySaveTimer = setTimeout(() => saveInventorySnapshot(true), 400);
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || 1));
+    const fy = getInventoryFinancialYear();
+    const snapshotPayload = {
+        fy,
+        month: Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum : Number(inventoryModel.month || 1),
+        rows: sanitizeInventoryRows(inventoryModel.rows, inventoryModel.days),
+        updated_at: new Date().toISOString()
+    };
+    inventorySaveTimer = setTimeout(() => {
+        inventorySaveTimer = null;
+        persistInventoryPayload(snapshotPayload, true);
+    }, 400);
+}
+
+function persistInventoryPayload(payload, silent = false) {
+    const fy = String(payload && payload.fy ? payload.fy : getInventoryFinancialYear());
+    const monthNum = Number(payload && payload.month ? payload.month : (inventoryModel.month || 1));
+    if (!Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) return;
+    const key = getInventoryStorageKey(fy, monthNum);
+    const safeRows = sanitizeInventoryRows(payload && payload.rows ? payload.rows : inventoryModel.rows, inventoryModel.days);
+    const finalPayload = {
+        fy,
+        month: monthNum,
+        rows: safeRows,
+        updated_at: payload && payload.updated_at ? payload.updated_at : new Date().toISOString()
+    };
+    localStorage.setItem(key, JSON.stringify(finalPayload));
+    saveInventoryProductMaster(fy, safeRows);
+    if (!silent) {
+        showToast('Inventory saved', 'success');
+    }
 }
 
 function saveInventorySnapshot(silent = false) {
@@ -2940,18 +3165,13 @@ function saveInventorySnapshot(silent = false) {
     const monthSelect = document.getElementById('inventoryMonthSelect');
     const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || 1));
     const fy = getInventoryFinancialYear();
-    const key = getInventoryStorageKey(fy, monthNum);
     const payload = {
         fy,
         month: monthNum,
         rows: sanitizeInventoryRows(inventoryModel.rows, inventoryModel.days),
         updated_at: new Date().toISOString()
     };
-    localStorage.setItem(key, JSON.stringify(payload));
-    saveInventoryProductMaster(fy, payload.rows);
-    if (!silent) {
-        showToast('Inventory saved', 'success');
-    }
+    persistInventoryPayload(payload, silent);
 }
 
 async function importInventorySheet(event) {
@@ -3055,15 +3275,9 @@ function toggleInventoryMailPanel() {
     const willOpen = panel.style.display === 'none' || !panel.style.display;
     panel.style.display = willOpen ? 'block' : 'none';
     if (willOpen) {
+        initInventoryMailSubjectHook();
         loadInventoryMailProfile();
-        const subject = document.getElementById('inventoryMailSubject');
-        const monthSelect = document.getElementById('inventoryMonthSelect');
-        const monthText = monthSelect && monthSelect.options.length
-            ? monthSelect.options[monthSelect.selectedIndex].text
-            : 'Month';
-        if (subject && !subject.value.trim()) {
-            subject.value = `Inventory Report - ${monthText} (${getInventoryFinancialYear()})`;
-        }
+        syncInventoryMailSubjectWithMonth();
     }
 }
 
@@ -3111,6 +3325,12 @@ function loadInventoryMailProfile() {
 
     const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
     if (onlyReorderEl) onlyReorderEl.checked = !!profile.only_reorder;
+
+    const subjectEl = document.getElementById('inventoryMailSubject');
+    if (subjectEl) {
+        const autoText = getInventoryAutoSubjectText();
+        subjectEl.dataset.autoSubject = String(subjectEl.value || '').trim() === autoText ? '1' : '0';
+    }
 }
 
 function saveInventoryMailProfile() {
@@ -3160,6 +3380,7 @@ function clearInventoryMailProfile() {
     if (rememberEl) rememberEl.checked = false;
     const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
     if (onlyReorderEl) onlyReorderEl.checked = false;
+    syncInventoryMailSubjectWithMonth(true);
     showToast('Mail profile cleared', 'info');
 }
 
@@ -3620,7 +3841,7 @@ async function showPnL() {
 // Backup & Import
 async function backupDB() {
     try {
-        const res = await fetch(`http://127.0.0.1:8000/backup`, { method: "POST" });
+        const res = await fetchWithTimeout(`http://127.0.0.1:8000/backup`, { method: "POST" }, 30000);
         const data = await res.json();
         if (data.status === "Backup Successful") {
             localStorage.setItem('lastBackupAt', new Date().toISOString());
@@ -3634,12 +3855,12 @@ async function backupDB() {
         } else {
             showToast("Backup Failed: " + data.detail, "error");
         }
-    } catch (e) { showToast("Error: " + e, "error"); }
+    } catch (e) { showToast("Backup failed: " + (e.message || e), "error"); }
 }
 
 async function runAutoBackupNow() {
     try {
-        const res = await fetch(`http://127.0.0.1:8000/backup/auto`, { method: "POST" });
+        const res = await fetchWithTimeout(`http://127.0.0.1:8000/backup/auto`, { method: "POST" }, 30000);
         const data = await res.json();
         if (data.status === "Backup Successful") {
             localStorage.setItem('lastBackupAt', new Date().toISOString());
@@ -3649,7 +3870,7 @@ async function runAutoBackupNow() {
             showToast("Auto backup failed: " + data.detail, "error");
         }
     } catch (e) {
-        showToast("Auto backup error: " + e, "error");
+        showToast("Auto backup failed: " + (e.message || e), "error");
     }
 }
 
@@ -3675,7 +3896,7 @@ async function restoreDB() {
             showToast("Restore Successful. Restarting...", "success");
             location.reload();
         } else showToast("Restore Failed: " + data.detail, "error");
-    } catch (e) { showToast("Error: " + e, "error"); }
+    } catch (e) { showToast("Restore failed: " + (e.message || e), "error"); }
 }
 
 async function installServerMode() {
@@ -3859,6 +4080,29 @@ function exportLedger() {
 
 // Keyboard Shortcuts
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const confirmModal = document.getElementById('confirmDeleteModal');
+        const accessModal = document.getElementById('dbConfigAccessModal');
+        const dbModal = document.getElementById('dbConfigModal');
+        if (confirmModal && getComputedStyle(confirmModal).display !== 'none') {
+            e.preventDefault();
+            setModalVisible('confirmDeleteModal', false);
+            pendingDeleteId = null;
+            unlockUiAfterModal();
+            return;
+        }
+        if (accessModal && getComputedStyle(accessModal).display !== 'none') {
+            e.preventDefault();
+            closeDbConfigAccessModal();
+            return;
+        }
+        if (dbModal && getComputedStyle(dbModal).display !== 'none') {
+            e.preventDefault();
+            closeDbConfig();
+            return;
+        }
+    }
+
     // Ctrl+S or Cmd+S: Save transaction edit
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
@@ -3898,6 +4142,14 @@ document.addEventListener('keydown', (e) => {
 
 let currentUser = null;
 let autoBackupTimer = null;
+let isDeleting = false;
+let pendingDeleteId = null;
+window.isDeleting = false;
+
+function setDeleteBusy(isBusy) {
+    isDeleting = !!isBusy;
+    window.isDeleting = !!isBusy;
+}
 
 function checkAuth() {
     currentUser = sessionStorage.getItem('username');
@@ -3909,15 +4161,19 @@ function checkAuth() {
 
     if (!currentUser) {
         // Show Login
-        modal.style.display = 'flex';
+        setModalVisible('loginModal', true);
         appContent.style.filter = 'blur(5px)';
         appContent.style.pointerEvents = 'none';
+        if (autoBackupTimer) {
+            clearInterval(autoBackupTimer);
+            autoBackupTimer = null;
+        }
         loadFinancialYears();
         return;
     }
 
     // Hide Login & Show App
-    modal.style.display = 'none';
+    setModalVisible('loginModal', false);
     appContent.style.filter = 'none';
     appContent.style.pointerEvents = 'auto';
 
@@ -3945,7 +4201,7 @@ function startAutoBackup() {
 
     if (autoBackupTimer) return;
     autoBackupTimer = setInterval(() => {
-        fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' });
+        fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' }).catch(() => {});
     }, 60 * 60 * 1000);
 }
 
@@ -4019,6 +4275,9 @@ async function loadFinancialYears(retries = 5) {
 }
 
 async function handleLogin() {
+    if (isLoggingIn) return;
+    isLoggingIn = true;
+
     const user = document.getElementById('loginUser').value;
     const pass = document.getElementById('loginPass').value;
     const errorP = document.getElementById('loginError');
@@ -4027,6 +4286,7 @@ async function handleLogin() {
 
     if (!user || !pass || !financialYear) {
         errorP.innerText = 'Select financial year and enter credentials';
+        isLoggingIn = false;
         return;
     }
 
@@ -4070,6 +4330,8 @@ async function handleLogin() {
         passInp.classList.add('shake');
         errorP.innerText = e.message || 'Incorrect password/ID';
         setTimeout(() => passInp.classList.remove('shake'), 500);
+    } finally {
+        isLoggingIn = false;
     }
 }
 
@@ -4082,6 +4344,10 @@ function resetLogin() {
 
 function handleLogout() {
     sessionStorage.clear();
+    if (autoBackupTimer) {
+        clearInterval(autoBackupTimer);
+        autoBackupTimer = null;
+    }
     location.reload();
 }
 
@@ -4150,8 +4416,8 @@ async function saveOpeningCashSeed() {
 // --- Admin Functions ---
 
 async function renameParty() {
-    const oldName = document.getElementById('renameOldName').value;
-    const newName = document.getElementById('renameNewName').value;
+    const oldName = document.getElementById('renameOldName').value.trim();
+    const newName = document.getElementById('renameNewName').value.trim();
     const adminUser = sessionStorage.getItem('username');
 
     if (!oldName || !newName) return showToast("Enter both names", "error");
@@ -4213,9 +4479,9 @@ async function loadUsers() {
             headers: token ? { 'Authorization': `Bearer ${token}` } : {}
         });
         const users = await res.json();
-        tbody.innerHTML = '';
+        let rowsHtml = '';
         users.forEach(u => {
-            tbody.innerHTML += `
+            rowsHtml += `
             <tr>
                 <td>${u.username}</td>
                 <td>${u.role}</td>
@@ -4224,6 +4490,7 @@ async function loadUsers() {
                 </td>
             </tr>`;
         });
+        tbody.innerHTML = rowsHtml;
     } catch (e) { tbody.innerHTML = 'Error'; }
 }
 

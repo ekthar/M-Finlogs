@@ -7,18 +7,25 @@
   "scripts": {
     "start": "electron .",
     "preflight:build": "node scripts/preflight-build.js",
+    "close:packaging": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/close-packaging-processes.ps1",
+    "clean:packaging": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-packaging-output.ps1",
+    "package:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1",
     "build:backend": "py -3.12 -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py || python -m PyInstaller --noconfirm --clean --onefile --name backend --distpath dist --workpath build backend_runner.py",
     "build:server": "npm run build:backend",
     "package:server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-server.ps1",
-    "dist": "set \"ComSpec=C:\\Windows\\System32\\cmd.exe\" && set \"PATH=%SystemRoot%\\System32;%PATH%\" && electron-builder",
-    "dist:with-backend": "npm run preflight:build && npm run build:backend && npm run dist",
+    "dist": "npm run package:desktop",
+    "dist:with-backend": "npm run preflight:build && npm run close:packaging && npm run clean:packaging && npm run build:backend && npm run dist",
     "dist:server-app": "npm run dist:with-backend",
-    "dist:client": "npm run preflight:build && npm run dist",
+    "dist:client": "npm run preflight:build && npm run package:desktop",
+    "dist:all": "npm run dist:production",
     "dist:production": "npm run build:server && npm run package:server && npm run dist:client"
   },
   "build": {
     "appId": "com.mfinlogs.app",
     "productName": "M-Finlogs",
+    "directories": {
+      "output": "release/desktop-app-build"
+    },
     "publish": [
       {
         "provider": "github",
@@ -42,9 +49,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "exceljs": "^4.4.0",
-    "electron-updater": "^6.3.0",
-    "xlsx": "^0.18.5"
+    "electron-updater": "^6.3.0"
   },
   "devDependencies": {
     "electron": "^40.0.0",

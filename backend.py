@@ -62,6 +62,11 @@ app = FastAPI()
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
+DBCONFIG_UNLOCK_MAX_ATTEMPTS = 5
+DBCONFIG_UNLOCK_LOCK_MINUTES = 15
+DBCONFIG_UNLOCK_PASSWORD_KEY = "db_config_unlock_password"
+DBCONFIG_UNLOCK_FAIL_COUNT_KEY = "db_config_unlock_fail_count"
+DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY = "db_config_unlock_locked_until"
 
 if not JWT_SECRET_KEY or len(JWT_SECRET_KEY.strip()) < 32:
     raise RuntimeError("JWT_SECRET_KEY must be set to a strong secret with at least 32 characters")
@@ -297,6 +302,10 @@ def normalize_company(name: str) -> str:
     base = re.sub(r"\s+", "_", name.strip().lower())
     return re.sub(r"[^a-z0-9_]+", "", base) or "default"
 
+def normalize_party_key(name: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(name or "").strip())
+    return cleaned.lower().replace(" ", "_")
+
 def init_db(company_name: str):
     # Skip if already initialized in this session
     db_key = normalize_company(company_name)
@@ -459,22 +468,50 @@ def get_db_connection(company: Optional[str] = None):
     comp = company or current_company or "default"
     # Don't call init_db on every connection - it's already initialized at startup
     # Use autocommit=True to prevent lock waits and improve performance
-    conn = pyodbc.connect(build_connection_string(), autocommit=True, timeout=5)
-    # Set fast execution mode
-    conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
-    conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
-    conn.setencoding(encoding='utf-8')
-    return conn
+    return _connect_with_retry(build_connection_string(), timeout=5)
 
 def get_master_connection():
-    conn = pyodbc.connect(build_connection_string("master"), autocommit=True, timeout=5)
+    return _connect_with_retry(build_connection_string("master"), timeout=5)
+
+def _configure_connection(conn):
     conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
     conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
     conn.setencoding(encoding='utf-8')
     return conn
 
+def _is_transient_db_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    transient_markers = (
+        "08001",  # client unable to establish connection
+        "08s01",  # communication link failure
+        "hyt00",  # timeout
+        "timeout",
+        "timed out",
+        "login process due to delay",
+        "communication link failure",
+        "server connection"
+    )
+    return any(marker in text for marker in transient_markers)
+
+def _connect_with_retry(conn_str: str, timeout: int = 5, attempts: int = 3):
+    last_err = None
+    for attempt in range(attempts):
+        try:
+            conn = pyodbc.connect(conn_str, autocommit=True, timeout=timeout)
+            return _configure_connection(conn)
+        except pyodbc.Error as exc:
+            last_err = exc
+            if attempt >= attempts - 1 or not _is_transient_db_error(exc):
+                raise
+            time.sleep(0.25 * (2 ** attempt))
+    if last_err:
+        raise last_err
+    raise RuntimeError("Unable to establish database connection")
+
 def get_default_backup_dir(cursor=None):
-    # Always use C:\Finlogs for simplicity and consistency
+    configured = (get_backup_target_dir() or "").strip()
+    if configured:
+        return configured
     return "C:\\Finlogs"
 
 def escape_sql_path(path: str) -> str:
@@ -1264,7 +1301,7 @@ def create_party(party: PartyCreate):
              conn.close()
              raise HTTPException(status_code=400, detail="Only one Bank account is allowed.")
 
-    normalized = party.name.lower().replace(" ", "_")
+    normalized = normalize_party_key(party.name)
     try:
         cursor.execute(
             "INSERT INTO parties (name, normalized_name, type, credit_allowed) VALUES (?, ?, ?, ?)",
@@ -1283,7 +1320,7 @@ def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: st
     try:
         cursor = conn.cursor()
         ensure_financial_year_column(cursor)
-        cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (party.lower().replace(" ","_"),))
+        cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalize_party_key(party),))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Party not found")
@@ -1300,10 +1337,13 @@ def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: st
         conn.close()
         invalidate_report_cache()
         return {"status": "Transaction Added"}
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
     except Exception as e:
+        close_conn_safely(conn)
         log_exception("add_transaction", e)
-        conn.close()
-        return {"status": "Error", "detail": str(e)}
+        raise HTTPException(status_code=500, detail=f"Unable to add transaction: {e}")
 
 @app.get("/ledger/{party:path}")
 def get_ledger(party: str, start: str = None, end: str = None):
@@ -1848,7 +1888,8 @@ def get_outstanding_party_detail(party: str):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM parties WHERE UPPER(LTRIM(RTRIM(name))) = UPPER(LTRIM(RTRIM(?)))", (party,))
+    normalized = normalize_party_key(party)
+    cursor.execute("SELECT COUNT(*) FROM parties WHERE normalized_name=?", (normalized,))
     row = cursor.fetchone()
     if not row or int(row[0] or 0) == 0:
         conn.close()
@@ -1859,10 +1900,10 @@ def get_outstanding_party_detail(party: str):
         SELECT t.txn_date, t.bill_no, t.txn_type, t.payment_mode, t.amount, t.txn_id
         FROM transactions t
         INNER JOIN parties p ON p.party_id = t.party_id
-        WHERE UPPER(LTRIM(RTRIM(p.name))) = UPPER(LTRIM(RTRIM(?)))
+        WHERE p.normalized_name = ?
         ORDER BY t.txn_date ASC, t.txn_id ASC
         """,
-        (party,)
+        (normalized,)
     )
     ledger_rows = cursor.fetchall()
 
@@ -1871,12 +1912,12 @@ def get_outstanding_party_detail(party: str):
         SELECT
             SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) = 'SALE' THEN t.amount ELSE 0 END),
             SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN t.amount ELSE 0 END),
-            MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT') THEN t.txn_date END)
+            MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN t.txn_date END)
         FROM transactions t
         INNER JOIN parties p ON p.party_id = t.party_id
-        WHERE UPPER(LTRIM(RTRIM(p.name))) = UPPER(LTRIM(RTRIM(?)))
+        WHERE p.normalized_name = ?
         """,
-        (party,)
+        (normalized,)
     )
     sums = cursor.fetchone()
 
@@ -2114,8 +2155,7 @@ def backup_database(path: str = None):
         
         cursor = conn.cursor()
         
-        # Always use C:\Finlogs for backups
-        backup_dir = "C:\\Finlogs-12"
+        backup_dir = get_default_backup_dir()
         os.makedirs(backup_dir, exist_ok=True)
         server_backup_path = os.path.join(backup_dir, f"{database}_{timestamp}.bak")
         
@@ -2145,7 +2185,10 @@ def backup_database(path: str = None):
 
         return {"status": "Backup Successful", "path": server_backup_path}
     except Exception as e:
-        return {"status": "Error", "detail": f"Backup failed: {str(e)}. Note: Ensure the SQL Server Service Account has write access to C:\\Finlogs-12"}
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backup failed: {e}. Ensure the SQL Server service account can write to {get_default_backup_dir()}",
+        )
 
 
 @app.post("/backup/auto")
@@ -2163,8 +2206,7 @@ def backup_database_auto():
         
         cursor = conn.cursor()
         
-        # Auto backups go to C:\Finlogs\Auto
-        backup_dir = "C:\\Finlogs\\Auto"
+        backup_dir = os.path.join(get_default_backup_dir(), "Auto")
         os.makedirs(backup_dir, exist_ok=True)
 
         # Permission check (Note: This checks App permissions, NOT SQL Server permissions)
@@ -2174,7 +2216,10 @@ def backup_database_auto():
                 f.write("test")
             os.remove(test_file)
         except Exception as perm_err:
-            return {"status": "Error", "detail": f"Auto backup failed: App has no write permission on {backup_dir}. {perm_err}"}
+            raise HTTPException(
+                status_code=500,
+                detail=f"Auto backup failed: app has no write permission on {backup_dir}. {perm_err}",
+            )
         
         database = SQL_DATABASE
         backup_path = os.path.join(backup_dir, f"auto_{database}_{timestamp}.bak")
@@ -2208,14 +2253,14 @@ def backup_database_auto():
         
         return {"status": "Backup Successful", "path": backup_path}
     except Exception as e:
-        return {"status": "Error", "detail": f"Auto backup failed: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Auto backup failed: {e}")
 
 @app.post("/restore")
 def restore_database(path: str):
     """SQL Server restore - requires administrative privileges"""
     try:
         if not os.path.exists(path):
-            return {"status": "Error", "detail": "Backup file not found"}
+            raise HTTPException(status_code=404, detail="Backup file not found")
         
         database = SQL_DATABASE
         
@@ -2233,8 +2278,10 @@ def restore_database(path: str):
         conn.close()
         
         return {"status": "Restore Successful"}
+    except HTTPException:
+        raise
     except Exception as e:
-        return {"status": "Error", "detail": f"Restore failed: {str(e)}. Note: SQL Server restores require admin privileges."}
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}. SQL Server restores require admin privileges.")
 
 from fastapi import UploadFile, File
 
@@ -2309,12 +2356,12 @@ async def import_transactions(file: UploadFile = File(...)):
                 except:
                     amount = 0.0
                 
-                cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (str(party).lower().replace(" ","_"),))
+                cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalize_party_key(party),))
                 res = cursor.fetchone()
                 if res:
                     pid = res[0]
                 else:
-                    norm = str(party).lower().replace(" ","_")
+                    norm = normalize_party_key(party)
                     cursor.execute("INSERT INTO parties (name, normalized_name, type, credit_allowed) VALUES (?, ?, 'Customer', 1)", (str(party), norm))
                     pid = cursor.lastrowid
                 
@@ -2559,27 +2606,40 @@ def rename_party(req: RenamePartyRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        old_name = re.sub(r"\s+", " ", str(req.old_name or "").strip())
+        new_name = re.sub(r"\s+", " ", str(req.new_name or "").strip())
+        if not old_name or not new_name:
+            raise HTTPException(status_code=400, detail="Both old and new party names are required")
+
         # Check if old exists
-        cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (req.old_name.lower().replace(" ","_"),))
+        cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalize_party_key(old_name),))
         row = cursor.fetchone()
         if not row:
-            conn.close()
+            # Fallback for legacy rows where normalized value may not match newer normalization.
+            cursor.execute("SELECT party_id FROM parties WHERE UPPER(LTRIM(RTRIM(name))) = UPPER(LTRIM(RTRIM(?)))", (old_name,))
+            row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Party not found")
         
         party_id = row[0]
-        new_norm = req.new_name.lower().replace(" ","_")
+        new_norm = normalize_party_key(new_name)
+        if not new_norm:
+            raise HTTPException(status_code=400, detail="Invalid new party name")
         
         # Check if new name taken
         cursor.execute("SELECT COUNT(*) FROM parties WHERE normalized_name=? AND party_id != ?", (new_norm, party_id))
         if cursor.fetchone()[0] > 0:
-            conn.close()
             raise HTTPException(status_code=400, detail="New name already exists")
             
-        cursor.execute("UPDATE parties SET name=?, normalized_name=? WHERE party_id=?", (req.new_name, new_norm, party_id))
+        cursor.execute("UPDATE parties SET name=?, normalized_name=? WHERE party_id=?", (new_name, new_norm, party_id))
         conn.close()
+        invalidate_report_cache()
         
-        log_audit(req.admin_user, "Rename Party", f"Renamed {req.old_name} to {req.new_name}")
+        log_audit(req.admin_user, "Rename Party", f"Renamed {old_name} to {new_name}")
         return {"status": "Renamed Successfully"}
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
     except Exception as e:
         close_conn_safely(conn)
         return safe_error_response("rename_party", e, "Unable to rename party")
@@ -2789,6 +2849,7 @@ def edit_transaction(req: EditTxnRequest, authorization: Optional[str] = Header(
         field_map = {
             "txn_date": "txn_date",
             "bill_no": "bill_no",
+            "party": "party_id",
             "txn_type": "txn_type",
             "payment_mode": "payment_mode",
             "amount": "amount",
@@ -2798,19 +2859,46 @@ def edit_transaction(req: EditTxnRequest, authorization: Optional[str] = Header(
             raise HTTPException(status_code=400, detail="Invalid field")
 
         # Get old value for audit
-        cursor.execute(f"SELECT {db_field} FROM transactions WHERE txn_id=?", (req.txn_id,))
+        if req.field == "party":
+            cursor.execute(
+                """
+                SELECT p.name
+                FROM transactions t
+                INNER JOIN parties p ON p.party_id = t.party_id
+                WHERE t.txn_id=?
+                """,
+                (req.txn_id,)
+            )
+        else:
+            cursor.execute(f"SELECT {db_field} FROM transactions WHERE txn_id=?", (req.txn_id,))
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Transaction not found")
         
         old_val = str(row[0])
-            
-        cursor.execute(f"UPDATE transactions SET {db_field}=? WHERE txn_id=?", (req.new_value, req.txn_id))
+
+        if req.field == "party":
+            normalized = normalize_party_key(req.new_value)
+            if not normalized:
+                raise HTTPException(status_code=400, detail="Party name is required")
+
+            cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalized,))
+            party_row = cursor.fetchone()
+            if not party_row:
+                raise HTTPException(status_code=404, detail="Party not found")
+            cursor.execute("UPDATE transactions SET party_id=? WHERE txn_id=?", (party_row[0], req.txn_id))
+        else:
+            cursor.execute(f"UPDATE transactions SET {db_field}=? WHERE txn_id=?", (req.new_value, req.txn_id))
+
         conn.close()
         invalidate_report_cache()
         
-        log_audit(admin_user, "Edit Transaction", f"Changed {db_field} from {old_val} to {req.new_value} for Txn ID {req.txn_id}")
+        audit_field = "party" if req.field == "party" else db_field
+        log_audit(admin_user, "Edit Transaction", f"Changed {audit_field} from {old_val} to {req.new_value} for Txn ID {req.txn_id}")
         return {"status": "Updated Successfully"}
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
     except Exception as e:
         close_conn_safely(conn)
         return safe_error_response("edit_transaction", e, "Unable to update transaction")
@@ -2853,17 +2941,32 @@ class DbConfigUnlockRequest(BaseModel):
 class DbConfigUnlockSetupRequest(BaseModel):
     password: str
 
+def _get_app_setting(cursor, key: str, default_val: Optional[str] = None) -> Optional[str]:
+    cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", (key,))
+    row = cursor.fetchone()
+    if not row:
+        return default_val
+    value = row[0]
+    return default_val if value is None else str(value)
+
+def _set_app_setting(cursor, key: str, value: str):
+    cursor.execute("SELECT COUNT(*) FROM app_settings WHERE setting_key=?", (key,))
+    exists = cursor.fetchone()[0] > 0
+    if exists:
+        cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", (value, key))
+    else:
+        cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", (key, value))
+
 @app.get("/dbconfig/unlock-status")
 def get_dbconfig_unlock_status():
     """Check if DB config unlock password is set (for first-time setup)"""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
-        row = cursor.fetchone()
+        stored = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
         conn.close()
         
-        has_password = row is not None and row[0] is not None
+        has_password = bool(stored)
         return {"needs_setup": not has_password}
     except Exception:
         conn.close()
@@ -2878,49 +2981,74 @@ def verify_dbconfig_unlock(req: DbConfigUnlockRequest):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if not row or row[0] is None:
+        stored_hash = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
+        if not stored_hash:
             raise HTTPException(status_code=403, detail="DB config not accessible")
-        
-        # Hash the provided password and compare
-        hashed = hashlib.sha256(req.password.encode()).hexdigest()
-        if hashed == row[0]:
-            return {"status": "Success", "message": "Unlocked"}
-        else:
-            raise HTTPException(status_code=401, detail="Incorrect password")
+
+        locked_until_raw = _get_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
+        now_utc = datetime.datetime.utcnow()
+        if locked_until_raw:
+            try:
+                locked_until = datetime.datetime.fromisoformat(locked_until_raw)
+            except Exception:
+                locked_until = None
+            if locked_until and now_utc < locked_until:
+                wait_seconds = int((locked_until - now_utc).total_seconds())
+                raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {wait_seconds} seconds.")
+
+        is_valid, needs_upgrade = verify_user_password(stored_hash, req.password)
+        if not is_valid:
+            fail_count = int(_get_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0") or "0") + 1
+            if fail_count >= DBCONFIG_UNLOCK_MAX_ATTEMPTS:
+                locked_until = now_utc + datetime.timedelta(minutes=DBCONFIG_UNLOCK_LOCK_MINUTES)
+                _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, locked_until.isoformat())
+                _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
+                conn.close()
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Too many failed attempts. Unlock is blocked for {DBCONFIG_UNLOCK_LOCK_MINUTES} minutes.",
+                )
+
+            _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, str(fail_count))
+            conn.close()
+            attempts_left = DBCONFIG_UNLOCK_MAX_ATTEMPTS - fail_count
+            raise HTTPException(status_code=401, detail=f"Incorrect password. {attempts_left} attempt(s) left.")
+
+        if needs_upgrade:
+            _set_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY, hash_user_password(req.password))
+
+        _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
+        _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
+        conn.close()
+        return {"status": "Success", "message": "Unlocked"}
     except HTTPException:
+        close_conn_safely(conn)
         raise
     except Exception as e:
-        conn.close()
+        close_conn_safely(conn)
+        log_exception("verify_dbconfig_unlock", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/dbconfig/unlock/setup")
 def setup_dbconfig_unlock(req: DbConfigUnlockSetupRequest):
     """Set DB config unlock password (first-run, pre-login)"""
     
-    if not req.password or len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if not req.password or len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         # Check if already set
-        cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", ("db_config_unlock_password",))
-        row = cursor.fetchone()
+        existing = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
         
-        if row and row[0] is not None:
+        if existing:
             conn.close()
             raise HTTPException(status_code=400, detail="DB config unlock password already configured")
         
-        # Hash and set the password
-        hashed = hashlib.sha256(req.password.encode()).hexdigest()
-        if row:
-            cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", (hashed, "db_config_unlock_password"))
-        else:
-            cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", ("db_config_unlock_password", hashed))
+        _set_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY, hash_user_password(req.password))
+        _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
+        _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
         
         conn.close()
         log_audit("system", "Setup", "DB config unlock password configured")
@@ -2929,7 +3057,8 @@ def setup_dbconfig_unlock(req: DbConfigUnlockSetupRequest):
         raise
     except Exception as e:
         conn.close()
-        return {"status": "Error", "detail": str(e)}
+        log_exception("setup_dbconfig_unlock", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Database Configuration Endpoints
 class DbConfigRequest(BaseModel):
