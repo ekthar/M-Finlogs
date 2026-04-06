@@ -2168,6 +2168,7 @@ async function showDailySummary() {
                 <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end;">
                     <input type="number" id="cashInHand-${row.date}" value="${inputVal}" style="width:120px; text-align:right;">
                     <button class="btn-sm" style="background:#4b5563; padding: 4px 8px; font-size: 12px; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="saveCashInHand('${row.date}')">Save</button>
+                    <button class="btn-sm" style="background:#9ca3af; padding: 4px 8px; font-size: 12px; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="resetCashInHand('${row.date}')">Reset</button>
                 </div>`;
         }
 
@@ -3532,6 +3533,30 @@ async function saveCashInHand(dateStr) {
             showDailySummary();
         } else {
             showToast("Save failed: " + data.detail, "error");
+        }
+    } catch (e) {
+        showToast("Error: " + e, "error");
+    }
+}
+
+async function resetCashInHand(dateStr) {
+    if (!confirm(`Reset cash in hand for ${formatDateShort(dateStr)} to computed value?`)) return;
+
+    try {
+        const res = await fetch("http://127.0.0.1:8000/cash/hand/reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                date: dateStr,
+                admin_user: sessionStorage.getItem("username")
+            })
+        });
+        const data = await res.json();
+        if (data.status === "Reset") {
+            showToast("Cash In Hand reset", "success");
+            showDailySummary();
+        } else {
+            showToast("Reset failed: " + data.detail, "error");
         }
     } catch (e) {
         showToast("Error: " + e, "error");

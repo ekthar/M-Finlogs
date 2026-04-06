@@ -554,6 +554,10 @@ class CashInHandRequest(BaseModel):
     cash_in_hand: float
     admin_user: str
 
+class CashInHandResetRequest(BaseModel):
+    date: str
+    admin_user: str
+
 class ChangePasswordRequest(BaseModel):
     username: str
     new_password: str
@@ -1623,8 +1627,9 @@ def get_daily_summary():
                 "upi_in": 0, "upi_out": 0
             }
         
-        # Logic: Sale/Receipt = In, Expense = Out
-        is_in = ttype in ["Sale", "Receipt"]
+        tnorm = str(ttype or "").strip().upper()
+        # Logic: Sale/Receipt = In, Expense/Sale Return/Return = Out
+        is_in = tnorm in ["SALE", "RECEIPT", "RECIEPT"]
         val = float(amount)
 
         if mode == "Cash":
@@ -1997,9 +2002,9 @@ def get_trial_balance():
         t = str(txn_type or '').strip().lower()
         amt = float(total_amount or 0)
         key = 'bank' if m in bank_modes else ('upi' if m == 'upi' else 'cash')
-        if t in ('sale', 'receipt'):
+        if t in ('sale', 'receipt', 'reciept'):
             mode_in[key] += amt
-        elif t == 'expense':
+        elif t in ('expense', 'sale return', 'sales return', 'return'):
             mode_out[key] += amt
 
     cash_bal = mode_in['cash'] - mode_out['cash']
@@ -2025,7 +2030,7 @@ def get_trial_balance():
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END) AS sales,
+            SUM(CASE WHEN txn_type='Sale' THEN amount WHEN txn_type IN ('Sale Return', 'Sales Return', 'Return') THEN -amount ELSE 0 END) AS sales,
             SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) AS expenses
         FROM transactions
         WHERE txn_date >= ?
@@ -2059,7 +2064,7 @@ def get_pnl_report():
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN txn_type='Sale' THEN amount ELSE 0 END) AS sales,
+            SUM(CASE WHEN txn_type='Sale' THEN amount WHEN txn_type IN ('Sale Return', 'Sales Return', 'Return') THEN -amount ELSE 0 END) AS sales,
             SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) AS expenses
         FROM transactions
         WHERE txn_date >= ?
@@ -2089,12 +2094,20 @@ def get_dashboard_metrics():
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN txn_type='Sale' AND txn_date = CAST(GETDATE() AS DATE) THEN amount ELSE 0 END) AS sales_today,
-            SUM(CASE WHEN txn_type='Sale' AND MONTH(txn_date)=MONTH(GETDATE()) AND YEAR(txn_date)=YEAR(GETDATE()) THEN amount ELSE 0 END) AS sales_month,
-            SUM(CASE WHEN payment_mode='Cash' AND txn_type IN ('Sale','Receipt') THEN amount ELSE 0 END) AS cash_in,
-            SUM(CASE WHEN payment_mode='Cash' AND txn_type='Expense' THEN amount ELSE 0 END) AS cash_out,
-            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type IN ('Sale','Receipt') THEN amount ELSE 0 END) AS bank_in,
-            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND txn_type='Expense' THEN amount ELSE 0 END) AS bank_out
+            SUM(CASE
+                    WHEN UPPER(LTRIM(RTRIM(txn_type)))='SALE' AND txn_date = CAST(GETDATE() AS DATE) THEN amount
+                    WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE RETURN', 'SALES RETURN', 'RETURN') AND txn_date = CAST(GETDATE() AS DATE) THEN -amount
+                    ELSE 0
+                END) AS sales_today,
+            SUM(CASE
+                    WHEN UPPER(LTRIM(RTRIM(txn_type)))='SALE' AND MONTH(txn_date)=MONTH(GETDATE()) AND YEAR(txn_date)=YEAR(GETDATE()) THEN amount
+                    WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE RETURN', 'SALES RETURN', 'RETURN') AND MONTH(txn_date)=MONTH(GETDATE()) AND YEAR(txn_date)=YEAR(GETDATE()) THEN -amount
+                    ELSE 0
+                END) AS sales_month,
+            SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END) AS cash_in,
+            SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END) AS cash_out,
+            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END) AS bank_in,
+            SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END) AS bank_out
         FROM transactions
         WHERE txn_date >= ?
           AND txn_date <= ?
@@ -2114,11 +2127,11 @@ def get_dashboard_metrics():
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END) AS cust_sales,
-            SUM(CASE WHEN t.txn_type='Receipt' THEN t.amount ELSE 0 END) AS cust_receipts
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.amount ELSE 0 END) AS cust_sales,
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) AS cust_receipts
         FROM transactions t
         JOIN parties p ON t.party_id=p.party_id
-        WHERE p.type='Customer'
+        WHERE p.type IN ('Customer', 'Credit Customer')
           AND t.txn_date >= ?
           AND t.txn_date <= ?
         """,
@@ -2410,9 +2423,9 @@ def get_opening_cash_before_date(cursor, start_date: datetime.date, opening_seed
     cursor.execute(
         """
         SELECT
-            SUM(CASE WHEN payment_mode='Cash' AND txn_type IN ('Sale','Receipt') THEN amount ELSE 0 END)
-            + SUM(CASE WHEN payment_mode='Credit' AND txn_type='Receipt' THEN amount ELSE 0 END) AS cash_in,
-            SUM(CASE WHEN payment_mode='Cash' AND txn_type='Expense' THEN amount ELSE 0 END) AS cash_expense
+            SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END)
+            + SUM(CASE WHEN payment_mode='Credit' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('RECEIPT','RECIEPT') THEN amount ELSE 0 END) AS cash_in,
+            SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END) AS cash_expense
         FROM transactions
         WHERE txn_date < ?
         """,
@@ -2466,13 +2479,15 @@ def get_daily_summary_report(start: Optional[str] = None, end: Optional[str] = N
         """
         SELECT
             t.txn_date,
-            SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END) AS total_sales,
-            SUM(CASE WHEN t.payment_mode='Cash' AND t.txn_type IN ('Sale','Receipt') THEN t.amount ELSE 0 END)
-              + SUM(CASE WHEN t.payment_mode='Credit' AND t.txn_type='Receipt' THEN t.amount ELSE 0 END) AS cash_in,
-            SUM(CASE WHEN t.payment_mode='Cash' AND t.txn_type='Expense' THEN t.amount ELSE 0 END) AS cash_expense,
-            SUM(CASE WHEN t.payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND t.txn_type IN ('Sale','Receipt') THEN t.amount ELSE 0 END) AS bank_in,
-            SUM(CASE WHEN t.txn_type='Sale' AND (p.type='Credit Customer' OR t.payment_mode='Credit') THEN t.amount ELSE 0 END) AS credit_sales,
-            SUM(CASE WHEN t.txn_type='Receipt' AND p.type='Credit Customer' THEN t.amount ELSE 0 END) AS credit_receipts
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.amount
+                     WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE RETURN', 'SALES RETURN', 'RETURN') THEN -t.amount
+                     ELSE 0 END) AS total_sales,
+            SUM(CASE WHEN t.payment_mode='Cash' AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN t.amount ELSE 0 END)
+              + SUM(CASE WHEN t.payment_mode='Credit' AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.amount ELSE 0 END) AS cash_in,
+            SUM(CASE WHEN t.payment_mode='Cash' AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) AS cash_expense,
+            SUM(CASE WHEN t.payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN t.amount ELSE 0 END) AS bank_in,
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' AND (p.type='Credit Customer' OR t.payment_mode='Credit') THEN t.amount ELSE 0 END) AS credit_sales,
+            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') AND p.type='Credit Customer' THEN t.amount ELSE 0 END) AS credit_receipts
         FROM transactions t
         LEFT JOIN parties p ON t.party_id = p.party_id
         WHERE t.txn_date BETWEEN ? AND ?
@@ -2590,6 +2605,19 @@ def set_cash_in_hand(req: CashInHandRequest):
         invalidate_report_cache()
         log_audit(req.admin_user, "Set Cash In Hand", f"{req.date} = {req.cash_in_hand}")
         return {"status": "Saved"}
+    except Exception as e:
+        return {"status": "Error", "detail": str(e)}
+
+@app.post("/cash/hand/reset")
+def reset_cash_in_hand(req: CashInHandResetRequest):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM daily_cash WHERE cash_date=?", (req.date,))
+        conn.close()
+        invalidate_report_cache()
+        log_audit(req.admin_user, "Reset Cash In Hand", f"{req.date} reset to computed value")
+        return {"status": "Reset"}
     except Exception as e:
         return {"status": "Error", "detail": str(e)}
 
