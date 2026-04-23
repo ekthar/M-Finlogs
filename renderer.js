@@ -237,14 +237,19 @@ const REPORT_TIMEOUT_MS = 20000;
 function setModalVisible(modalId, visible, displayMode = 'flex') {
     const modal = document.getElementById(modalId);
     if (!modal) return;
+    if (!modal.dataset.defaultZIndex) {
+        modal.dataset.defaultZIndex = modal.style.zIndex || window.getComputedStyle(modal).zIndex || '';
+    }
     if (visible) {
         modal.style.display = displayMode;
         modal.style.pointerEvents = 'auto';
         modal.style.visibility = 'visible';
+        modal.style.zIndex = modal.dataset.defaultZIndex || '';
     } else {
         modal.style.display = 'none';
         modal.style.pointerEvents = 'none';
         modal.style.visibility = 'hidden';
+        modal.style.zIndex = modal.dataset.defaultZIndex || '';
     }
 }
 
@@ -1280,7 +1285,7 @@ async function openEditModal(id) {
     }
 }
 
-function cancelEdit() {
+function resetEntryEditState(shouldNotify) {
     editingTransactionId = null;
     
     // Reset form
@@ -1294,7 +1299,13 @@ function cancelEdit() {
     const editBanner = document.getElementById('editModeBanner');
     if (editBanner) editBanner.style.display = 'none';
     
-    showToast('Edit cancelled', 'info');
+    if (shouldNotify) {
+        showToast('Edit cancelled', 'info');
+    }
+}
+
+function cancelEdit() {
+    resetEntryEditState(true);
 }
 
 async function updateTransaction(id, date, bill, party, type, mode, amount) {
@@ -1462,7 +1473,9 @@ function showConfirmDelete(id) {
 
     if (okBtn) okBtn.onclick = () => {
         setModalVisible('confirmDeleteModal', false);
-        performDelete(pendingDeleteId);
+        const deleteId = pendingDeleteId;
+        pendingDeleteId = null;
+        performDelete(deleteId);
     };
     
     if (cancelBtn) cancelBtn.onclick = () => {
@@ -1478,6 +1491,11 @@ async function deleteTransaction(id) {
         return;
     }
 
+    if (!id) {
+        showToast('Delete failed: missing transaction id', 'error');
+        return;
+    }
+
     captureEditContext();
     
     // Close edit modal and show confirmation
@@ -1487,8 +1505,13 @@ async function deleteTransaction(id) {
 
 async function performDelete(id) {
     setDeleteBusy(true);
+    let shouldReactivateInputs = false;
     
     try {
+        if (!id) {
+            throw new Error('Delete failed: missing transaction id');
+        }
+
         const token = sessionStorage.getItem('access_token');
         const res = await fetchWithTimeout("http://127.0.0.1:8000/transaction/delete", {
             method: "POST",
@@ -1505,28 +1528,32 @@ async function performDelete(id) {
         if (data.status === "Deleted Successfully") {
             showToast("Transaction Deleted", "success");
             markTxnHighlight(id, 'deleted');
+            if (String(editingTransactionId) === String(id)) {
+                resetEntryEditState(false);
+            }
             
             // Reload data
             if (isViewActive('ledgerView')) loadLedgerReport();
             invalidateTxnCache();
             await loadTransactions(currentTxnPage, true, { resetScroll: false });
             updateDashboard();
-            unlockUiAfterModal();
             refreshDayBookIfNeeded();
             restoreEditContext();
-            
-            // CRITICAL: Completely reset input interactivity
-            setTimeout(() => {
-                reactivateInputs();
-                setDeleteBusy(false);
-            }, 100);
+            shouldReactivateInputs = true;
         } else {
             showToast("Delete Failed: " + data.detail, "error");
-            setDeleteBusy(false);
         }
     } catch (e) {
         showToast("Error: " + e, "error");
+    } finally {
+        pendingDeleteId = null;
+        unlockUiAfterModal();
         setDeleteBusy(false);
+        if (shouldReactivateInputs) {
+            setTimeout(() => {
+                reactivateInputs();
+            }, 100);
+        }
     }
 }
 
@@ -1552,7 +1579,9 @@ function unlockUiAfterModal() {
         modal.style.display = 'none';
         modal.style.pointerEvents = 'none';
         modal.style.visibility = 'hidden';
-        modal.style.zIndex = '-1';
+        if (modal.dataset.defaultZIndex) {
+            modal.style.zIndex = modal.dataset.defaultZIndex;
+        }
     });
 
     if (document.activeElement && document.activeElement !== document.body) {
