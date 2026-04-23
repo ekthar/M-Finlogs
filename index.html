@@ -664,8 +664,11 @@
                 <!-- Inventory Management View -->
                 <div id="inventoryView" class="view-section">
                     <div class="report-header">
-                        <h2>Inventory Management</h2>
-                        <div style="display:flex; gap: 10px; align-items:center;">
+                        <div class="inventory-header-copy">
+                            <h2>Inventory Management</h2>
+                            <div id="inventoryPeriodSubtitle" class="inventory-period-subtitle">Selected month | Financial year | Date range</div>
+                        </div>
+                        <div class="inventory-top-actions">
                             <button class="secondary" onclick="document.getElementById('inventoryImportFile').click()">Import Sheet</button>
                             <input type="file" id="inventoryImportFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importInventorySheet(event)">
                             <button class="secondary" onclick="previewInventoryPdf()">Preview PDF</button>
@@ -707,15 +710,20 @@
                         </div>
                     </div>
 
-                    <div class="card" style="margin-bottom: 12px; padding: 12px; display:flex; flex-wrap:wrap; gap: 10px; align-items:center;">
-                        <label style="display:flex; align-items:center; gap: 8px; margin: 0;">
+                    <div class="card inventory-toolbar-card">
+                        <div class="inventory-toolbar-main">
+                            <label class="inventory-toolbar-label">
                             Month:
-                            <select id="inventoryMonthSelect" onchange="loadInventoryMonth()" style="width: 170px;"></select>
-                        </label>
-                        <input type="text" id="inventoryProductInput" placeholder="Enter product name" style="width: 240px;" onkeydown="if(event.key==='Enter') addInventoryRow();">
-                        <button class="secondary" onclick="addInventoryRow()">Add Product</button>
-                        <button class="secondary" onclick="removeEmptyInventoryRows()">Clean Empty Rows</button>
-                        <div style="margin-left:auto; color: var(--text-secondary); font-size: 12px;">Tip: Edit quantities directly in table cells.</div>
+                                <select id="inventoryMonthSelect" onchange="loadInventoryMonth()" style="width: 170px;"></select>
+                            </label>
+                            <input type="text" id="inventoryProductInput" placeholder="Enter product name" style="width: 240px;" onkeydown="if(event.key==='Enter') addInventoryRow();">
+                            <button class="secondary" onclick="addInventoryRow()">Add Product</button>
+                            <button class="secondary" onclick="removeEmptyInventoryRows()">Clean Empty Rows</button>
+                        </div>
+                        <div class="inventory-toolbar-meta">
+                            <div class="inventory-period-chip" id="inventoryDateRangeChip">01-04-2026 to 30-04-2026</div>
+                            <div class="inventory-toolbar-tip">Tip: Edit quantities directly in table cells.</div>
+                        </div>
                     </div>
 
                     <div id="inventorySummary" class="report-summary-card">No inventory loaded</div>
