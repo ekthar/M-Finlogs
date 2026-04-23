@@ -2688,6 +2688,36 @@ function getInventoryYearForMonth(fy, monthNum) {
     return monthNum >= 4 ? startYear : endYear;
 }
 
+function formatInventoryDisplayDate(date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+}
+
+function getInventoryPeriodMeta() {
+    const monthSelect = document.getElementById('inventoryMonthSelect');
+    const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || (new Date().getMonth() + 1)));
+    const fy = getInventoryFinancialYear();
+    const safeMonthNum = Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum : 1;
+    const monthText = monthSelect && monthSelect.options.length
+        ? monthSelect.options[monthSelect.selectedIndex].text
+        : 'Month';
+    const yearForMonth = getInventoryYearForMonth(fy, safeMonthNum);
+    const startDate = new Date(yearForMonth, safeMonthNum - 1, 1);
+    const endDate = new Date(yearForMonth, safeMonthNum, 0);
+
+    return {
+        fy,
+        monthNum: safeMonthNum,
+        monthText,
+        yearForMonth,
+        dayCount: endDate.getDate(),
+        monthYearLabel: `${monthText} ${yearForMonth}`,
+        dateRangeLabel: `${formatInventoryDisplayDate(startDate)} to ${formatInventoryDisplayDate(endDate)}`
+    };
+}
+
 function getInventoryStorageKey(fy, monthNum) {
     return `${INVENTORY_STORAGE_PREFIX}:${fy}:${String(monthNum).padStart(2, '0')}`;
 }
@@ -2830,10 +2860,10 @@ function loadInventoryMonth() {
     const monthSelect = document.getElementById('inventoryMonthSelect');
     if (!monthSelect) return;
 
-    const monthNum = Number(monthSelect.value || (new Date().getMonth() + 1));
-    const fy = getInventoryFinancialYear();
-    const yearForMonth = getInventoryYearForMonth(fy, monthNum);
-    const dayCount = new Date(yearForMonth, monthNum, 0).getDate();
+    const periodMeta = getInventoryPeriodMeta();
+    const monthNum = periodMeta.monthNum;
+    const fy = periodMeta.fy;
+    const dayCount = periodMeta.dayCount;
     const storageKey = getInventoryStorageKey(fy, monthNum);
 
     let saved = null;
@@ -2855,16 +2885,14 @@ function loadInventoryMonth() {
 
     initInventoryMailSubjectHook();
     syncInventoryMailSubjectWithMonth();
+    updateInventoryPeriodUi();
     renderInventoryTable();
     updateGlobalReportContext('inventoryView');
 }
 
 function getInventoryAutoSubjectText() {
-    const monthSelect = document.getElementById('inventoryMonthSelect');
-    const monthText = monthSelect && monthSelect.options.length
-        ? monthSelect.options[monthSelect.selectedIndex].text
-        : 'Month';
-    return `${INVENTORY_MAIL_SUBJECT_AUTO_PREFIX}${monthText} (${getInventoryFinancialYear()})`;
+    const periodMeta = getInventoryPeriodMeta();
+    return `${INVENTORY_MAIL_SUBJECT_AUTO_PREFIX}${periodMeta.monthYearLabel} | ${periodMeta.dateRangeLabel} (${periodMeta.fy})`;
 }
 
 function initInventoryMailSubjectHook() {
@@ -2891,6 +2919,20 @@ function syncInventoryMailSubjectWithMonth(force = false) {
     if (force || !current || isAuto) {
         subjectEl.value = autoText;
         subjectEl.dataset.autoSubject = '1';
+    }
+}
+
+function updateInventoryPeriodUi() {
+    const subtitleEl = document.getElementById('inventoryPeriodSubtitle');
+    const dateRangeChipEl = document.getElementById('inventoryDateRangeChip');
+    const periodMeta = getInventoryPeriodMeta();
+    const subtitleText = `${periodMeta.monthYearLabel} | FY ${periodMeta.fy} | ${periodMeta.dayCount} days | ${periodMeta.dateRangeLabel}`;
+
+    if (subtitleEl) {
+        subtitleEl.textContent = subtitleText;
+    }
+    if (dateRangeChipEl) {
+        dateRangeChipEl.textContent = periodMeta.dateRangeLabel;
     }
 }
 
