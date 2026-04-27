@@ -1,0 +1,12 @@
+{
+  "name": "mfinlogs-native",
+  "version": "0.1.0",
+  "dependencies": [
+    "curl",
+    "openssl",
+    "argon2",
+    "jwt-cpp",
+    "qtxlsx"
+  ]
+}
+
