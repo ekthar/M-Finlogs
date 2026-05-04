@@ -578,6 +578,17 @@ class InventoryProductRow(BaseModel):
     min_stock: Optional[float] = 0.0
     cost: Optional[float] = 0.0
 
+class InventorySnapshotRequest(BaseModel):
+    financial_year: str
+    month: int
+    rows: List[InventoryProductRow]
+    updated_at: Optional[str] = None
+
+class InventoryMasterRequest(BaseModel):
+    financial_year: str
+    rows: List[InventoryProductRow]
+    updated_at: Optional[str] = None
+
 class InventoryPdfMailRequest(BaseModel):
     financial_year: Optional[str] = None
     month: str
@@ -625,6 +636,142 @@ def get_setting(key: str, default_val: float = 0.0) -> float:
     except Exception as err:
         log_exception("get_setting", err)
     return float(default_val)
+
+def _inventory_scope_key(company: Optional[str] = None) -> str:
+    return normalize_company(company or current_company or "default")
+
+def _inventory_snapshot_key(financial_year: str, month: int, company: Optional[str] = None) -> str:
+    return f"inventory_snapshot:{_inventory_scope_key(company)}:{financial_year}:{int(month):02d}"
+
+def _inventory_master_key(financial_year: str, company: Optional[str] = None) -> str:
+    return f"inventory_master:{_inventory_scope_key(company)}:{financial_year}"
+
+def _get_json_setting(cursor, key: str):
+    cursor.execute("SELECT setting_value FROM app_settings WHERE setting_key=?", (key,))
+    row = cursor.fetchone()
+    if not row or row[0] in (None, ""):
+        return None
+    try:
+        import json
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+def _set_json_setting(cursor, key: str, value):
+    import json
+    payload = json.dumps(value, ensure_ascii=False)
+    cursor.execute("SELECT COUNT(*) FROM app_settings WHERE setting_key=?", (key,))
+    exists = cursor.fetchone()[0] > 0
+    if exists:
+        cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", (payload, key))
+    else:
+        cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", (key, payload))
+
+@app.get("/inventory/snapshot")
+def get_inventory_snapshot(financial_year: Optional[str] = None, month: Optional[int] = None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        fy = (financial_year or get_selected_financial_year(cursor) or "").strip()
+        month_num = int(month) if month is not None else datetime.date.today().month
+        if month_num < 1 or month_num > 12:
+            raise HTTPException(status_code=400, detail="Invalid month")
+
+        key = _inventory_snapshot_key(fy, month_num)
+        data = _get_json_setting(cursor, key)
+        conn.close()
+        if not data:
+            return {"found": False, "financial_year": fy, "month": month_num, "rows": [], "updated_at": None}
+        return {
+            "found": True,
+            "financial_year": data.get("financial_year", fy),
+            "month": int(data.get("month", month_num) or month_num),
+            "rows": data.get("rows", []) or [],
+            "updated_at": data.get("updated_at")
+        }
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
+    except Exception as e:
+        close_conn_safely(conn)
+        log_exception("get_inventory_snapshot", e)
+        return {"found": False, "financial_year": financial_year, "month": month, "rows": [], "updated_at": None}
+
+@app.post("/inventory/snapshot")
+def save_inventory_snapshot(req: InventorySnapshotRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        fy = (req.financial_year or "").strip()
+        month_num = int(req.month)
+        if not fy:
+            raise HTTPException(status_code=400, detail="Financial year is required")
+        if month_num < 1 or month_num > 12:
+            raise HTTPException(status_code=400, detail="Invalid month")
+
+        payload = {
+            "financial_year": fy,
+            "month": month_num,
+            "rows": [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in (req.rows or [])],
+            "updated_at": req.updated_at or datetime.datetime.utcnow().isoformat()
+        }
+        _set_json_setting(cursor, _inventory_snapshot_key(fy, month_num), payload)
+        conn.close()
+        return {"status": "Saved", "found": True}
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
+    except Exception as e:
+        close_conn_safely(conn)
+        log_exception("save_inventory_snapshot", e)
+        raise HTTPException(status_code=500, detail=f"Failed to save inventory snapshot: {str(e)}")
+
+@app.get("/inventory/master")
+def get_inventory_master(financial_year: Optional[str] = None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        fy = (financial_year or get_selected_financial_year(cursor) or "").strip()
+        key = _inventory_master_key(fy)
+        data = _get_json_setting(cursor, key)
+        conn.close()
+        if not data:
+            return {"found": False, "financial_year": fy, "rows": [], "updated_at": None}
+        return {
+            "found": True,
+            "financial_year": data.get("financial_year", fy),
+            "rows": data.get("rows", []) or [],
+            "updated_at": data.get("updated_at")
+        }
+    except Exception as e:
+        close_conn_safely(conn)
+        log_exception("get_inventory_master", e)
+        return {"found": False, "financial_year": financial_year, "rows": [], "updated_at": None}
+
+@app.post("/inventory/master")
+def save_inventory_master(req: InventoryMasterRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        fy = (req.financial_year or "").strip()
+        if not fy:
+            raise HTTPException(status_code=400, detail="Financial year is required")
+
+        payload = {
+            "financial_year": fy,
+            "rows": [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in (req.rows or [])],
+            "updated_at": req.updated_at or datetime.datetime.utcnow().isoformat()
+        }
+        _set_json_setting(cursor, _inventory_master_key(fy), payload)
+        conn.close()
+        return {"status": "Saved", "found": True}
+    except HTTPException:
+        close_conn_safely(conn)
+        raise
+    except Exception as e:
+        close_conn_safely(conn)
+        log_exception("save_inventory_master", e)
+        raise HTTPException(status_code=500, detail=f"Failed to save inventory master: {str(e)}")
 
 def _safe_float(v) -> float:
     try:
@@ -2987,106 +3134,64 @@ def _set_app_setting(cursor, key: str, value: str):
 
 @app.get("/dbconfig/unlock-status")
 def get_dbconfig_unlock_status():
-    """Check if DB config unlock password is set (for first-time setup)"""
+    """DB config locking is disabled; config is always accessible."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        stored = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
+        cursor.execute(
+            "DELETE FROM app_settings WHERE setting_key IN (?, ?, ?)",
+            (
+                DBCONFIG_UNLOCK_PASSWORD_KEY,
+                DBCONFIG_UNLOCK_FAIL_COUNT_KEY,
+                DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY,
+            ),
+        )
         conn.close()
-        
-        has_password = bool(stored)
-        return {"needs_setup": not has_password}
     except Exception:
-        conn.close()
-        return {"needs_setup": True}
+        close_conn_safely(conn)
+    return {"needs_setup": False, "disabled": True}
 
 @app.post("/dbconfig/unlock")
 def verify_dbconfig_unlock(req: DbConfigUnlockRequest):
-    """Verify DB config unlock password"""
-    if not req.password:
-        raise HTTPException(status_code=400, detail="Password required")
-    
+    """DB config locking is disabled; accept any request and clear legacy lock state."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        stored_hash = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
-        if not stored_hash:
-            raise HTTPException(status_code=403, detail="DB config not accessible")
-
-        locked_until_raw = _get_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
-        now_utc = datetime.datetime.utcnow()
-        if locked_until_raw:
-            try:
-                locked_until = datetime.datetime.fromisoformat(locked_until_raw)
-            except Exception:
-                locked_until = None
-            if locked_until and now_utc < locked_until:
-                wait_seconds = int((locked_until - now_utc).total_seconds())
-                raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {wait_seconds} seconds.")
-
-        is_valid, needs_upgrade = verify_user_password(stored_hash, req.password)
-        if not is_valid:
-            fail_count = int(_get_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0") or "0") + 1
-            if fail_count >= DBCONFIG_UNLOCK_MAX_ATTEMPTS:
-                locked_until = now_utc + datetime.timedelta(minutes=DBCONFIG_UNLOCK_LOCK_MINUTES)
-                _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, locked_until.isoformat())
-                _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
-                conn.close()
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"Too many failed attempts. Unlock is blocked for {DBCONFIG_UNLOCK_LOCK_MINUTES} minutes.",
-                )
-
-            _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, str(fail_count))
-            conn.close()
-            attempts_left = DBCONFIG_UNLOCK_MAX_ATTEMPTS - fail_count
-            raise HTTPException(status_code=401, detail=f"Incorrect password. {attempts_left} attempt(s) left.")
-
-        if needs_upgrade:
-            _set_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY, hash_user_password(req.password))
-
-        _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
-        _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
+        cursor.execute(
+            "DELETE FROM app_settings WHERE setting_key IN (?, ?, ?)",
+            (
+                DBCONFIG_UNLOCK_PASSWORD_KEY,
+                DBCONFIG_UNLOCK_FAIL_COUNT_KEY,
+                DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY,
+            ),
+        )
         conn.close()
-        return {"status": "Success", "message": "Unlocked"}
-    except HTTPException:
-        close_conn_safely(conn)
-        raise
+        return {"status": "Success", "message": "Unlocked", "disabled": True}
     except Exception as e:
         close_conn_safely(conn)
         log_exception("verify_dbconfig_unlock", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "Success", "message": "Unlocked", "disabled": True}
 
 @app.post("/dbconfig/unlock/setup")
 def setup_dbconfig_unlock(req: DbConfigUnlockSetupRequest):
-    """Set DB config unlock password (first-run, pre-login)"""
-    
-    if not req.password or len(req.password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    
+    """DB config locking is disabled; clear any legacy state and skip setup."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check if already set
-        existing = _get_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY)
-        
-        if existing:
-            conn.close()
-            raise HTTPException(status_code=400, detail="DB config unlock password already configured")
-        
-        _set_app_setting(cursor, DBCONFIG_UNLOCK_PASSWORD_KEY, hash_user_password(req.password))
-        _set_app_setting(cursor, DBCONFIG_UNLOCK_FAIL_COUNT_KEY, "0")
-        _set_app_setting(cursor, DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY, "")
-        
+        cursor.execute(
+            "DELETE FROM app_settings WHERE setting_key IN (?, ?, ?)",
+            (
+                DBCONFIG_UNLOCK_PASSWORD_KEY,
+                DBCONFIG_UNLOCK_FAIL_COUNT_KEY,
+                DBCONFIG_UNLOCK_LOCKED_UNTIL_KEY,
+            ),
+        )
         conn.close()
-        log_audit("system", "Setup", "DB config unlock password configured")
-        return {"status": "Setup complete"}
-    except HTTPException:
-        raise
+        return {"status": "Setup complete", "disabled": True}
     except Exception as e:
-        conn.close()
+        close_conn_safely(conn)
         log_exception("setup_dbconfig_unlock", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "Setup complete", "disabled": True}
 
 # Database Configuration Endpoints
 class DbConfigRequest(BaseModel):

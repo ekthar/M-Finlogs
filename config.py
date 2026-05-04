@@ -6,7 +6,7 @@
 # - "localhost\SQLEXPRESS" for SQL Express
 # - "localhost\MSSQLSERVER" for named instance
 # - "." for local default instance
-SQL_SERVER = "localhost"  # Your SQL Server instance
+SQL_SERVER = "localhost\SQLEXPRESS01"  # Your SQL Server instance
 
 SQL_DATABASE = "finlogs"  # database name
 SQL_USERNAME = ""  # SQL Server username (leave empty for Windows Auth)

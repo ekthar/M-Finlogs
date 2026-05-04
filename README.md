@@ -1,7 +1,37 @@
 # M-Finlogs
-Production packaging (separate client and server)
+Desktop financial log management system with SQL Server backend
 
-Use these commands from the project root:
+## 🚀 Quick Start for New Users
+
+### Before Installing M-Finlogs
+Before installing the M-Finlogs desktop app on a new laptop, you **MUST** have:
+
+1. **SQL Server** (Express edition is free) - https://www.microsoft.com/en-us/sql-server/sql-server-express
+2. **ODBC Driver 17 for SQL Server** - https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server
+
+### Installation Documentation (Choose One)
+
+- **⚡ [QUICK_START.md](QUICK_START.md)** - One-page TL;DR (2 min read)
+- **📋 [INSTALLATION_CHECKLIST.md](INSTALLATION_CHECKLIST.md)** - Step-by-step with checkboxes (10 min read)
+- **📚 [SETUP_GUIDE.md](SETUP_GUIDE.md)** - Complete guide with troubleshooting (20 min read)
+- **📖 [REQUIREMENTS.md](REQUIREMENTS.md)** - Detailed requirements and dependencies (15 min read)
+
+### Verify Your System
+Before installing, run one of these to check if all dependencies are ready:
+
+```cmd
+# Windows Batch (easiest, double-click):
+CHECK_SYSTEM.bat
+
+# Or PowerShell (advanced):
+powershell -ExecutionPolicy Bypass -File Check-System.ps1
+```
+
+Expected output: All ✓ PASS (or ! WARN is OK)
+
+---
+
+## 📦 Build & Deployment Commands
 
 If you want full app UI on the server machine too (not backend-only):
 
