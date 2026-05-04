@@ -68,30 +68,6 @@
         </div>
     </div>
 
-    <!-- Configure Database Access Modal -->
-    <div id="dbConfigAccessModal" class="login-background" style="display: none; z-index: 10002;">
-        <div class="login-glass-card" style="max-width: 420px;">
-            <h2 class="login-title">Secure Access</h2>
-            <p class="login-subtitle">Enter password to open Configure Database</p>
-
-            <div class="input-group">
-                <label>Password</label>
-                <div class="login-field">
-                    <ion-icon name="key-outline"></ion-icon>
-                    <input type="password" id="dbConfigAccessPass" class="login-input" placeholder="Enter password"
-                        onkeydown="if(event.key==='Enter') submitDbConfigAccess()">
-                </div>
-            </div>
-
-            <div style="display:flex; gap: 10px;">
-                <button onclick="submitDbConfigAccess()" class="login-btn" style="flex:1;">Unlock</button>
-                <button onclick="closeDbConfigAccessModal()" class="login-btn login-btn--ghost" style="flex:1;" type="button">Cancel</button>
-            </div>
-
-            <p id="dbConfigAccessError" class="error-msg"></p>
-        </div>
-    </div>
-
     <!-- Database Configuration Modal -->
     <div id="dbConfigModal" class="login-background" style="display: none; z-index: 10001;">
         <div class="login-glass-card" style="max-width: 980px; width: min(980px, 95vw);">

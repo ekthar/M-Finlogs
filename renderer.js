@@ -55,150 +55,25 @@ window.fetch = (url, options) => {
 
 // Database Configuration Functions - defined early for inline handlers
 function showDbConfig() {
-    const accessModal = document.getElementById('dbConfigAccessModal');
-    if (!accessModal) {
-        showToast('Configuration access modal not found', 'error');
-        return;
-    }
-    
-    // First, check if DB config unlock password needs to be set up
-    fetch('http://127.0.0.1:8000/dbconfig/unlock-status')
-        .then(r => r.json())
-        .then(data => {
-            if (data.needs_setup) {
-                // First-time setup: show setup dialog
-                showDbConfigSetupModal();
-            } else {
-                // Password already set: show unlock dialog
-                showDbConfigAccessModal();
-            }
-        })
-        .catch(e => {
-            // If backend unavailable, just show access modal
-            showDbConfigAccessModal();
-        });
-}
-
-function showDbConfigAccessModal() {
-    const accessModal = document.getElementById('dbConfigAccessModal');
-    const passEl = document.getElementById('dbConfigAccessPass');
-    const errEl = document.getElementById('dbConfigAccessError');
-    if (!accessModal || !passEl) {
-        showToast('Configuration access modal not found', 'error');
-        return;
-    }
-    if (errEl) errEl.textContent = '';
-    passEl.value = '';
-    setModalVisible('dbConfigAccessModal', true);
-    passEl.style.display = 'block';
-    setTimeout(() => passEl.focus(), 0);
-}
-
-function showDbConfigSetupModal() {
-    const accessModal = document.getElementById('dbConfigAccessModal');
-    const passEl = document.getElementById('dbConfigAccessPass');
-    const errEl = document.getElementById('dbConfigAccessError');
-    const titleEl = accessModal ? accessModal.querySelector('.login-subtitle') : null;
-    const submitBtn = accessModal ? accessModal.querySelector('button.login-btn:not(.login-btn--ghost)') : null;
-    
-    if (!accessModal || !passEl) {
+    const dbModal = document.getElementById('dbConfigModal');
+    if (!dbModal) {
         showToast('Configuration modal not found', 'error');
         return;
     }
-    
-    // Set up for first-time password creation
-    if (titleEl) titleEl.textContent = 'Create DB Config Unlock Password';
-    if (submitBtn) submitBtn.textContent = 'Create Password';
-    if (errEl) errEl.textContent = '';
-    passEl.value = '';
-    passEl.placeholder = 'Create unlock password (min 6 chars)';
-    passEl.dataset.issetup = 'true';
-    setModalVisible('dbConfigAccessModal', true);
-    setTimeout(() => passEl.focus(), 0);
+
+    setModalVisible('dbConfigModal', true);
+    loadDbConfig();
 }
 
 function closeDbConfigAccessModal() {
-    const accessModal = document.getElementById('dbConfigAccessModal');
-    const passEl = document.getElementById('dbConfigAccessPass');
-    const titleEl = accessModal ? accessModal.querySelector('.login-subtitle') : null;
-    const submitBtn = accessModal ? accessModal.querySelector('button.login-btn:not(.login-btn--ghost)') : null;
-    
-    setModalVisible('dbConfigAccessModal', false);
-    
-    // Reset modal to default state
-    if (titleEl) titleEl.textContent = 'Enter password to open Configure Database';
-    if (submitBtn) submitBtn.textContent = 'Unlock';
-    if (passEl) {
-        passEl.dataset.issetup = 'false';
-        passEl.placeholder = 'Enter password';
-    }
+    return;
 }
 
 function submitDbConfigAccess() {
-    const passEl = document.getElementById('dbConfigAccessPass');
-    const errEl = document.getElementById('dbConfigAccessError');
     const dbModal = document.getElementById('dbConfigModal');
-    const isSetup = passEl?.dataset.issetup === 'true';
-    
-    if (!passEl || !dbModal) return;
-
-    if (!passEl.value.trim()) {
-        if (errEl) errEl.textContent = isSetup ? 'Enter a password' : 'Incorrect password';
-        showToast(isSetup ? 'Enter a password' : 'Incorrect password', 'error');
-        passEl.focus();
-        passEl.select();
-        return;
-    }
-
-    if (isSetup) {
-        // First-time setup: create the unlock password (pre-login allowed)
-
-        fetch('http://127.0.0.1:8000/dbconfig/unlock/setup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: passEl.value })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'Setup complete') {
-                showToast('DB Config unlock password created!', 'success');
-                closeDbConfigAccessModal();
-                setModalVisible('dbConfigModal', true);
-                loadDbConfig();
-            } else {
-                if (errEl) errEl.textContent = data.detail || 'Setup failed';
-                showToast(data.detail || 'Setup failed', 'error');
-            }
-        })
-        .catch(e => {
-            if (errEl) errEl.textContent = 'Error: ' + e.message;
-            showToast('Error: ' + e.message, 'error');
-        });
-    } else {
-        // Password verification: unlock DB config
-        fetch('http://127.0.0.1:8000/dbconfig/unlock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: passEl.value })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.status === 'Success') {
-                closeDbConfigAccessModal();
-                setModalVisible('dbConfigModal', true);
-                loadDbConfig();
-            } else {
-                if (errEl) errEl.textContent = 'Incorrect password';
-                showToast('Incorrect password', 'error');
-                passEl.focus();
-                passEl.select();
-            }
-        })
-        .catch(e => {
-            if (errEl) errEl.textContent = 'Error: ' + e.message;
-            showToast('Error: ' + e.message, 'error');
-        });
-    }
+    if (!dbModal) return;
+    setModalVisible('dbConfigModal', true);
+    loadDbConfig();
 }
 
 function closeDbConfig() {
@@ -2584,6 +2459,67 @@ let inventoryModel = { month: null, days: 31, rows: [] };
 let inventorySaveTimer = null;
 let inventoryMailSubjectHooked = false;
 
+function getInventoryApiUrl(path) {
+    return `${apiBase}${path}`;
+}
+
+async function fetchInventoryJson(path, options = {}) {
+    const res = await fetch(getInventoryApiUrl(path), options);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.detail || `HTTP ${res.status}`);
+    }
+    return data;
+}
+
+function getInventoryLocalSnapshot(fy, monthNum) {
+    const storageKey = getInventoryStorageKey(fy, monthNum);
+    try {
+        return JSON.parse(localStorage.getItem(storageKey) || 'null');
+    } catch (_) {
+        return null;
+    }
+}
+
+async function syncInventoryPayloadToServer(payload) {
+    const fy = String(payload && payload.fy ? payload.fy : getInventoryFinancialYear());
+    const monthNum = Number(payload && payload.month ? payload.month : (inventoryModel.month || 1));
+    if (!fy || !Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) return;
+
+    const rows = sanitizeInventoryRows(payload && payload.rows ? payload.rows : inventoryModel.rows, inventoryModel.days);
+    const updatedAt = payload && payload.updated_at ? payload.updated_at : new Date().toISOString();
+
+    await Promise.all([
+        fetchInventoryJson('/inventory/snapshot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ financial_year: fy, month: monthNum, rows, updated_at: updatedAt })
+        }),
+        fetchInventoryJson('/inventory/master', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ financial_year: fy, rows, updated_at: updatedAt })
+        })
+    ]);
+}
+
+async function loadInventoryPayloadFromServer(fy, monthNum) {
+    const [snapshot, master] = await Promise.all([
+        fetchInventoryJson(`/inventory/snapshot?financial_year=${encodeURIComponent(fy)}&month=${encodeURIComponent(monthNum)}`),
+        fetchInventoryJson(`/inventory/master?financial_year=${encodeURIComponent(fy)}`)
+    ]);
+
+    return {
+        snapshot,
+        master,
+        rows: mergeInventoryRowsWithMaster(
+            Array.isArray(snapshot.rows) ? snapshot.rows : [],
+            Array.isArray(master.rows) ? master.rows : [],
+            inventoryModel.days
+        )
+    };
+}
+
 function renderPurchaseSupplier() {
     const supplierBody = document.getElementById('purchaseSupplierBody');
     const summaryEl = document.getElementById('purchaseSummary');
@@ -2639,6 +2575,7 @@ function renderPurchaseSupplier() {
 
 function showInventoryManagement() {
     showView('inventoryView');
+    loadInventoryMonth();
 }
 
 function showInventoryValueReport() {
@@ -2865,20 +2802,17 @@ function loadInventoryMonth() {
     const fy = periodMeta.fy;
     const dayCount = periodMeta.dayCount;
     const storageKey = getInventoryStorageKey(fy, monthNum);
+    const masterKey = getInventoryMasterKey(fy);
 
-    let saved = null;
-    try {
-        saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-    } catch (_) {
-        saved = null;
-    }
+    const saved = getInventoryLocalSnapshot(fy, monthNum);
+    const savedMaster = loadInventoryProductMaster(fy);
 
     inventoryModel = {
         month: monthNum,
         days: dayCount,
         rows: mergeInventoryRowsWithMaster(
             saved && saved.rows,
-            loadInventoryProductMaster(fy),
+            savedMaster,
             dayCount
         )
     };
@@ -2888,6 +2822,41 @@ function loadInventoryMonth() {
     updateInventoryPeriodUi();
     renderInventoryTable();
     updateGlobalReportContext('inventoryView');
+
+    void (async () => {
+        try {
+            const server = await loadInventoryPayloadFromServer(fy, monthNum);
+            const hasServerData = (server.snapshot && server.snapshot.found) || (server.master && server.master.found);
+            if (hasServerData) {
+                inventoryModel = {
+                    month: monthNum,
+                    days: dayCount,
+                    rows: server.rows
+                };
+
+                localStorage.setItem(storageKey, JSON.stringify({
+                    fy,
+                    month: monthNum,
+                    rows: sanitizeInventoryRows(inventoryModel.rows, dayCount),
+                    updated_at: server.snapshot && server.snapshot.updated_at ? server.snapshot.updated_at : new Date().toISOString()
+                }));
+                localStorage.setItem(masterKey, JSON.stringify(server.master && server.master.rows ? server.master.rows : []));
+                renderInventoryTable();
+                return;
+            }
+
+            if ((saved && Array.isArray(saved.rows) && saved.rows.length) || (Array.isArray(savedMaster) && savedMaster.length)) {
+                await syncInventoryPayloadToServer({
+                    fy,
+                    month: monthNum,
+                    rows: inventoryModel.rows,
+                    updated_at: saved && saved.updated_at ? saved.updated_at : new Date().toISOString()
+                });
+            }
+        } catch (e) {
+            console.log('Inventory SQL sync skipped:', e.message);
+        }
+    })();
 }
 
 function getInventoryAutoSubjectText() {
@@ -3076,6 +3045,11 @@ function handleInventoryCellNavigation(event) {
     const colIdx = Number(event.target.getAttribute('data-col'));
     if (!Number.isInteger(rowIdx) || !Number.isInteger(colIdx)) return;
 
+    if ((key === 'ArrowUp' || key === 'ArrowDown') && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        return;
+    }
+
     let targetRow = rowIdx;
     let targetCol = colIdx;
     let shouldNavigate = false;
@@ -3210,7 +3184,7 @@ function queueInventoryAutoSave() {
     inventorySaveTimer = setTimeout(() => {
         inventorySaveTimer = null;
         persistInventoryPayload(snapshotPayload, true);
-    }, 400);
+    }, 0);
 }
 
 function persistInventoryPayload(payload, silent = false) {
@@ -3218,6 +3192,7 @@ function persistInventoryPayload(payload, silent = false) {
     const monthNum = Number(payload && payload.month ? payload.month : (inventoryModel.month || 1));
     if (!Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) return;
     const key = getInventoryStorageKey(fy, monthNum);
+    const masterKey = getInventoryMasterKey(fy);
     const safeRows = sanitizeInventoryRows(payload && payload.rows ? payload.rows : inventoryModel.rows, inventoryModel.days);
     const finalPayload = {
         fy,
@@ -3227,6 +3202,8 @@ function persistInventoryPayload(payload, silent = false) {
     };
     localStorage.setItem(key, JSON.stringify(finalPayload));
     saveInventoryProductMaster(fy, safeRows);
+    localStorage.setItem(masterKey, JSON.stringify(safeRows));
+    void syncInventoryPayloadToServer(finalPayload).catch((e) => console.log('Inventory save sync skipped:', e.message));
     if (!silent) {
         showToast('Inventory saved', 'success');
     }
@@ -4178,18 +4155,12 @@ function exportLedger() {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const confirmModal = document.getElementById('confirmDeleteModal');
-        const accessModal = document.getElementById('dbConfigAccessModal');
         const dbModal = document.getElementById('dbConfigModal');
         if (confirmModal && getComputedStyle(confirmModal).display !== 'none') {
             e.preventDefault();
             setModalVisible('confirmDeleteModal', false);
             pendingDeleteId = null;
             unlockUiAfterModal();
-            return;
-        }
-        if (accessModal && getComputedStyle(accessModal).display !== 'none') {
-            e.preventDefault();
-            closeDbConfigAccessModal();
             return;
         }
         if (dbModal && getComputedStyle(dbModal).display !== 'none') {
