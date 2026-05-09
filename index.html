@@ -647,6 +647,7 @@
                         <div class="inventory-top-actions">
                             <button class="secondary" onclick="document.getElementById('inventoryImportFile').click()">Import Sheet</button>
                             <input type="file" id="inventoryImportFile" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importInventorySheet(event)">
+                            <button class="secondary" onclick="exportInventoryImportTemplate()">Export Template</button>
                             <button class="secondary" onclick="previewInventoryPdf()">Preview PDF</button>
                             <button class="secondary" onclick="exportTableToExcel('inventoryTable', 'Inventory_Stock')">Export Excel</button>
                             <button class="secondary" onclick="toggleInventoryMailPanel()">Send PDF Mail</button>
@@ -676,6 +677,9 @@
                             <label style="display:flex; align-items:center; gap:8px; margin:0; color: var(--text-secondary); font-size:12px;">
                                 <input type="checkbox" id="inventoryMailOnlyReorder" style="width:auto;"> Send only reorder items
                             </label>
+                            <label style="display:flex; align-items:center; gap:8px; margin:0; color: var(--text-secondary); font-size:12px;">
+                                <input type="checkbox" id="inventoryMailShowValue" style="width:auto;"> Include stock value in PDF
+                            </label>
                             <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="saveInventoryMailProfile()">Save Profile</button>
                             <button class="secondary" style="padding:6px 10px; font-size:12px;" onclick="clearInventoryMailProfile()">Clear Profile</button>
                         </div>
@@ -694,6 +698,7 @@
                             </label>
                             <input type="text" id="inventoryProductInput" placeholder="Enter product name" style="width: 240px;" onkeydown="if(event.key==='Enter') addInventoryRow();">
                             <button class="secondary" onclick="addInventoryRow()">Add Product</button>
+                            <button class="secondary" onclick="addInventoryGapRow()">Add Gap</button>
                             <button class="secondary" onclick="removeEmptyInventoryRows()">Clean Empty Rows</button>
                         </div>
                         <div class="inventory-toolbar-meta">

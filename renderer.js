@@ -47,9 +47,22 @@ async function initApiBase() {
 
 const originalFetch = window.fetch.bind(window);
 window.fetch = (url, options) => {
+    const requestUrl = typeof url === 'string' ? url : '';
     if (typeof url === 'string' && url.startsWith(DEFAULT_API_BASE)) {
         url = url.replace(DEFAULT_API_BASE, apiBase);
     }
+
+    const isApiRequest = requestUrl.startsWith(DEFAULT_API_BASE) || requestUrl.startsWith(apiBase);
+    const token = sessionStorage.getItem('access_token');
+    if (isApiRequest && token) {
+        const nextOptions = { ...(options || {}) };
+        nextOptions.headers = new Headers(nextOptions.headers || {});
+        if (!nextOptions.headers.has('Authorization')) {
+            nextOptions.headers.set('Authorization', `Bearer ${token}`);
+        }
+        return originalFetch(url, nextOptions);
+    }
+
     return originalFetch(url, options);
 };
 
@@ -1890,22 +1903,6 @@ electronAPI.onUpdateStatus((payload) => {
     }
 });
 
-async function requestUpdateCheck() {
-    const statusEl = document.getElementById('updateStatus');
-    const lastCheckedEl = document.getElementById('updateLastChecked');
-    if (statusEl) statusEl.textContent = 'Checking for updates...';
-    try {
-        const res = await electronAPI.invoke('update:check');
-        if (statusEl) {
-            statusEl.textContent = res && res.status ? res.status : 'Update check completed.';
-        }
-    } catch (e) {
-        if (statusEl) statusEl.textContent = 'Update check failed.';
-    } finally {
-        if (lastCheckedEl) lastCheckedEl.textContent = `Last checked: ${new Date().toLocaleString()}`;
-    }
-}
-
 function applyTheme(theme) {
     const selected = (theme || 'white').toLowerCase();
     const effectiveTheme = (selected === 'splash' || selected === 'light') ? 'white' : selected;
@@ -2065,16 +2062,13 @@ async function showDailySummary() {
 
     let rowsHtml = '';
     data.forEach(row => {
-        let cashInHandCell = `<span>${formatMoney(row.closing_cash)}</span>`;
-        if (currentRole === 'admin') {
-            const inputVal = row.cash_in_hand === null || row.cash_in_hand === undefined ? '' : row.cash_in_hand;
-            cashInHandCell = `
-                <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end;">
-                    <input type="number" id="cashInHand-${row.date}" value="${inputVal}" style="width:120px; text-align:right;">
-                    <button class="btn-sm" style="background:#4b5563; padding: 4px 8px; font-size: 12px; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="saveCashInHand('${row.date}')">Save</button>
-                    <button class="btn-sm" style="background:#9ca3af; padding: 4px 8px; font-size: 12px; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="resetCashInHand('${row.date}')">Reset</button>
-                </div>`;
-        }
+        const inputVal = row.cash_in_hand === null || row.cash_in_hand === undefined ? '' : row.cash_in_hand;
+        const cashInHandCell = `
+            <div class="cash-hand-editor">
+                <input type="number" id="cashInHand-${row.date}" value="${inputVal}" placeholder="${formatMoney(row.closing_cash)}" onkeydown="if(event.key==='Enter') saveCashInHand('${row.date}')">
+                <button class="btn-sm cash-save-btn" onclick="saveCashInHand('${row.date}')">Save</button>
+                <button class="btn-sm cash-reset-btn" onclick="resetCashInHand('${row.date}')">Reset</button>
+            </div>`;
 
         const shortExcess = Number(row.cash_short_excess || 0);
         const shortExcessColor = shortExcess < 0 ? "var(--danger)" : shortExcess > 0 ? "var(--success)" : "inherit";
@@ -2457,7 +2451,27 @@ const INVENTORY_MAIL_PROFILE_KEY = 'inventoryMailProfile';
 const INVENTORY_MAIL_SUBJECT_AUTO_PREFIX = 'Inventory Report - ';
 let inventoryModel = { month: null, days: 31, rows: [] };
 let inventorySaveTimer = null;
+let inventoryReportTimer = null;
 let inventoryMailSubjectHooked = false;
+let inventoryServerSyncInFlight = false;
+let inventoryQueuedServerPayload = null;
+let inventoryInsertAfterRow = null;
+let inventorySummaryTimer = null;
+let inventoryRenderToken = 0;
+let inventoryLoadToken = 0;
+let inventoryScrollTimer = null;
+let inventoryVirtualScrollBound = false;
+let inventoryGridBound = false;
+let inventoryGridLastRange = '';
+const INVENTORY_VIRTUAL_ROW_HEIGHT = 44;
+const INVENTORY_VIRTUAL_OVERSCAN = 8;
+const INVENTORY_VIRTUAL_THRESHOLD = 0;
+const INVENTORY_GRID_HEADER_HEIGHT = 48;
+const INVENTORY_GRID_LEFT_WIDTH = 390;
+const INVENTORY_GRID_PRODUCT_WIDTH = 220;
+const INVENTORY_GRID_META_WIDTH = 85;
+const INVENTORY_GRID_DAY_WIDTH = 138;
+const INVENTORY_GRID_DAY_OVERSCAN = 3;
 
 function getInventoryApiUrl(path) {
     return `${apiBase}${path}`;
@@ -2481,6 +2495,14 @@ function getInventoryLocalSnapshot(fy, monthNum) {
     }
 }
 
+function clearInventoryLocalCache(fy, monthNum) {
+    try {
+        localStorage.removeItem(getInventoryStorageKey(fy, monthNum));
+        localStorage.removeItem(getInventoryMasterKey(fy));
+    } catch (_) {
+    }
+}
+
 async function syncInventoryPayloadToServer(payload) {
     const fy = String(payload && payload.fy ? payload.fy : getInventoryFinancialYear());
     const monthNum = Number(payload && payload.month ? payload.month : (inventoryModel.month || 1));
@@ -2501,6 +2523,29 @@ async function syncInventoryPayloadToServer(payload) {
             body: JSON.stringify({ financial_year: fy, rows, updated_at: updatedAt })
         })
     ]);
+}
+
+function queueInventoryServerSync(payload) {
+    inventoryQueuedServerPayload = payload;
+    if (inventoryServerSyncInFlight) return;
+
+    inventoryServerSyncInFlight = true;
+    void (async () => {
+        try {
+            while (inventoryQueuedServerPayload) {
+                const nextPayload = inventoryQueuedServerPayload;
+                inventoryQueuedServerPayload = null;
+                await syncInventoryPayloadToServer(nextPayload);
+            }
+        } catch (e) {
+            console.log('Inventory save sync skipped:', e.message);
+        } finally {
+            inventoryServerSyncInFlight = false;
+            if (inventoryQueuedServerPayload) {
+                queueInventoryServerSync(inventoryQueuedServerPayload);
+            }
+        }
+    })();
 }
 
 async function loadInventoryPayloadFromServer(fy, monthNum) {
@@ -2575,11 +2620,11 @@ function renderPurchaseSupplier() {
 
 function showInventoryManagement() {
     showView('inventoryView');
-    loadInventoryMonth();
 }
 
 function showInventoryValueReport() {
     showView('inventoryValueView');
+    renderInventoryValueReport();
 }
 
 function ensureInventoryValueMonthOptions() {
@@ -2672,17 +2717,19 @@ function loadInventoryProductMaster(fy) {
         rows = [];
     }
 
-    const seen = new Set();
     const cleaned = [];
-    rows.forEach((row) => {
+    const seenIds = new Set();
+    rows.forEach((row, idx) => {
         const name = String((row && row.name) || '').trim();
         if (!name) return;
-        const key = name.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
+        const id = String(row && row.id ? row.id : makeInventoryRowId(`${name}-${idx}`));
+        const key = id.trim().toLowerCase();
+        if (seenIds.has(key)) return;
+        seenIds.add(key);
         const minStock = Number(row && row.min_stock);
         const cost = Number(row && row.cost);
         cleaned.push({
+            id,
             name,
             min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
             cost: Number.isFinite(cost) && cost > 0 ? cost : 0
@@ -2694,18 +2741,20 @@ function loadInventoryProductMaster(fy) {
 
 function saveInventoryProductMaster(fy, rows) {
     const source = Array.isArray(rows) ? rows : [];
-    const seen = new Set();
+    const seenIds = new Set();
     const master = [];
 
-    source.forEach((row) => {
+    source.forEach((row, idx) => {
         const name = String((row && row.name) || '').trim();
         if (!name) return;
-        const key = name.toLowerCase();
-        if (seen.has(key)) return;
-        seen.add(key);
+        const id = String((row && row.id) || '').trim() || makeInventoryRowId(`${name}-${idx}`);
+        const key = id.toLowerCase();
+        if (seenIds.has(key)) return;
+        seenIds.add(key);
         const minStock = Number(row && row.min_stock);
         const cost = Number(row && row.cost);
         master.push({
+            id,
             name,
             min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
             cost: Number.isFinite(cost) && cost > 0 ? cost : 0
@@ -2719,14 +2768,14 @@ function mergeInventoryRowsWithMaster(monthRows, masterRows, dayCount) {
     const merged = sanitizeInventoryRows(monthRows, dayCount);
     const existing = new Map();
     merged.forEach((row, idx) => {
-        const key = String(row.name || '').trim().toLowerCase();
+        const key = String(row.id || row.name || '').trim().toLowerCase();
         if (key) existing.set(key, idx);
     });
 
     (Array.isArray(masterRows) ? masterRows : []).forEach((m) => {
         const name = String((m && m.name) || '').trim();
         if (!name) return;
-        const key = name.toLowerCase();
+        const key = String((m && m.id) || name).trim().toLowerCase();
         if (existing.has(key)) {
             const idx = existing.get(key);
             if (idx >= 0 && merged[idx]) {
@@ -2744,15 +2793,62 @@ function mergeInventoryRowsWithMaster(monthRows, masterRows, dayCount) {
         }
 
         merged.push({
+            id: String((m && m.id) || `inv-local-${merged.length + 1}`),
             name,
             qty: Array.from({ length: dayCount }, () => 0),
+            purchase_qty: Array.from({ length: dayCount }, () => 0),
             min_stock: Number(m.min_stock || 0) > 0 ? Number(m.min_stock || 0) : 0,
             cost: Number(m.cost || 0) > 0 ? Number(m.cost || 0) : 0
         });
         existing.set(key, merged.length - 1);
     });
 
+    ensureInventoryRowIds(merged);
     return merged;
+}
+
+function applyInventoryLocalGaps(serverRows, localRows, dayCount) {
+    const serverList = sanitizeInventoryRows(serverRows, dayCount);
+    const localList = sanitizeInventoryRows(localRows, dayCount);
+    if (!serverList.length || !localList.some((row) => !String(row.name || '').trim())) {
+        return serverList;
+    }
+
+    const serverByKey = new Map();
+    serverList.forEach((row) => {
+        const key = String(row.id || row.name || '').trim().toLowerCase();
+        if (key) serverByKey.set(key, row);
+    });
+
+    const arranged = [];
+    const used = new Set();
+    let pendingGaps = [];
+    localList.forEach((row) => {
+        const name = String(row.name || '').trim();
+        if (!name) {
+            pendingGaps.push(row);
+            return;
+        }
+        const key = String(row.id || name).trim().toLowerCase();
+        const serverRow = serverByKey.get(key);
+        if (!serverRow || used.has(key)) return;
+        arranged.push(...pendingGaps);
+        pendingGaps = [];
+        arranged.push(serverRow);
+        used.add(key);
+    });
+
+    serverList.forEach((row) => {
+        const key = String(row.id || row.name || '').trim().toLowerCase();
+        if (key && !used.has(key)) {
+            arranged.push(row);
+            used.add(key);
+        }
+    });
+    arranged.push(...pendingGaps);
+
+    ensureInventoryRowIds(arranged);
+    return arranged;
 }
 
 function ensureInventoryMonthOptions() {
@@ -2777,15 +2873,51 @@ function sanitizeInventoryRows(rows, dayCount) {
             const val = Number((row && Array.isArray(row.qty)) ? row.qty[i] : 0);
             return Number.isFinite(val) ? val : 0;
         });
+        const purchases = Array.from({ length: dayCount }, (_, i) => {
+            const val = Number((row && Array.isArray(row.purchase_qty)) ? row.purchase_qty[i] : 0);
+            return Number.isFinite(val) ? val : 0;
+        });
         const minStock = Number(row && row.min_stock);
         const cost = Number(row && row.cost);
         return {
+            id: String((row && row.id) || '').trim(),
             name: String((row && row.name) || '').trim(),
             qty,
+            purchase_qty: purchases,
             min_stock: Number.isFinite(minStock) && minStock > 0 ? minStock : 0,
             cost: Number.isFinite(cost) && cost > 0 ? cost : 0
         };
     });
+}
+
+function makeInventoryRowId(name) {
+    const input = String(name || '').trim().toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+        hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+    }
+    return `inv-name-${Math.abs(hash)}`;
+}
+
+function ensureInventoryRowIds(rows) {
+    if (!Array.isArray(rows)) return rows;
+    const used = new Set();
+    rows.forEach((row, idx) => {
+        if (!row) return;
+        let id = String(row.id || '').trim();
+        if (!id) {
+            const base = makeInventoryRowId(row.name || `row-${idx}`);
+            id = base;
+            let suffix = 1;
+            while (used.has(id)) {
+                id = `${base}-${suffix}`;
+                suffix += 1;
+            }
+            row.id = id;
+        }
+        used.add(id);
+    });
+    return rows;
 }
 
 function loadInventoryMonth() {
@@ -2793,6 +2925,8 @@ function loadInventoryMonth() {
         clearTimeout(inventorySaveTimer);
         inventorySaveTimer = null;
     }
+    inventoryLoadToken += 1;
+    const loadToken = inventoryLoadToken;
     ensureInventoryMonthOptions();
     const monthSelect = document.getElementById('inventoryMonthSelect');
     if (!monthSelect) return;
@@ -2804,17 +2938,10 @@ function loadInventoryMonth() {
     const storageKey = getInventoryStorageKey(fy, monthNum);
     const masterKey = getInventoryMasterKey(fy);
 
-    const saved = getInventoryLocalSnapshot(fy, monthNum);
-    const savedMaster = loadInventoryProductMaster(fy);
-
     inventoryModel = {
         month: monthNum,
         days: dayCount,
-        rows: mergeInventoryRowsWithMaster(
-            saved && saved.rows,
-            savedMaster,
-            dayCount
-        )
+        rows: []
     };
 
     initInventoryMailSubjectHook();
@@ -2826,13 +2953,16 @@ function loadInventoryMonth() {
     void (async () => {
         try {
             const server = await loadInventoryPayloadFromServer(fy, monthNum);
+            if (loadToken !== inventoryLoadToken) return;
             const hasServerData = (server.snapshot && server.snapshot.found) || (server.master && server.master.found);
             if (hasServerData) {
+                const saved = getInventoryLocalSnapshot(fy, monthNum);
                 inventoryModel = {
                     month: monthNum,
                     days: dayCount,
-                    rows: server.rows
+                    rows: applyInventoryLocalGaps(server.rows, saved && saved.rows, dayCount)
                 };
+                ensureInventoryRowIds(inventoryModel.rows);
 
                 localStorage.setItem(storageKey, JSON.stringify({
                     fy,
@@ -2845,15 +2975,16 @@ function loadInventoryMonth() {
                 return;
             }
 
-            if ((saved && Array.isArray(saved.rows) && saved.rows.length) || (Array.isArray(savedMaster) && savedMaster.length)) {
-                await syncInventoryPayloadToServer({
-                    fy,
-                    month: monthNum,
-                    rows: inventoryModel.rows,
-                    updated_at: saved && saved.updated_at ? saved.updated_at : new Date().toISOString()
-                });
-            }
+            if (loadToken !== inventoryLoadToken) return;
+            clearInventoryLocalCache(fy, monthNum);
+            inventoryModel = {
+                month: monthNum,
+                days: dayCount,
+                rows: []
+            };
+            renderInventoryTable();
         } catch (e) {
+            if (loadToken !== inventoryLoadToken) return;
             console.log('Inventory SQL sync skipped:', e.message);
         }
     })();
@@ -2905,99 +3036,647 @@ function updateInventoryPeriodUi() {
     }
 }
 
-function renderInventoryTable() {
-    const thead = document.getElementById('inventoryHead');
-    const tbody = document.getElementById('inventoryBody');
-    const summary = document.getElementById('inventorySummary');
-    if (!thead || !tbody || !summary) return;
+function bindInventoryTableEvents(tbody) {
+    if (!tbody || tbody.dataset.inventoryEventsBound === '1') return;
+    tbody.dataset.inventoryEventsBound = '1';
 
-    const mm = String(inventoryModel.month || 1).padStart(2, '0');
-    let headerHtml = '<tr><th class="inventory-sticky-col">PRODUCT NAME</th><th class="text-right">COST</th><th class="text-right">MIN STOCK</th>';
-    for (let d = 1; d <= inventoryModel.days; d += 1) {
-        headerHtml += `<th class="text-right">${d}.${mm}</th>`;
+    tbody.addEventListener('focusin', (e) => {
+        const target = e.target;
+        if (target && target.matches('input[data-row]')) {
+            const rowIdx = Number(target.getAttribute('data-row'));
+            if (Number.isInteger(rowIdx)) {
+                inventoryInsertAfterRow = rowIdx;
+            }
+        }
+        if (!target || !target.matches('input[data-kind="qty"], input[data-kind="purchase"], input[data-kind="min_stock"], input[data-kind="cost"]')) return;
+        if (typeof target.select === 'function') target.select();
+    });
+
+    tbody.addEventListener('input', (e) => {
+        const target = e.target;
+        if (!target || !target.matches('input[data-kind]')) return;
+        const kind = target.getAttribute('data-kind');
+        const rowIdx = Number(target.getAttribute('data-row'));
+        if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
+
+        if (kind === 'name') {
+            inventoryModel.rows[rowIdx].name = String(target.value || '').trimStart();
+            return;
+        }
+
+        if (kind === 'qty') {
+            const dayIdx = Number(target.getAttribute('data-day'));
+            if (!Number.isInteger(dayIdx)) return;
+            const val = Number(target.value);
+            inventoryModel.rows[rowIdx].qty[dayIdx] = Number.isFinite(val) ? val : 0;
+            scheduleInventorySummaryRefresh();
+            queueInventoryAutoSave();
+            return;
+        }
+
+        if (kind === 'purchase') {
+            const dayIdx = Number(target.getAttribute('data-day'));
+            if (!Number.isInteger(dayIdx)) return;
+            if (!Array.isArray(inventoryModel.rows[rowIdx].purchase_qty)) {
+                inventoryModel.rows[rowIdx].purchase_qty = Array.from({ length: inventoryModel.days }, () => 0);
+            }
+            const val = Number(target.value);
+            inventoryModel.rows[rowIdx].purchase_qty[dayIdx] = Number.isFinite(val) ? val : 0;
+            queueInventoryAutoSave();
+            return;
+        }
+
+        if (kind === 'min_stock') {
+            const val = Number(target.value);
+            inventoryModel.rows[rowIdx].min_stock = Number.isFinite(val) && val > 0 ? val : 0;
+            queueInventoryAutoSave();
+            return;
+        }
+
+        if (kind === 'cost') {
+            const val = Number(target.value);
+            inventoryModel.rows[rowIdx].cost = Number.isFinite(val) && val > 0 ? val : 0;
+            scheduleInventorySummaryRefresh();
+            queueInventoryAutoSave();
+        }
+    });
+
+    tbody.addEventListener('blur', (e) => {
+        const target = e.target;
+        if (!target || !target.matches('input[data-kind="name"]')) return;
+        saveInventorySnapshot(true);
+    }, true);
+
+    tbody.addEventListener('keydown', (e) => {
+        const target = e.target;
+        if (!target || !target.matches('input[data-row][data-col]')) return;
+        if (target.getAttribute('data-kind') === 'name' && e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            saveInventorySnapshot(true);
+            return;
+        }
+        handleInventoryCellNavigation(e);
+    });
+}
+
+function getInventoryCellText(row, colIdx) {
+    if (!row) return '';
+    if (colIdx === 0) return String(row.name || '');
+    if (colIdx === 1) return Number(row.cost || 0) ? formatMoney(row.cost || 0) : '';
+    if (colIdx === 2) return Number(row.min_stock || 0) ? String(Number(row.min_stock || 0)) : '';
+    const dayIdx = colIdx - 3;
+    const qty = Number(Array.isArray(row.qty) ? row.qty[dayIdx] : 0);
+    const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIdx] : 0);
+    if (qty && purchase) return `${qty} / +${purchase}`;
+    if (qty) return String(qty);
+    if (purchase) return `+${purchase}`;
+    return '';
+}
+
+function getInventoryCellHtml(row, colIdx) {
+    if (row && !String(row.name || '').trim() && colIdx > 0) {
+        return '&nbsp;';
     }
-    headerHtml += '</tr>';
-    thead.innerHTML = headerHtml;
+    if (colIdx < 3) {
+        return escapeHtml(getInventoryCellText(row, colIdx)) || '&nbsp;';
+    }
+    const dayIdx = colIdx - 3;
+    const qty = Number(Array.isArray(row.qty) ? row.qty[dayIdx] : 0);
+    const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIdx] : 0);
+    return `
+        <span class="inventory-grid-day-values">
+            <span class="inventory-grid-qty">${qty ? escapeHtml(qty) : ''}</span>
+            <span class="inventory-grid-purchase">${purchase ? `+${escapeHtml(purchase)}` : ''}</span>
+        </span>`;
+}
 
-    if (!inventoryModel.rows.length) {
-        tbody.innerHTML = `<tr><td colspan="${inventoryModel.days + 3}" class="text-right">No products yet. Add product or import sheet.</td></tr>`;
-        summary.textContent = '0 products | Total qty: 0.00 | Current stock value: 0.00';
-        renderInventoryValueReport();
+function getInventoryCellClass(row, colIdx) {
+    if (!row) return '';
+    if (!String(row.name || '').trim()) return ' group-gap';
+    if (colIdx === 0) return ' product';
+    if (colIdx === 1 || colIdx === 2) return ' meta';
+    const dayIdx = colIdx - 3;
+    const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIdx] : 0);
+    return purchase ? ' has-purchase' : '';
+}
+
+function ensureInventoryGridShell() {
+    const wrap = getInventoryTableWrap();
+    if (!wrap) return null;
+    let grid = document.getElementById('inventoryGrid');
+    if (!grid) {
+        wrap.innerHTML = '<div id="inventoryGrid" class="inventory-grid"><div id="inventoryGridCanvas" class="inventory-grid-canvas"></div></div>';
+        grid = document.getElementById('inventoryGrid');
+        inventoryGridBound = false;
+        inventoryGridLastRange = '';
+    }
+    const canvas = document.getElementById('inventoryGridCanvas');
+    return { wrap, grid, canvas };
+}
+
+function bindInventoryGridEvents(grid) {
+    if (!grid || inventoryGridBound) return;
+    inventoryGridBound = true;
+
+    grid.addEventListener('scroll', () => {
+        if (inventoryScrollTimer) return;
+        inventoryScrollTimer = window.requestAnimationFrame(() => {
+            inventoryScrollTimer = null;
+            renderInventoryGridVisible(false);
+        });
+    }, { passive: true });
+
+    grid.addEventListener('click', (e) => {
+        if (e.target && e.target.closest('.inventory-grid-editor')) return;
+        const cell = e.target.closest('.inventory-grid-cell[data-row][data-col]');
+        if (!cell) return;
+        openInventoryGridEditor(cell);
+    });
+
+    grid.addEventListener('keydown', (e) => {
+        if (e.target && e.target.closest('.inventory-grid-editor')) return;
+        const cell = e.target.closest('.inventory-grid-cell[data-row][data-col]');
+        if (!cell) return;
+        const rowIdx = Number(cell.getAttribute('data-row'));
+        const colIdx = Number(cell.getAttribute('data-col'));
+        if (!Number.isInteger(rowIdx) || !Number.isInteger(colIdx)) return;
+        if (
+            e.key.length === 1 &&
+            !e.altKey &&
+            !e.ctrlKey &&
+            !e.metaKey &&
+            colIdx >= 3 &&
+            /^[0-9.]$/.test(e.key)
+        ) {
+            e.preventDefault();
+            openInventoryGridEditor(cell, e.key);
+            return;
+        }
+        if (e.key === 'Enter' || e.key === 'F2') {
+            e.preventDefault();
+            openInventoryGridEditor(cell);
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusInventoryCell(Math.min((inventoryModel.rows || []).length - 1, rowIdx + 1), colIdx);
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            focusInventoryCell(Math.max(0, rowIdx - 1), colIdx);
+            return;
+        }
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            focusInventoryCell(rowIdx, Math.min((inventoryModel.days || 0) + 2, colIdx + 1));
+            return;
+        }
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            focusInventoryCell(rowIdx, Math.max(0, colIdx - 1));
+        }
+    });
+}
+
+function getInventoryGridDimensions() {
+    const rowCount = (inventoryModel.rows || []).length;
+    const dayCount = Number(inventoryModel.days || 0);
+    return {
+        width: INVENTORY_GRID_LEFT_WIDTH + dayCount * INVENTORY_GRID_DAY_WIDTH,
+        height: INVENTORY_GRID_HEADER_HEIGHT + rowCount * INVENTORY_VIRTUAL_ROW_HEIGHT
+    };
+}
+
+function renderInventoryGridVisible(resetScroll) {
+    const shell = ensureInventoryGridShell();
+    if (!shell || !shell.grid || !shell.canvas) return;
+    const { grid, canvas } = shell;
+    const rows = inventoryModel.rows || [];
+    const dims = getInventoryGridDimensions();
+
+    if (resetScroll) {
+        grid.scrollTop = 0;
+        grid.scrollLeft = 0;
+    }
+
+    canvas.style.width = `${dims.width}px`;
+    canvas.style.height = `${dims.height}px`;
+
+    if (!rows.length) {
+        inventoryGridLastRange = '';
+        canvas.innerHTML = '<div class="inventory-grid-empty">No products yet. Add product or import sheet.</div>';
         return;
     }
 
-    let bodyHtml = '';
-    inventoryModel.rows.forEach((row, rowIndex) => {
-        bodyHtml += `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-col="0" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
-        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="1" data-kind="cost" value="${Number(row.cost || 0) === 0 ? '' : Number(row.cost || 0)}" min="0" step="0.01" placeholder="0"></td>`;
-        bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="2" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
-        for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
-            const value = Number(row.qty[dayIndex] || 0);
-            bodyHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="${3 + dayIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1"></td>`;
+    const scrollTop = grid.scrollTop || 0;
+    const scrollLeft = grid.scrollLeft || 0;
+    const viewportHeight = grid.clientHeight || 520;
+    const viewportWidth = grid.clientWidth || 900;
+    const rowStart = Math.max(0, Math.floor(Math.max(0, scrollTop - INVENTORY_GRID_HEADER_HEIGHT) / INVENTORY_VIRTUAL_ROW_HEIGHT) - INVENTORY_VIRTUAL_OVERSCAN);
+    const rowEnd = Math.min(rows.length, rowStart + Math.ceil(viewportHeight / INVENTORY_VIRTUAL_ROW_HEIGHT) + INVENTORY_VIRTUAL_OVERSCAN * 2);
+    const dayStart = Math.max(0, Math.floor(Math.max(0, scrollLeft - INVENTORY_GRID_LEFT_WIDTH) / INVENTORY_GRID_DAY_WIDTH) - INVENTORY_GRID_DAY_OVERSCAN);
+    const dayEnd = Math.min(inventoryModel.days || 0, dayStart + Math.ceil(viewportWidth / INVENTORY_GRID_DAY_WIDTH) + INVENTORY_GRID_DAY_OVERSCAN * 2);
+    const rangeKey = `${rowStart}:${rowEnd}:${dayStart}:${dayEnd}:${scrollTop}:${scrollLeft}:${rows.length}:${inventoryModel.days}`;
+
+    if (!resetScroll && rangeKey === inventoryGridLastRange) return;
+    inventoryGridLastRange = rangeKey;
+
+    let html = '';
+    const frozenLeft = scrollLeft;
+    const frozenTop = scrollTop;
+    html += `<div class="inventory-grid-head frozen" style="left:${frozenLeft}px;top:${frozenTop}px;width:${INVENTORY_GRID_PRODUCT_WIDTH}px;">Product</div>`;
+    html += `<div class="inventory-grid-head frozen" style="left:${frozenLeft + INVENTORY_GRID_PRODUCT_WIDTH}px;top:${frozenTop}px;width:${INVENTORY_GRID_META_WIDTH}px;">Cost</div>`;
+    html += `<div class="inventory-grid-head frozen" style="left:${frozenLeft + INVENTORY_GRID_PRODUCT_WIDTH + INVENTORY_GRID_META_WIDTH}px;top:${frozenTop}px;width:${INVENTORY_GRID_META_WIDTH}px;">Min</div>`;
+    for (let dayIdx = dayStart; dayIdx < dayEnd; dayIdx += 1) {
+        html += `<div class="inventory-grid-head day" style="left:${INVENTORY_GRID_LEFT_WIDTH + dayIdx * INVENTORY_GRID_DAY_WIDTH}px;top:${frozenTop}px;width:${INVENTORY_GRID_DAY_WIDTH}px;">${dayIdx + 1}.${String(inventoryModel.month || 1).padStart(2, '0')}<span>Qty / P</span></div>`;
+    }
+
+    for (let rowIdx = rowStart; rowIdx < rowEnd; rowIdx += 1) {
+        const row = rows[rowIdx];
+        const top = INVENTORY_GRID_HEADER_HEIGHT + rowIdx * INVENTORY_VIRTUAL_ROW_HEIGHT;
+        const rowClass = rowIdx % 2 === 0 ? ' even' : ' odd';
+        const gapClass = !String(row.name || '').trim() ? ' group-gap' : '';
+        html += `<button type="button" class="inventory-grid-cell frozen product${rowClass}${gapClass}" data-row="${rowIdx}" data-col="0" style="left:${frozenLeft}px;top:${top}px;width:${INVENTORY_GRID_PRODUCT_WIDTH}px;">${getInventoryCellHtml(row, 0)}</button>`;
+        html += `<button type="button" class="inventory-grid-cell frozen meta${rowClass}${gapClass}" data-row="${rowIdx}" data-col="1" style="left:${frozenLeft + INVENTORY_GRID_PRODUCT_WIDTH}px;top:${top}px;width:${INVENTORY_GRID_META_WIDTH}px;">${getInventoryCellHtml(row, 1)}</button>`;
+        html += `<button type="button" class="inventory-grid-cell frozen meta${rowClass}${gapClass}" data-row="${rowIdx}" data-col="2" style="left:${frozenLeft + INVENTORY_GRID_PRODUCT_WIDTH + INVENTORY_GRID_META_WIDTH}px;top:${top}px;width:${INVENTORY_GRID_META_WIDTH}px;">${getInventoryCellHtml(row, 2)}</button>`;
+        for (let dayIdx = dayStart; dayIdx < dayEnd; dayIdx += 1) {
+            const colIdx = dayIdx + 3;
+            html += `<button type="button" class="inventory-grid-cell day${rowClass}${getInventoryCellClass(row, colIdx)}" data-row="${rowIdx}" data-col="${colIdx}" style="left:${INVENTORY_GRID_LEFT_WIDTH + dayIdx * INVENTORY_GRID_DAY_WIDTH}px;top:${top}px;width:${INVENTORY_GRID_DAY_WIDTH}px;">${getInventoryCellHtml(row, colIdx)}</button>`;
         }
-        bodyHtml += '</tr>';
+    }
+    canvas.innerHTML = html;
+}
+
+function updateInventoryGridCell(rowIdx, colIdx) {
+    const row = inventoryModel.rows[rowIdx];
+    const rowClass = rowIdx % 2 === 0 ? ' even' : ' odd';
+    let className = `inventory-grid-cell${rowClass}`;
+    if (colIdx === 0) {
+        className += ' frozen product';
+    } else if (colIdx === 1 || colIdx === 2) {
+        className += ' frozen meta';
+    } else {
+        className += ` day${getInventoryCellClass(row, colIdx)}`;
+    }
+    document.querySelectorAll(`.inventory-grid-cell[data-row="${rowIdx}"][data-col="${colIdx}"]`).forEach((cell) => {
+        cell.innerHTML = getInventoryCellHtml(row, colIdx);
+        cell.className = className;
     });
+}
+
+function setInventoryDayModelValue(rowIdx, colIdx, qtyValue, purchaseValue) {
+    const row = inventoryModel.rows[rowIdx];
+    if (!row) return;
+    if (!String(row.name || '').trim()) return;
+    const dayIdx = colIdx - 3;
+    if (!Array.isArray(row.qty)) row.qty = Array.from({ length: inventoryModel.days }, () => 0);
+    if (!Array.isArray(row.purchase_qty)) row.purchase_qty = Array.from({ length: inventoryModel.days }, () => 0);
+    const qty = Number(qtyValue);
+    const purchase = Number(purchaseValue);
+    row.qty[dayIdx] = Number.isFinite(qty) && qty > 0 ? qty : 0;
+    row.purchase_qty[dayIdx] = Number.isFinite(purchase) && purchase > 0 ? purchase : 0;
+    scheduleInventorySummaryRefresh();
+}
+
+function setInventoryModelValue(rowIdx, colIdx, rawValue) {
+    const row = inventoryModel.rows[rowIdx];
+    if (!row) return;
+    if (colIdx === 0) {
+        row.name = String(rawValue || '').trimStart();
+        return;
+    }
+    if (!String(row.name || '').trim()) return;
+    const parsed = Number(rawValue);
+    const val = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+    if (colIdx === 1) {
+        row.cost = val;
+        scheduleInventorySummaryRefresh();
+        return;
+    }
+    if (colIdx === 2) {
+        row.min_stock = val;
+        return;
+    }
+    const dayIdx = colIdx - 3;
+    if (!Array.isArray(row.qty)) row.qty = Array.from({ length: inventoryModel.days }, () => 0);
+    if (!Array.isArray(row.purchase_qty)) row.purchase_qty = Array.from({ length: inventoryModel.days }, () => 0);
+    const rawText = String(rawValue || '').trim();
+    if (rawText.startsWith('+')) {
+        const purchaseOnly = Number(rawText.replace(/^\+/, '').trim());
+        row.qty[dayIdx] = 0;
+        row.purchase_qty[dayIdx] = Number.isFinite(purchaseOnly) && purchaseOnly > 0 ? purchaseOnly : 0;
+        scheduleInventorySummaryRefresh();
+        return;
+    }
+    const parts = rawText.split(/[\/|]/).map((part) => Number(String(part || '').replace(/^\+/, '').trim()));
+    row.qty[dayIdx] = Number.isFinite(parts[0]) && parts[0] > 0 ? parts[0] : 0;
+    if (parts.length > 1) {
+        row.purchase_qty[dayIdx] = Number.isFinite(parts[1]) && parts[1] > 0 ? parts[1] : 0;
+    }
+    scheduleInventorySummaryRefresh();
+}
+
+function getInventoryEditorValue(rowIdx, colIdx) {
+    const row = inventoryModel.rows[rowIdx];
+    if (!row) return '';
+    if (colIdx === 0) return String(row.name || '');
+    if (colIdx === 1) return Number(row.cost || 0) || '';
+    if (colIdx === 2) return Number(row.min_stock || 0) || '';
+    const dayIdx = colIdx - 3;
+    const qty = Number(Array.isArray(row.qty) ? row.qty[dayIdx] : 0);
+    const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIdx] : 0);
+    if (qty && purchase) return `${qty} / ${purchase}`;
+    if (purchase) return `+${purchase}`;
+    return qty || '';
+}
+
+function openInventoryGridEditor(cell, initialText = null, initialPart = 'qty') {
+    const rowIdx = Number(cell.getAttribute('data-row'));
+    const colIdx = Number(cell.getAttribute('data-col'));
+    if (!Number.isInteger(rowIdx) || !Number.isInteger(colIdx)) return;
+
+    inventoryInsertAfterRow = rowIdx;
+    const sourceRow = inventoryModel.rows[rowIdx];
+    if (colIdx > 0 && sourceRow && !String(sourceRow.name || '').trim()) {
+        focusInventoryCell(rowIdx, 0);
+        return;
+    }
+    cell.innerHTML = '';
+
+    if (colIdx >= 3) {
+        const row = inventoryModel.rows[rowIdx];
+        const dayIdx = colIdx - 3;
+        const qty = Number(Array.isArray(row.qty) ? row.qty[dayIdx] : 0);
+        const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIdx] : 0);
+        cell.innerHTML = `
+            <span class="inventory-grid-day-editor">
+                <input class="inventory-grid-editor inventory-grid-qty-editor" type="text" inputmode="decimal" data-part="qty" value="${initialText !== null ? escapeHtml(initialText) : (qty || '')}" placeholder="Qty">
+                <input class="inventory-grid-editor inventory-grid-purchase-editor" type="text" inputmode="decimal" data-part="purchase" value="${purchase || ''}" placeholder="Purchase">
+            </span>`;
+        const qtyInput = cell.querySelector('[data-part="qty"]');
+        const purchaseInput = cell.querySelector('[data-part="purchase"]');
+        const commitDay = () => {
+            if (!cell.isConnected || !qtyInput || !purchaseInput || !qtyInput.isConnected || !purchaseInput.isConnected) return;
+            setInventoryDayModelValue(rowIdx, colIdx, qtyInput.value, purchaseInput.value);
+            updateInventoryGridCell(rowIdx, colIdx);
+            queueInventoryAutoSave();
+        };
+        const moveAfterCommit = (targetRow, targetCol, targetPart = 'qty') => {
+            commitDay();
+            focusInventoryCell(targetRow, targetCol, true, targetPart);
+        };
+        const handleDayKey = (e) => {
+            if (e.key === 'Tab' && e.target === qtyInput && !e.shiftKey) {
+                e.preventDefault();
+                purchaseInput.focus();
+                purchaseInput.select();
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                moveAfterCommit(
+                    e.shiftKey ? Math.max(0, rowIdx - 1) : Math.min((inventoryModel.rows || []).length - 1, rowIdx + 1),
+                    colIdx,
+                    e.target === purchaseInput ? 'purchase' : 'qty'
+                );
+                return;
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                if (e.shiftKey && e.target === purchaseInput) {
+                    qtyInput.focus();
+                    qtyInput.select();
+                    return;
+                }
+                moveAfterCommit(rowIdx, e.shiftKey ? Math.max(0, colIdx - 1) : Math.min((inventoryModel.days || 0) + 2, colIdx + 1), e.shiftKey ? 'purchase' : 'qty');
+                return;
+            }
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                moveAfterCommit(Math.min((inventoryModel.rows || []).length - 1, rowIdx + 1), colIdx, e.target === purchaseInput ? 'purchase' : 'qty');
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveAfterCommit(Math.max(0, rowIdx - 1), colIdx, e.target === purchaseInput ? 'purchase' : 'qty');
+                return;
+            }
+            if (e.key === 'ArrowRight' && !e.ctrlKey && e.target === qtyInput) {
+                e.preventDefault();
+                purchaseInput.focus();
+                purchaseInput.select();
+                return;
+            }
+            if (e.key === 'ArrowLeft' && !e.ctrlKey && e.target === purchaseInput) {
+                e.preventDefault();
+                qtyInput.focus();
+                qtyInput.select();
+                return;
+            }
+            if (e.key === 'ArrowRight' && e.ctrlKey) {
+                e.preventDefault();
+                moveAfterCommit(rowIdx, Math.min((inventoryModel.days || 0) + 2, colIdx + 1), e.target === purchaseInput ? 'purchase' : 'qty');
+                return;
+            }
+            if (e.key === 'ArrowLeft' && e.ctrlKey) {
+                e.preventDefault();
+                moveAfterCommit(rowIdx, Math.max(0, colIdx - 1), e.target === purchaseInput ? 'purchase' : 'qty');
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                updateInventoryGridCell(rowIdx, colIdx);
+                focusInventoryCell(rowIdx, colIdx);
+            }
+        };
+        qtyInput.addEventListener('keydown', handleDayKey);
+        purchaseInput.addEventListener('keydown', handleDayKey);
+        cell.addEventListener('focusout', () => {
+            window.setTimeout(() => {
+                if (!cell.contains(document.activeElement)) commitDay();
+            }, 0);
+        });
+        const startInput = initialPart === 'purchase' ? purchaseInput : qtyInput;
+        startInput.focus();
+        startInput.select();
+        return;
+    }
+
+    const input = document.createElement('input');
+    input.className = 'inventory-grid-editor';
+    input.type = 'text';
+    if (colIdx > 0) input.setAttribute('inputmode', 'decimal');
+    input.value = getInventoryEditorValue(rowIdx, colIdx);
+    input.dataset.row = String(rowIdx);
+    input.dataset.col = String(colIdx);
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    const commit = () => {
+        if (!input.isConnected) return;
+        setInventoryModelValue(rowIdx, colIdx, input.value);
+        updateInventoryGridCell(rowIdx, colIdx);
+        queueInventoryAutoSave();
+        if (colIdx === 0) saveInventorySnapshot(true);
+    };
+
+    input.addEventListener('blur', commit, { once: true });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            commit();
+            if (e.key === 'Enter') {
+                focusInventoryCell(e.shiftKey ? Math.max(0, rowIdx - 1) : Math.min((inventoryModel.rows || []).length - 1, rowIdx + 1), colIdx, true);
+            } else {
+                const nextCol = e.shiftKey ? Math.max(0, colIdx - 1) : Math.min(inventoryModel.days + 2, colIdx + 1);
+                focusInventoryCell(rowIdx, nextCol, true);
+            }
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            commit();
+            focusInventoryCell(Math.min((inventoryModel.rows || []).length - 1, rowIdx + 1), colIdx, true);
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            commit();
+            focusInventoryCell(Math.max(0, rowIdx - 1), colIdx, true);
+            return;
+        }
+        if (e.key === 'ArrowRight' && e.ctrlKey) {
+            e.preventDefault();
+            commit();
+            focusInventoryCell(rowIdx, Math.min((inventoryModel.days || 0) + 2, colIdx + 1), true);
+            return;
+        }
+        if (e.key === 'ArrowLeft' && e.ctrlKey) {
+            e.preventDefault();
+            commit();
+            focusInventoryCell(rowIdx, Math.max(0, colIdx - 1), true);
+            return;
+        }
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            updateInventoryGridCell(rowIdx, colIdx);
+            focusInventoryCell(rowIdx, colIdx);
+        }
+    });
+}
+
+function getInventoryRowHtml(row, rowIndex) {
+    let rowHtml = `<tr><td class="inventory-sticky-col"><input class="inventory-product-input" data-row="${rowIndex}" data-col="0" data-kind="name" value="${escapeHtml(row.name)}" placeholder="Product name"></td>`;
+    rowHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="1" data-kind="cost" value="${Number(row.cost || 0) === 0 ? '' : Number(row.cost || 0)}" min="0" step="0.01" placeholder="0"></td>`;
+    rowHtml += `<td><input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="2" data-kind="min_stock" value="${Number(row.min_stock || 0) === 0 ? '' : Number(row.min_stock || 0)}" min="0" step="1" placeholder="0"></td>`;
+    for (let dayIndex = 0; dayIndex < inventoryModel.days; dayIndex += 1) {
+        const value = Number(row.qty[dayIndex] || 0);
+        const purchaseVal = Number(row.purchase_qty ? row.purchase_qty[dayIndex] : 0);
+        rowHtml += `<td>`;
+        rowHtml += `<div class="inventory-day-cell">`;
+        rowHtml += `<input type="number" class="inventory-cell-input" data-row="${rowIndex}" data-col="${3 + dayIndex}" data-day="${dayIndex}" data-kind="qty" value="${value === 0 ? '' : value}" min="0" step="1">`;
+        rowHtml += `<input type="number" class="inventory-purchase-input" data-row="${rowIndex}" data-col="${3 + dayIndex}" data-day="${dayIndex}" data-kind="purchase" value="${purchaseVal === 0 ? '' : purchaseVal}" min="0" step="1" placeholder="P">`;
+        rowHtml += `</div>`;
+        rowHtml += `</td>`;
+    }
+    rowHtml += '</tr>';
+    return rowHtml;
+}
+
+function getInventoryColspan() {
+    return Number(inventoryModel.days || 0) + 3;
+}
+
+function getInventoryTableWrap() {
+    return document.querySelector('.inventory-table-wrap');
+}
+
+function shouldVirtualizeInventoryRows() {
+    return (inventoryModel.rows || []).length > INVENTORY_VIRTUAL_THRESHOLD;
+}
+
+function bindInventoryVirtualScroll() {
+    const container = getInventoryTableWrap();
+    if (!container || inventoryVirtualScrollBound) return;
+    inventoryVirtualScrollBound = true;
+    container.addEventListener('scroll', () => {
+        if (!shouldVirtualizeInventoryRows()) return;
+        if (inventoryScrollTimer) return;
+        inventoryScrollTimer = window.requestAnimationFrame(() => {
+            inventoryScrollTimer = null;
+            renderInventoryVisibleRows(false);
+        });
+    }, { passive: true });
+}
+
+function renderInventoryVisibleRows(resetScroll) {
+    const tbody = document.getElementById('inventoryBody');
+    const container = getInventoryTableWrap();
+    if (!tbody || !container) return;
+
+    const rows = inventoryModel.rows || [];
+    if (resetScroll) {
+        container.scrollTop = 0;
+    }
+
+    const containerHeight = container.clientHeight || 520;
+    const scrollTop = container.scrollTop || 0;
+    const visibleCount = Math.ceil(containerHeight / INVENTORY_VIRTUAL_ROW_HEIGHT) + INVENTORY_VIRTUAL_OVERSCAN * 2;
+    const startRow = Math.max(0, Math.floor(scrollTop / INVENTORY_VIRTUAL_ROW_HEIGHT) - INVENTORY_VIRTUAL_OVERSCAN);
+    const endRow = Math.min(rows.length, startRow + visibleCount);
+    const topHeight = startRow * INVENTORY_VIRTUAL_ROW_HEIGHT;
+    const bottomHeight = Math.max(0, (rows.length - endRow) * INVENTORY_VIRTUAL_ROW_HEIGHT);
+    const colspan = getInventoryColspan();
+
+    let bodyHtml = '';
+    if (topHeight > 0) {
+        bodyHtml += `<tr class="inventory-virtual-spacer"><td colspan="${colspan}" style="height:${topHeight}px;padding:0;border:0;"></td></tr>`;
+    }
+    for (let rowIndex = startRow; rowIndex < endRow; rowIndex += 1) {
+        bodyHtml += getInventoryRowHtml(rows[rowIndex], rowIndex);
+    }
+    if (bottomHeight > 0) {
+        bodyHtml += `<tr class="inventory-virtual-spacer"><td colspan="${colspan}" style="height:${bottomHeight}px;padding:0;border:0;"></td></tr>`;
+    }
     tbody.innerHTML = bodyHtml;
-    refreshInventorySummary();
+}
 
-    tbody.querySelectorAll('input[data-kind="name"]').forEach((input) => {
-        input.addEventListener('input', (e) => {
-            const idx = Number(e.target.getAttribute('data-row'));
-            if (!Number.isInteger(idx) || !inventoryModel.rows[idx]) return;
-            inventoryModel.rows[idx].name = String(e.target.value || '').trimStart();
-            queueInventoryAutoSave();
-        });
-    });
+function scrollInventoryRowIntoView(rowIdx) {
+    const container = getInventoryTableWrap();
+    if (!container || !shouldVirtualizeInventoryRows()) return;
+    container.scrollTop = Math.max(0, rowIdx * INVENTORY_VIRTUAL_ROW_HEIGHT - INVENTORY_VIRTUAL_ROW_HEIGHT * 2);
+    renderInventoryVisibleRows(false);
+}
 
-    tbody.querySelectorAll('input[data-kind="qty"]').forEach((input) => {
-        input.addEventListener('focus', (e) => {
-            e.target.select();
-        });
-        input.addEventListener('input', (e) => {
-            const rowIdx = Number(e.target.getAttribute('data-row'));
-            const dayIdx = Number(e.target.getAttribute('data-day'));
-            if (!Number.isInteger(rowIdx) || !Number.isInteger(dayIdx) || !inventoryModel.rows[rowIdx]) return;
-            const val = Number(e.target.value);
-            inventoryModel.rows[rowIdx].qty[dayIdx] = Number.isFinite(val) ? val : 0;
-            refreshInventorySummary();
-            renderInventoryValueReport();
-            queueInventoryAutoSave();
-        });
-    });
+function renderInventoryTable() {
+    inventoryRenderToken += 1;
+    const summary = document.getElementById('inventorySummary');
+    if (!summary) return;
 
-    tbody.querySelectorAll('input[data-kind="min_stock"]').forEach((input) => {
-        input.addEventListener('focus', (e) => {
-            e.target.select();
-        });
-        input.addEventListener('input', (e) => {
-            const rowIdx = Number(e.target.getAttribute('data-row'));
-            if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
-            const val = Number(e.target.value);
-            inventoryModel.rows[rowIdx].min_stock = Number.isFinite(val) && val > 0 ? val : 0;
-            queueInventoryAutoSave();
-        });
-    });
+    if (!inventoryModel.rows.length) {
+        const container = getInventoryTableWrap();
+        if (container) {
+            container.classList.add('inventory-virtualized');
+        }
+        renderInventoryGridVisible(true);
+        summary.textContent = '0 products | Total qty: 0.00 | Current stock value: 0.00';
+        scheduleInventoryValueReport();
+        return;
+    }
 
-    tbody.querySelectorAll('input[data-kind="cost"]').forEach((input) => {
-        input.addEventListener('focus', (e) => {
-            e.target.select();
-        });
-        input.addEventListener('input', (e) => {
-            const rowIdx = Number(e.target.getAttribute('data-row'));
-            if (!Number.isInteger(rowIdx) || !inventoryModel.rows[rowIdx]) return;
-            const val = Number(e.target.value);
-            inventoryModel.rows[rowIdx].cost = Number.isFinite(val) && val > 0 ? val : 0;
-            refreshInventorySummary();
-            renderInventoryValueReport();
-            queueInventoryAutoSave();
-        });
-    });
-
-    tbody.querySelectorAll('input[data-row][data-col]').forEach((input) => {
-        input.addEventListener('keydown', handleInventoryCellNavigation);
-    });
-
-    renderInventoryValueReport();
+    const container = getInventoryTableWrap();
+    if (container) {
+        container.classList.add('inventory-virtualized');
+    }
+    const shell = ensureInventoryGridShell();
+    if (shell) bindInventoryGridEvents(shell.grid);
+    inventoryGridLastRange = '';
+    renderInventoryGridVisible(true);
+    summary.textContent = `${inventoryModel.rows.length} products | Smooth grid active`;
+    scheduleInventorySummaryRefresh();
+    scheduleInventoryValueReport();
 }
 
 function computeInventoryTotals() {
@@ -3022,21 +3701,82 @@ function refreshInventorySummary() {
     summary.textContent = `${inventoryModel.rows.length} products | Total qty: ${formatMoney(totalQty)} | Current stock value: ${formatMoney(currentStockValue)}`;
 }
 
-function focusInventoryCell(rowIdx, colIdx) {
-    const cell = document.querySelector(`#inventoryBody input[data-row="${rowIdx}"][data-col="${colIdx}"]`);
+function scheduleInventorySummaryRefresh() {
+    if (inventorySummaryTimer) return;
+    inventorySummaryTimer = window.requestAnimationFrame(() => {
+        inventorySummaryTimer = null;
+        refreshInventorySummary();
+    });
+}
+
+function focusInventoryCell(rowIdx, colIdx, openEditor = false, initialPart = 'qty') {
+    const shell = ensureInventoryGridShell();
+    if (!shell || !shell.grid) return false;
+    const dayIdx = Math.max(0, colIdx - 3);
+    const rowTop = INVENTORY_GRID_HEADER_HEIGHT + rowIdx * INVENTORY_VIRTUAL_ROW_HEIGHT;
+    const rowBottom = rowTop + INVENTORY_VIRTUAL_ROW_HEIGHT;
+    const visibleTop = shell.grid.scrollTop + INVENTORY_GRID_HEADER_HEIGHT;
+    const visibleBottom = shell.grid.scrollTop + shell.grid.clientHeight;
+    if (rowTop < visibleTop) {
+        shell.grid.scrollTop = Math.max(0, rowTop - INVENTORY_GRID_HEADER_HEIGHT);
+    } else if (rowBottom > visibleBottom) {
+        shell.grid.scrollTop = Math.max(0, rowBottom - shell.grid.clientHeight);
+    }
+    if (colIdx >= 3) {
+        const colLeft = INVENTORY_GRID_LEFT_WIDTH + dayIdx * INVENTORY_GRID_DAY_WIDTH;
+        const colRight = colLeft + INVENTORY_GRID_DAY_WIDTH;
+        const visibleLeft = shell.grid.scrollLeft + INVENTORY_GRID_LEFT_WIDTH;
+        const visibleRight = shell.grid.scrollLeft + shell.grid.clientWidth;
+        if (colLeft < visibleLeft) {
+            shell.grid.scrollLeft = Math.max(0, colLeft - INVENTORY_GRID_LEFT_WIDTH);
+        } else if (colRight > visibleRight) {
+            shell.grid.scrollLeft = Math.max(0, colRight - shell.grid.clientWidth);
+        }
+    }
+    renderInventoryGridVisible(false);
+    const cell = document.querySelector(`.inventory-grid-cell[data-row="${rowIdx}"][data-col="${colIdx}"]`);
     if (!cell) return false;
     cell.focus();
-    if (typeof cell.select === 'function') cell.select();
+    if (openEditor) {
+        openInventoryGridEditor(cell, null, initialPart);
+    }
     return true;
 }
 
-function appendInventoryRow(name = '') {
-    inventoryModel.rows.push({
+function refreshInventoryDomRowIndexes(startRow) {
+    const tbody = document.getElementById('inventoryBody');
+    if (!tbody) return;
+    const from = Math.max(0, Number(startRow) || 0);
+    Array.from(tbody.rows).forEach((tr, rowIndex) => {
+        if (rowIndex < from) return;
+        tr.querySelectorAll('input[data-row]').forEach((input) => {
+            input.setAttribute('data-row', String(rowIndex));
+        });
+    });
+}
+
+function createInventoryRow(name) {
+    return {
+        id: `inv-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         name: String(name || '').trim(),
         qty: Array.from({ length: inventoryModel.days }, () => 0),
+        purchase_qty: Array.from({ length: inventoryModel.days }, () => 0),
         min_stock: 0,
         cost: 0
-    });
+    };
+}
+
+function appendInventoryRow(name = '', insertAfterRow = null) {
+    const row = createInventoryRow(name);
+    const idx = Number(insertAfterRow);
+    if (Number.isInteger(idx) && idx >= 0 && idx < inventoryModel.rows.length) {
+        inventoryModel.rows.splice(idx + 1, 0, row);
+        inventoryInsertAfterRow = idx + 1;
+        return idx + 1;
+    }
+    inventoryModel.rows.push(row);
+    inventoryInsertAfterRow = inventoryModel.rows.length - 1;
+    return inventoryModel.rows.length - 1;
 }
 
 function handleInventoryCellNavigation(event) {
@@ -3136,6 +3876,15 @@ function renderInventoryValueReport() {
     }
 }
 
+function scheduleInventoryValueReport() {
+    if (!document.getElementById('inventoryValueView')?.classList.contains('active')) return;
+    if (inventoryReportTimer) return;
+    inventoryReportTimer = window.requestAnimationFrame(() => {
+        inventoryReportTimer = null;
+        renderInventoryValueReport();
+    });
+}
+
 function escapeHtml(text) {
     return String(text || '')
         .replace(/&/g, '&amp;')
@@ -3148,10 +3897,22 @@ function escapeHtml(text) {
 function addInventoryRow() {
     const input = document.getElementById('inventoryProductInput');
     const name = (input ? input.value : '').trim();
-    appendInventoryRow(name);
+    const insertAfterRow = Number.isInteger(inventoryInsertAfterRow) ? inventoryInsertAfterRow : null;
+    const insertedRow = appendInventoryRow(name, insertAfterRow);
     if (input) input.value = '';
     renderInventoryTable();
-    saveInventorySnapshot(true);
+    focusInventoryCell(insertedRow, 0);
+    inventoryInsertAfterRow = insertedRow;
+    queueInventoryAutoSave();
+}
+
+function addInventoryGapRow() {
+    const insertAfterRow = Number.isInteger(inventoryInsertAfterRow) ? inventoryInsertAfterRow : inventoryModel.rows.length - 1;
+    const insertedRow = appendInventoryRow('', insertAfterRow);
+    renderInventoryTable();
+    focusInventoryCell(insertedRow, 0);
+    inventoryInsertAfterRow = insertedRow;
+    queueInventoryAutoSave();
 }
 
 function removeEmptyInventoryRows() {
@@ -3172,25 +3933,30 @@ function removeEmptyInventoryRows() {
 
 function queueInventoryAutoSave() {
     if (inventorySaveTimer) clearTimeout(inventorySaveTimer);
-    const monthSelect = document.getElementById('inventoryMonthSelect');
-    const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || 1));
-    const fy = getInventoryFinancialYear();
-    const snapshotPayload = {
-        fy,
-        month: Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum : Number(inventoryModel.month || 1),
-        rows: sanitizeInventoryRows(inventoryModel.rows, inventoryModel.days),
-        updated_at: new Date().toISOString()
-    };
     inventorySaveTimer = setTimeout(() => {
         inventorySaveTimer = null;
+        const monthSelect = document.getElementById('inventoryMonthSelect');
+        const monthNum = Number(monthSelect ? monthSelect.value : (inventoryModel.month || 1));
+        const fy = getInventoryFinancialYear();
+        const snapshotPayload = {
+            fy,
+            month: Number.isFinite(monthNum) && monthNum >= 1 && monthNum <= 12 ? monthNum : Number(inventoryModel.month || 1),
+            rows: inventoryModel.rows,
+            updated_at: new Date().toISOString()
+        };
         persistInventoryPayload(snapshotPayload, true);
-    }, 0);
+    }, 900);
 }
 
 function persistInventoryPayload(payload, silent = false) {
     const fy = String(payload && payload.fy ? payload.fy : getInventoryFinancialYear());
     const monthNum = Number(payload && payload.month ? payload.month : (inventoryModel.month || 1));
     if (!Number.isFinite(monthNum) || monthNum < 1 || monthNum > 12) return;
+    if (payload && Array.isArray(payload.rows)) {
+        ensureInventoryRowIds(payload.rows);
+    } else {
+        ensureInventoryRowIds(inventoryModel.rows);
+    }
     const key = getInventoryStorageKey(fy, monthNum);
     const masterKey = getInventoryMasterKey(fy);
     const safeRows = sanitizeInventoryRows(payload && payload.rows ? payload.rows : inventoryModel.rows, inventoryModel.days);
@@ -3203,7 +3969,7 @@ function persistInventoryPayload(payload, silent = false) {
     localStorage.setItem(key, JSON.stringify(finalPayload));
     saveInventoryProductMaster(fy, safeRows);
     localStorage.setItem(masterKey, JSON.stringify(safeRows));
-    void syncInventoryPayloadToServer(finalPayload).catch((e) => console.log('Inventory save sync skipped:', e.message));
+    queueInventoryServerSync(finalPayload);
     if (!silent) {
         showToast('Inventory saved', 'success');
     }
@@ -3247,8 +4013,20 @@ async function importInventorySheet(event) {
             return;
         }
 
-        const header = rows[0].map((h) => String(h || '').trim());
-        let productCol = header.findIndex((h) => h.toLowerCase() === 'product name');
+        let header = rows[0].map((h) => String(h || '').trim());
+        const headerLooksNamed = header.some((h) => {
+            const key = h.toLowerCase();
+            return key === 'product name' || key === 'product' || key === 'name' || key === 'item' || key === 'item name' || key === 'cost' || key === 'unit cost' || key === 'price';
+        });
+        const headerLooksDated = header.some((h) => /^\d{1,2}(?:[.\/-]\d{1,2})?/.test(h));
+        const hasHeaderRow = headerLooksNamed || headerLooksDated;
+        if (!hasHeaderRow) {
+            header = ['Product Name'];
+        }
+        let productCol = header.findIndex((h) => {
+            const key = h.toLowerCase();
+            return key === 'product name' || key === 'product' || key === 'name' || key === 'item' || key === 'item name';
+        });
         if (productCol < 0) {
             productCol = 0;
         }
@@ -3268,25 +4046,43 @@ async function importInventorySheet(event) {
             }
         }
 
-        loadInventoryMonth();
+        ensureInventoryMonthOptions();
+        const periodMeta = getInventoryPeriodMeta();
+        inventoryModel = {
+            month: periodMeta.monthNum,
+            days: periodMeta.dayCount,
+            rows: []
+        };
 
         const importedRows = [];
-        for (let i = 1; i < rows.length; i += 1) {
+        const firstDataRow = hasHeaderRow ? 1 : 0;
+        for (let i = firstDataRow; i < rows.length; i += 1) {
             const row = rows[i] || [];
             const name = String(row[productCol] || '').trim();
-            if (!name) continue;
+            if (!name) {
+                importedRows.push(createInventoryRow(''));
+                continue;
+            }
 
             const qty = Array.from({ length: inventoryModel.days }, () => 0);
+            const purchaseQty = Array.from({ length: inventoryModel.days }, () => 0);
             header.forEach((colName, colIdx) => {
                 if (colIdx === productCol) return;
-                const match = /^(\d{1,2})(?:[.\/-](\d{1,2}))?$/.exec(colName);
+                const normalizedHeader = String(colName || '').trim();
+                const match = /^(\d{1,2})(?:[.\/-](\d{1,2}))?/.exec(normalizedHeader);
                 if (!match) return;
                 const day = Number(match[1]);
                 if (!day || day < 1 || day > inventoryModel.days) return;
                 const raw = String(row[colIdx] ?? '').replace(/,/g, '').trim();
-                const val = Number(raw);
+                if (!raw) return;
+                const parts = raw.split(/[\/|+]/).map((part) => Number(String(part || '').trim()));
+                const val = parts[0];
+                const purchaseVal = parts.length > 1 ? parts[1] : 0;
                 if (Number.isFinite(val)) {
                     qty[day - 1] = val;
+                }
+                if (Number.isFinite(purchaseVal) && purchaseVal > 0) {
+                    purchaseQty[day - 1] = purchaseVal;
                 }
             });
 
@@ -3299,10 +4095,15 @@ async function importInventorySheet(event) {
                 }
             }
 
-            importedRows.push({ name, qty, min_stock: 0, cost });
+            const importedRow = createInventoryRow(name);
+            importedRow.qty = qty;
+            importedRow.purchase_qty = purchaseQty;
+            importedRow.min_stock = 0;
+            importedRow.cost = cost;
+            importedRows.push(importedRow);
         }
 
-        if (!importedRows.length) {
+        if (!importedRows.some((row) => String(row.name || '').trim())) {
             showToast('No product rows found in the imported sheet', 'error');
             return;
         }
@@ -3375,6 +4176,9 @@ function loadInventoryMailProfile() {
     const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
     if (onlyReorderEl) onlyReorderEl.checked = !!profile.only_reorder;
 
+    const showValueEl = document.getElementById('inventoryMailShowValue');
+    if (showValueEl) showValueEl.checked = !!profile.show_stock_value;
+
     const subjectEl = document.getElementById('inventoryMailSubject');
     if (subjectEl) {
         const autoText = getInventoryAutoSubjectText();
@@ -3395,6 +4199,7 @@ function saveInventoryMailProfile() {
         notes: (document.getElementById('inventoryMailNotes')?.value || '').trim(),
         average_mode: (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim(),
         only_reorder: !!document.getElementById('inventoryMailOnlyReorder')?.checked,
+        show_stock_value: !!document.getElementById('inventoryMailShowValue')?.checked,
         remember_password: rememberPassword
     };
 
@@ -3429,19 +4234,76 @@ function clearInventoryMailProfile() {
     if (rememberEl) rememberEl.checked = false;
     const onlyReorderEl = document.getElementById('inventoryMailOnlyReorder');
     if (onlyReorderEl) onlyReorderEl.checked = false;
+    const showValueEl = document.getElementById('inventoryMailShowValue');
+    if (showValueEl) showValueEl.checked = false;
     syncInventoryMailSubjectWithMonth(true);
     showToast('Mail profile cleared', 'info');
 }
 
+function commitInventoryActiveGridEditor() {
+    const activeEditor = document.querySelector('.inventory-grid-cell .inventory-grid-editor');
+    if (!activeEditor) return;
+
+    const cell = activeEditor.closest('.inventory-grid-cell');
+    if (!cell) return;
+
+    const rowIdx = Number(cell.getAttribute('data-row'));
+    const colIdx = Number(cell.getAttribute('data-col'));
+    if (!Number.isInteger(rowIdx) || !Number.isInteger(colIdx)) return;
+
+    if (colIdx >= 3) {
+        const qtyInput = cell.querySelector('[data-part="qty"]');
+        const purchaseInput = cell.querySelector('[data-part="purchase"]');
+        setInventoryDayModelValue(
+            rowIdx,
+            colIdx,
+            qtyInput ? qtyInput.value : '',
+            purchaseInput ? purchaseInput.value : ''
+        );
+    } else {
+        setInventoryModelValue(rowIdx, colIdx, activeEditor.value);
+    }
+
+    updateInventoryGridCell(rowIdx, colIdx);
+    queueInventoryAutoSave();
+}
+
 function getInventoryMailRows() {
-    return (inventoryModel.rows || [])
-        .map((r) => ({
+    commitInventoryActiveGridEditor();
+
+    const sourceRows = inventoryModel.rows || [];
+    const mapped = sourceRows.map((r) => ({
             name: String(r.name || '').trim(),
             qty: Array.isArray(r.qty) ? r.qty.map((v) => Number(v || 0)) : [],
+            purchase_qty: Array.isArray(r.purchase_qty) ? r.purchase_qty.map((v) => Number(v || 0)) : [],
             min_stock: Number.isFinite(Number(r.min_stock)) && Number(r.min_stock) > 0 ? Number(r.min_stock) : 0,
             cost: Number.isFinite(Number(r.cost)) && Number(r.cost) > 0 ? Number(r.cost) : 0
-        }))
-        .filter((r) => r.name || r.qty.some((v) => Number(v || 0) !== 0) || Number(r.min_stock || 0) > 0 || Number(r.cost || 0) > 0);
+        }));
+    const hasData = (row) => row.name || row.qty.some((v) => Number(v || 0) !== 0) || row.purchase_qty.some((v) => Number(v || 0) !== 0) || Number(row.min_stock || 0) > 0 || Number(row.cost || 0) > 0;
+    return mapped.filter((row, idx) => {
+        if (hasData(row)) return true;
+        const hasBefore = mapped.slice(0, idx).some(hasData);
+        const hasAfter = mapped.slice(idx + 1).some(hasData);
+        return hasBefore && hasAfter;
+    });
+}
+
+function getInventoryPdfDownloadName(monthText, rows) {
+    const sourceRows = Array.isArray(rows) ? rows : [];
+    const maxDays = sourceRows.reduce((max, row) => {
+        const qtyLen = Array.isArray(row.qty) ? row.qty.length : 0;
+        const purchaseLen = Array.isArray(row.purchase_qty) ? row.purchase_qty.length : 0;
+        return Math.max(max, qtyLen, purchaseLen);
+    }, 31);
+    const today = new Date();
+    const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const monthIndex = monthNames.findIndex((name) => name.toLowerCase() === String(monthText || '').trim().toLowerCase());
+    const endDay = monthIndex === today.getMonth() ? Math.min(today.getDate(), maxDays) : maxDays;
+    const startDay = Math.max(1, endDay - 6);
+    return `Inventory_${monthText}_Days_${startDay}-${endDay}_${getInventoryFinancialYear()}.pdf`.replace(/[^A-Za-z0-9_.-]+/g, '_');
 }
 
 async function previewInventoryPdf() {
@@ -3458,7 +4320,8 @@ async function previewInventoryPdf() {
         month: monthText,
         rows,
         average_mode: (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim(),
-        only_reorder: !!document.getElementById('inventoryMailOnlyReorder')?.checked
+        only_reorder: !!document.getElementById('inventoryMailOnlyReorder')?.checked,
+        show_stock_value: !!document.getElementById('inventoryMailShowValue')?.checked
     };
 
     showToast('Generating PDF preview...', 'info');
@@ -3480,7 +4343,7 @@ async function previewInventoryPdf() {
         if (!win) {
             const a = document.createElement('a');
             a.href = blobUrl;
-            a.download = `Inventory_${monthText}_${getInventoryFinancialYear()}.pdf`.replace(/\s+/g, '_');
+            a.download = getInventoryPdfDownloadName(monthText, rows);
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -3503,6 +4366,7 @@ async function sendInventoryPdfMail() {
     const notes = (document.getElementById('inventoryMailNotes')?.value || '').trim();
     const averageMode = (document.getElementById('inventoryMailAvgMode')?.value || 'monthly').trim();
     const onlyReorder = !!document.getElementById('inventoryMailOnlyReorder')?.checked;
+    const showStockValue = !!document.getElementById('inventoryMailShowValue')?.checked;
 
     if (!toEmail) return showToast('Recipient email is required', 'error');
     if (!senderEmail) return showToast('Sender email is required', 'error');
@@ -3524,6 +4388,7 @@ async function sendInventoryPdfMail() {
         rows,
         average_mode: averageMode,
         only_reorder: onlyReorder,
+        show_stock_value: showStockValue,
         to_email: toEmail,
         cc_email: ccEmail,
         sender_email: senderEmail,
@@ -4106,37 +4971,134 @@ function showImportResultModal(data) {
 }
 
 // Export to Excel
-async function exportTableToExcel(tableId, filename = '', sheetName = 'Report') {
+function getTableCellExportText(cell) {
+    if (!cell) return '';
+    const inputs = Array.from(cell.querySelectorAll('input, select, textarea'));
+    if (inputs.length) {
+        return inputs
+            .map((input) => {
+                if (input.type === 'checkbox') return input.checked ? 'Yes' : '';
+                return String(input.value || '').trim();
+            })
+            .filter((value) => value !== '')
+            .join(' / ');
+    }
+    return String(cell.innerText || cell.textContent || '').trim();
+}
+
+function getTableExportRows(table) {
+    return Array.from(table.querySelectorAll('tr'))
+        .map((row) => Array.from(row.querySelectorAll('th, td')).map((cell) => getTableCellExportText(cell)))
+        .filter((row) => row.length > 0);
+}
+
+function getInventoryTableExportRows() {
+    const periodMeta = getInventoryPeriodMeta();
+    const rows = [['Product Name', 'Cost', 'Min Stock']];
+    for (let day = 1; day <= periodMeta.dayCount; day += 1) {
+        rows[0].push(`${day}.${String(periodMeta.monthNum).padStart(2, '0')} Qty / P`);
+    }
+
+    (inventoryModel.rows || []).forEach((row) => {
+        const out = [
+            String(row.name || '').trim(),
+            Number(row.cost || 0) > 0 ? Number(row.cost || 0) : '',
+            Number(row.min_stock || 0) > 0 ? Number(row.min_stock || 0) : ''
+        ];
+        for (let dayIndex = 0; dayIndex < periodMeta.dayCount; dayIndex += 1) {
+            const qty = Number(Array.isArray(row.qty) ? row.qty[dayIndex] : 0);
+            const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIndex] : 0);
+            if (qty && purchase) {
+                out.push(`${qty} / ${purchase}`);
+            } else if (qty) {
+                out.push(qty);
+            } else if (purchase) {
+                out.push(`0 / ${purchase}`);
+            } else {
+                out.push('');
+            }
+        }
+        rows.push(out);
+    });
+    return rows;
+}
+
+async function writeRowsToExcelFile(rows, filename, sheetName) {
+    if (!Array.isArray(rows) || !rows.length) {
+        return showToast("No data to export", "error");
+    }
+    const defaultName = filename ? filename + '.xlsx' : 'report.xlsx';
+    const filePath = await electronAPI.invoke('dialog:save', defaultName);
+    if (!filePath) return;
+    const safeSheetName = (sheetName || "Report").replace(/[\/\\\?\*\[\]]/g, "_").substring(0, 31);
+
+    if (ExcelJS) {
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet(safeSheetName);
+        rows.forEach((row) => ws.addRow(row));
+        await wb.xlsx.writeFile(filePath);
+    } else if (XLSX) {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+        XLSX.writeFile(wb, filePath);
+    } else {
+        return showToast("Excel export module missing (exceljs/xlsx)", "error");
+    }
+
+    showToast("Export Saved!", "success");
+}
+
+async function exportInventoryImportTemplate() {
     try {
-        const table = document.getElementById(tableId);
-        if (!table) return showToast("Table not found to export", "error");
-
-        const defaultName = filename ? filename + '.xlsx' : 'report.xlsx';
-
-        // Ask Main Process for Save Path
-        const filePath = await electronAPI.invoke('dialog:save', defaultName);
-        if (!filePath) return; // User canceled
-
-        if (ExcelJS) {
-            // Sanitize sheet name
-            const safeSheetName = (sheetName || "Report").replace(/[\/\\\?\*\[\]]/g, "_").substring(0, 31);
-            const wb = new ExcelJS.Workbook();
-            const ws = wb.addWorksheet(safeSheetName);
-
-            const rows = Array.from(table.querySelectorAll('tr'))
-                .map((row) => Array.from(row.querySelectorAll('th, td'))
-                    .map((cell) => cell.innerText.trim()))
-                .filter((row) => row.length > 0);
-            rows.forEach((row) => ws.addRow(row));
-            await wb.xlsx.writeFile(filePath);
-        } else if (XLSX) {
-            const wb = XLSX.utils.table_to_book(table, { sheet: (sheetName || 'Report').substring(0, 31) });
-            XLSX.writeFile(wb, filePath);
-        } else {
-            return showToast("Excel export module missing (exceljs/xlsx)", "error");
+        ensureInventoryMonthOptions();
+        const periodMeta = getInventoryPeriodMeta();
+        const rows = [['Product Name', 'Cost']];
+        for (let day = 1; day <= periodMeta.dayCount; day += 1) {
+            rows[0].push(`${day}.${String(periodMeta.monthNum).padStart(2, '0')}`);
         }
 
-        showToast("Export Saved!", "success");
+        const sourceRows = (inventoryModel.rows || []).length ? inventoryModel.rows : [createInventoryRow('')];
+        sourceRows.forEach((row) => {
+            const out = [String(row.name || '').trim(), Number(row.cost || 0) > 0 ? Number(row.cost || 0) : ''];
+            for (let dayIndex = 0; dayIndex < periodMeta.dayCount; dayIndex += 1) {
+                const qty = Number(Array.isArray(row.qty) ? row.qty[dayIndex] : 0);
+                const purchase = Number(Array.isArray(row.purchase_qty) ? row.purchase_qty[dayIndex] : 0);
+                if (qty && purchase) {
+                    out.push(`${qty} / ${purchase}`);
+                } else if (qty) {
+                    out.push(qty);
+                } else if (purchase) {
+                    out.push(`0 / ${purchase}`);
+                } else {
+                    out.push('');
+                }
+            }
+            rows.push(out);
+        });
+
+        await writeRowsToExcelFile(rows, `Inventory_Import_Template_${periodMeta.monthText}_${periodMeta.fy}`, 'Inventory Import');
+    } catch (e) {
+        showToast("Template export failed: " + e.message, "error");
+    }
+}
+
+async function exportTableToExcel(tableId, filename = '', sheetName = 'Report') {
+    try {
+        if (tableId === 'inventoryTable') {
+            const rows = getInventoryTableExportRows();
+            if (rows.length <= 1) return showToast("No table data to export", "error");
+            await writeRowsToExcelFile(rows, filename || 'Inventory_Stock', sheetName);
+            return;
+        }
+        const table = document.getElementById(tableId);
+        if (!table) return showToast("Table not found to export", "error");
+        const rows = getTableExportRows(table);
+        if (!rows.length || rows.every((row, idx) => idx === 0 || row.every((cell) => String(cell || '').trim() === ''))) {
+            return showToast("No table data to export", "error");
+        }
+
+        await writeRowsToExcelFile(rows, filename || 'report', sheetName);
     } catch (e) {
         showToast("Export Failed: " + e.message, "error");
     }
@@ -4212,10 +5174,73 @@ let autoBackupTimer = null;
 let isDeleting = false;
 let pendingDeleteId = null;
 window.isDeleting = false;
+let firstRunSetupMode = false;
 
 function setDeleteBusy(isBusy) {
     isDeleting = !!isBusy;
     window.isDeleting = !!isBusy;
+}
+
+function setLoginSetupMode(enabled) {
+    firstRunSetupMode = !!enabled;
+    const title = document.querySelector('#loginModal .login-title');
+    const subtitle = document.querySelector('#loginModal .login-subtitle');
+    const userInput = document.getElementById('loginUser');
+    const passInput = document.getElementById('loginPass');
+    const signInButton = document.querySelector('#loginModal .login-btn');
+    const financialYearSelect = document.getElementById('loginFinancialYear');
+
+    if (title) title.textContent = enabled ? 'Create admin password' : 'Sign in to continue';
+    if (subtitle) {
+        subtitle.textContent = enabled
+            ? 'First run setup is required before using M-Finlogs.'
+            : 'Manage your entries, reports, and backups in one place.';
+    }
+    if (userInput) {
+        userInput.value = enabled ? 'admin' : userInput.value;
+        userInput.disabled = enabled;
+    }
+    if (passInput) {
+        passInput.placeholder = enabled ? 'Create admin password' : 'Enter password';
+    }
+    if (signInButton) signInButton.textContent = enabled ? 'Save Admin Password' : 'Sign In';
+    if (financialYearSelect) financialYearSelect.disabled = enabled;
+}
+
+async function refreshSetupStatus() {
+    try {
+        const res = await fetchWithTimeout('http://127.0.0.1:8000/setup/status', {}, 4000);
+        const data = await res.json();
+        setLoginSetupMode(!!data.needs_setup);
+    } catch (_e) {
+        setLoginSetupMode(false);
+    }
+}
+
+async function handleFirstRunSetup() {
+    const passInput = document.getElementById('loginPass');
+    const errorP = document.getElementById('loginError');
+    const password = (passInput && passInput.value ? passInput.value : '').trim();
+
+    if (password.length < 8) {
+        if (errorP) errorP.innerText = 'Password must be at least 8 characters';
+        return;
+    }
+
+    const res = await fetch('http://127.0.0.1:8000/setup/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        throw new Error(data.detail || 'Unable to complete setup');
+    }
+
+    if (passInput) passInput.value = '';
+    setLoginSetupMode(false);
+    await loadFinancialYears();
+    showToast(data.message || 'Admin account configured. Please login.', 'success');
 }
 
 function checkAuth() {
@@ -4236,6 +5261,7 @@ function checkAuth() {
             autoBackupTimer = null;
         }
         loadFinancialYears();
+        refreshSetupStatus();
         return;
     }
 
@@ -4260,6 +5286,8 @@ function checkAuth() {
 }
 
 function startAutoBackup() {
+    if (sessionStorage.getItem('role') !== 'admin') return;
+
     const startupBackupKey = 'startupAutoBackupDone';
     if (!sessionStorage.getItem(startupBackupKey)) {
         sessionStorage.setItem(startupBackupKey, '1');
@@ -4350,6 +5378,19 @@ async function handleLogin() {
     const errorP = document.getElementById('loginError');
     const financialYear = document.getElementById('loginFinancialYear').value;
     const passInp = document.getElementById('loginPass');
+
+    if (firstRunSetupMode) {
+        try {
+            await handleFirstRunSetup();
+        } catch (e) {
+            passInp.classList.add('shake');
+            errorP.innerText = e.message || 'Unable to complete setup';
+            setTimeout(() => passInp.classList.remove('shake'), 500);
+        } finally {
+            isLoggingIn = false;
+        }
+        return;
+    }
 
     if (!user || !pass || !financialYear) {
         errorP.innerText = 'Select financial year and enter credentials';
