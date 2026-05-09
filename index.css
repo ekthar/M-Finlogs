@@ -698,6 +698,8 @@ table {
     background: var(--surface);
     box-shadow: var(--shadow-sm);
     position: relative;
+    overscroll-behavior: contain;
+    will-change: scroll-position;
 }
 
 #inventoryTable {
@@ -708,11 +710,63 @@ table {
     overflow: visible !important;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+}
+
+#inventoryTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 18;
+    background: var(--table-header-bg);
+}
+
+#inventoryTable tbody tr {
+    contain: layout paint;
+}
+
+.inventory-table-wrap.inventory-virtualized #inventoryTable tbody tr {
+    height: 50px;
+}
+
+.inventory-table-wrap.inventory-virtualized #inventoryTable tbody tr.inventory-virtual-spacer {
+    height: auto;
+    contain: strict;
 }
 
 #inventoryTable th:not(:first-child),
 #inventoryTable td:not(:first-child) {
-    min-width: 120px;
+    min-width: 104px;
+    width: 104px;
+}
+
+#inventoryTable .inventory-day-sub {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    white-space: nowrap;
+}
+
+#inventoryTable .inventory-day-cell {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    align-items: center;
+    width: 100%;
+}
+
+
+#inventoryTable .inventory-day-cell .inventory-cell-input {
+    width: 62%;
+    min-width: 46px;
+    padding: 6px 6px;
+    font-size: 12px;
+}
+
+#inventoryTable .inventory-day-cell .inventory-purchase-input {
+    width: 38%;
+    min-width: 34px;
+    padding: 5px 6px;
+    font-size: 11px;
 }
 
 #inventoryTable .inventory-sticky-col {
@@ -726,14 +780,14 @@ table {
 #inventoryTable thead .inventory-sticky-col {
     z-index: 20;
     background: var(--table-header-bg);
-    box-shadow: 2px 0 0 var(--border), 8px 0 14px rgba(5, 12, 24, 0.18);
+    box-shadow: 2px 0 0 var(--border);
 }
 
 #inventoryTable tbody .inventory-sticky-col {
     z-index: 15;
     background: var(--surface);
     font-weight: 600;
-    box-shadow: 2px 0 0 var(--border), 8px 0 14px rgba(5, 12, 24, 0.12);
+    box-shadow: 2px 0 0 var(--border);
 }
 
 .inventory-cell-input,
@@ -748,6 +802,17 @@ table {
     text-align: center;
 }
 
+.inventory-purchase-input {
+    width: 100%;
+    border: 1px dashed rgba(var(--primary-rgb), 0.4);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: rgba(var(--primary-rgb), 0.08);
+    color: var(--text-primary);
+    font-size: 12px;
+    text-align: center;
+}
+
 .inventory-product-input {
     text-align: left;
     font-weight: 600;
@@ -758,8 +823,19 @@ table {
     -moz-appearance: textfield;
 }
 
+.inventory-purchase-input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
 .inventory-cell-input[type="number"]::-webkit-outer-spin-button,
 .inventory-cell-input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.inventory-purchase-input[type="number"]::-webkit-outer-spin-button,
+.inventory-purchase-input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
@@ -771,12 +847,369 @@ table {
     box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.22);
 }
 
+.inventory-purchase-input:focus {
+    border-color: var(--warning);
+    background: rgba(245, 158, 11, 0.16);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.22);
+}
+
 #inventoryTable tbody tr:nth-child(odd) td {
     background: rgba(255, 255, 255, 0.02);
 }
 
 #inventoryTable tbody tr:hover td {
     background: rgba(var(--primary-rgb), 0.09);
+}
+
+.inventory-table-wrap.inventory-virtualized #inventoryTable tbody tr:hover td {
+    background: inherit;
+}
+
+.inventory-grid {
+    position: relative;
+    height: min(620px, calc(100vh - 300px));
+    min-height: 360px;
+    overflow: auto;
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    overscroll-behavior: contain;
+    scroll-behavior: auto;
+}
+
+.inventory-grid-canvas {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+.inventory-grid-head,
+.inventory-grid-cell {
+    position: absolute;
+    height: 44px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: right;
+    padding: 7px 9px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    contain: strict;
+}
+
+.inventory-grid-head {
+    height: 48px;
+    background: var(--table-header-bg);
+    color: var(--table-header-text);
+    font-weight: 700;
+    z-index: 8;
+    text-align: center;
+}
+
+.inventory-grid-head.frozen,
+.inventory-grid-cell.frozen {
+    z-index: 12;
+    box-shadow: 1px 0 0 var(--border);
+}
+
+.inventory-grid-head.frozen {
+    z-index: 20;
+}
+
+.inventory-grid-cell.product {
+    text-align: left;
+    font-weight: 650;
+}
+
+.inventory-grid-cell.meta {
+    color: var(--text-secondary);
+}
+
+.inventory-grid-cell.day.has-purchase {
+    color: var(--success);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.inventory-grid-cell.group-gap {
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+    cursor: default;
+}
+
+.inventory-grid-day-values {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.75fr);
+    gap: 4px;
+    align-items: center;
+    width: 100%;
+}
+
+.inventory-grid-qty,
+.inventory-grid-purchase {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.inventory-grid-qty {
+    color: var(--text-primary);
+}
+
+.inventory-grid-purchase {
+    color: var(--success);
+    font-size: 11px;
+}
+
+.inventory-grid-cell.odd {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.inventory-grid-cell:focus {
+    outline: 2px solid rgba(var(--primary-rgb), 0.45);
+    outline-offset: -2px;
+    background: rgba(var(--primary-rgb), 0.12);
+    z-index: 30;
+}
+
+.inventory-grid-head span {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.inventory-grid-editor {
+    width: 100%;
+    height: 30px;
+    border: 1px solid rgba(var(--primary-rgb), 0.75);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 4px 7px;
+    text-align: inherit;
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.18);
+}
+
+.inventory-grid-editor:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: var(--surface);
+    box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.28);
+}
+
+.inventory-grid-editor[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.inventory-grid-editor[type="number"]::-webkit-outer-spin-button,
+.inventory-grid-editor[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.inventory-grid-day-editor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 5px;
+    align-items: center;
+    width: 100%;
+}
+
+.inventory-grid-day-editor .inventory-grid-editor {
+    height: 29px;
+    padding: 3px 6px;
+    font-size: 12px;
+    text-align: right;
+}
+
+.inventory-grid-purchase-editor {
+    border-style: dashed;
+    border-color: rgba(52, 199, 89, 0.9);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.inventory-grid-empty {
+    position: sticky;
+    left: 0;
+    top: 0;
+    padding: 18px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+[data-theme="dark"] .inventory-grid {
+    background: #111827;
+}
+
+[data-theme="dark"] .inventory-grid-head,
+[data-theme="dark"] .inventory-grid-cell {
+    border-color: #2f3b4f;
+}
+
+[data-theme="dark"] .inventory-grid-head {
+    background: #1f2937;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .inventory-grid-cell {
+    background: #111827;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .inventory-grid-cell.odd {
+    background: #172033;
+}
+
+[data-theme="dark"] .inventory-grid-cell.group-gap {
+    background: #263244;
+    color: #64748b;
+}
+
+[data-theme="dark"] .inventory-grid-cell.day.has-purchase {
+    background: #102b24;
+    color: #34d399;
+}
+
+[data-theme="dark"] .inventory-grid-qty {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .inventory-grid-purchase {
+    color: #34d399;
+}
+
+[data-theme="dark"] .inventory-grid-editor {
+    background: #0f172a;
+    color: #f8fafc;
+}
+
+[data-theme="white"] .inventory-table-wrap {
+    border: 1px solid #8f96a3;
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: none;
+}
+
+[data-theme="white"] .inventory-grid {
+    background: #ffffff;
+    border-radius: 0;
+}
+
+[data-theme="white"] .inventory-grid-head,
+[data-theme="white"] .inventory-grid-cell {
+    border-right: 1px solid #a7a7a7;
+    border-bottom: 1px solid #a7a7a7;
+    border-radius: 0;
+    background: #ffffff;
+    color: #111827;
+}
+
+[data-theme="white"] .inventory-grid-head {
+    background: #bfc3c1;
+    color: #111827;
+    font-weight: 600;
+}
+
+[data-theme="white"] .inventory-grid-head span {
+    color: #374151;
+}
+
+[data-theme="white"] .inventory-grid-head.frozen,
+[data-theme="white"] .inventory-grid-cell.frozen {
+    box-shadow: none;
+}
+
+[data-theme="white"] .inventory-grid-cell.product {
+    background: #d9d9d9;
+    color: #111827;
+}
+
+[data-theme="white"] .inventory-grid-cell.meta {
+    color: #1f2937;
+}
+
+[data-theme="white"] .inventory-grid-cell.odd {
+    background: #ffffff;
+}
+
+[data-theme="white"] .inventory-grid-cell.group-gap {
+    background: #e5e5e5;
+    color: #6b7280;
+}
+
+[data-theme="white"] .inventory-grid-cell.day.has-purchase {
+    background: #f1fff6;
+    color: #047857;
+}
+
+[data-theme="white"] .inventory-grid-qty {
+    color: #111827;
+}
+
+[data-theme="white"] .inventory-grid-purchase {
+    color: #047857;
+}
+
+[data-theme="white"] .inventory-grid-cell:focus {
+    outline: 2px solid rgba(59, 130, 246, 0.75);
+    background: #eff6ff;
+}
+
+[data-theme="white"] .inventory-grid-editor {
+    border-color: #2563eb;
+    border-radius: 0;
+    background: #ffffff;
+    color: #111827;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+}
+
+[data-theme="white"] .inventory-grid-editor:focus {
+    border-color: #1d4ed8;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.28);
+}
+
+[data-theme="white"] .inventory-grid-purchase-editor {
+    background: #ffffff;
+    border-color: #047857;
+}
+
+.cash-hand-editor {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.cash-hand-editor input {
+    width: 120px;
+    text-align: right;
+}
+
+.cash-save-btn,
+.cash-reset-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.cash-save-btn {
+    background: #4b5563;
+}
+
+.cash-reset-btn {
+    background: #9ca3af;
 }
 
 .card .report-table {

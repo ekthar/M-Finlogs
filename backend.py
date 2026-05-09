@@ -10,6 +10,7 @@ import logging
 import tempfile
 import smtplib
 import urllib.request
+import uuid
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
@@ -55,6 +56,9 @@ def build_connection_string(database: str = None) -> str:
 
 def get_backup_target_dir() -> str:
     return load_runtime_config().get("backup_dir", "") or ""
+
+def get_runtime_database_name() -> str:
+    return load_runtime_config().get("database", SQL_DATABASE) or SQL_DATABASE
 
 app = FastAPI()
 
@@ -144,6 +148,9 @@ def require_admin(payload: dict):
     if payload.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
     return payload
+
+def require_authenticated(authorization: Optional[str] = Header(None)) -> dict:
+    return verify_auth_header(authorization)
 
 logger = logging.getLogger("mfinlogs")
 if not logger.handlers:
@@ -508,6 +515,29 @@ def _connect_with_retry(conn_str: str, timeout: int = 5, attempts: int = 3):
         raise last_err
     raise RuntimeError("Unable to establish database connection")
 
+def get_or_create_party_id(cursor, party_name: str, party_type: str, credit_allowed: bool) -> int:
+    normalized = normalize_party_key(party_name)
+    if not normalized:
+        raise ValueError("Party name is required")
+
+    cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalized,))
+    row = cursor.fetchone()
+    if row:
+        return int(row[0])
+
+    cursor.execute(
+        """
+        INSERT INTO parties (name, normalized_name, type, credit_allowed)
+        OUTPUT INSERTED.party_id
+        VALUES (?, ?, ?, ?)
+        """,
+        (str(party_name), normalized, party_type, 1 if credit_allowed else 0)
+    )
+    inserted = cursor.fetchone()
+    if not inserted:
+        raise RuntimeError(f"Could not create party: {party_name}")
+    return int(inserted[0])
+
 def get_default_backup_dir(cursor=None):
     configured = (get_backup_target_dir() or "").strip()
     if configured:
@@ -516,6 +546,9 @@ def get_default_backup_dir(cursor=None):
 
 def escape_sql_path(path: str) -> str:
     return path.replace("'", "''")
+
+def escape_sql_identifier(identifier: str) -> str:
+    return str(identifier or "").replace("]", "]]")
 
 def get_desktop_company_backup_dir(company_name: str) -> str:
     desktop = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -573,8 +606,10 @@ class FinancialYearSelectRequest(BaseModel):
     year: str
 
 class InventoryProductRow(BaseModel):
+    id: Optional[str] = None
     name: str
     qty: List[float] = []
+    purchase_qty: Optional[List[float]] = []
     min_stock: Optional[float] = 0.0
     cost: Optional[float] = 0.0
 
@@ -603,6 +638,7 @@ class InventoryPdfMailRequest(BaseModel):
     notes: Optional[str] = None
     average_mode: str = "monthly"  # monthly | last7
     only_reorder: bool = False
+    show_stock_value: bool = False
 
 class InventoryPdfPreviewRequest(BaseModel):
     financial_year: Optional[str] = None
@@ -610,6 +646,7 @@ class InventoryPdfPreviewRequest(BaseModel):
     rows: List[InventoryProductRow]
     average_mode: str = "monthly"  # monthly | last7
     only_reorder: bool = False
+    show_stock_value: bool = False
 
 # Helper for Audit (Needs its own conn if called separately, but usually called within context? 
 # Actually log_audit is a helper. Let's make it open its own conn to be safe and independent)
@@ -657,6 +694,348 @@ def _get_json_setting(cursor, key: str):
     except Exception:
         return None
 
+def _ensure_sql_index(cursor, index_name: str, table_name: str, create_sql: str):
+    cursor.execute(
+        "SELECT COUNT(*) "
+        "FROM sys.indexes i "
+        "INNER JOIN sys.tables t ON i.object_id=t.object_id "
+        "WHERE i.name=? AND t.name=?",
+        (index_name, table_name)
+    )
+    if cursor.fetchone()[0] > 0:
+        return
+    try:
+        cursor.execute(create_sql)
+    except pyodbc.ProgrammingError as e:
+        message = str(e).lower()
+        if "1913" in message or "already exists" in message:
+            return
+        raise
+
+def _ensure_inventory_tables(cursor):
+    # Create normalized inventory tables if they don't exist
+    try:
+        cursor.execute("SELECT COUNT(*) FROM sys.tables WHERE name='inventory_items'")
+        exists = cursor.fetchone()[0] > 0
+        if not exists:
+            cursor.execute(
+                "CREATE TABLE inventory_items ("
+                "id INT IDENTITY(1,1) PRIMARY KEY,"
+                "client_row_id NVARCHAR(128) NULL,"
+                "company NVARCHAR(255) NOT NULL,"
+                "name NVARCHAR(1024) NOT NULL,"
+                "cost FLOAT NULL,"
+                "min_stock FLOAT NULL,"
+                "updated_at DATETIME2 NULL"
+                ")"
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('inventory_items') AND name = 'client_row_id'")
+            has_client_id = cursor.fetchone()[0] > 0
+            if not has_client_id:
+                cursor.execute("ALTER TABLE inventory_items ADD client_row_id NVARCHAR(128) NULL")
+        cursor.execute("SELECT COUNT(*) FROM sys.tables WHERE name='inventory_quantities'")
+        exists_q = cursor.fetchone()[0] > 0
+        if not exists_q:
+            cursor.execute(
+                "CREATE TABLE inventory_quantities ("
+                "id INT IDENTITY(1,1) PRIMARY KEY,"
+                "item_id INT NOT NULL,"
+                "company NVARCHAR(255) NOT NULL,"
+                "financial_year NVARCHAR(64) NOT NULL,"
+                "month INT NOT NULL,"
+                "day INT NOT NULL,"
+                "qty FLOAT NOT NULL"
+                ")"
+            )
+        cursor.execute("SELECT COUNT(*) FROM sys.tables WHERE name='inventory_purchases'")
+        exists_p = cursor.fetchone()[0] > 0
+        if not exists_p:
+            cursor.execute(
+                "CREATE TABLE inventory_purchases ("
+                "id INT IDENTITY(1,1) PRIMARY KEY,"
+                "item_id INT NOT NULL,"
+                "company NVARCHAR(255) NOT NULL,"
+                "financial_year NVARCHAR(64) NOT NULL,"
+                "month INT NOT NULL,"
+                "day INT NOT NULL,"
+                "qty FLOAT NOT NULL"
+                ")"
+            )
+        _ensure_sql_index(cursor, "idx_inventory_items_company_id", "inventory_items", "CREATE INDEX idx_inventory_items_company_id ON inventory_items (company, id)")
+        _ensure_sql_index(cursor, "idx_inventory_items_company_client_row", "inventory_items", "CREATE INDEX idx_inventory_items_company_client_row ON inventory_items (company, client_row_id)")
+        _ensure_sql_index(cursor, "idx_inventory_quantities_lookup", "inventory_quantities", "CREATE INDEX idx_inventory_quantities_lookup ON inventory_quantities (company, financial_year, month, item_id)")
+        _ensure_sql_index(cursor, "idx_inventory_purchases_lookup", "inventory_purchases", "CREATE INDEX idx_inventory_purchases_lookup ON inventory_purchases (company, financial_year, month, item_id)")
+        try:
+            cursor.execute("UPDATE inventory_items SET client_row_id = CONCAT('inv-', CAST(id AS NVARCHAR(32))) WHERE client_row_id IS NULL OR LTRIM(RTRIM(client_row_id)) = ''")
+        except Exception:
+            pass
+        try:
+            _maybe_cleanup_inventory_duplicates(cursor)
+        except Exception:
+            pass
+    except Exception as e:
+        # Table creation can fail if running on a DB without permissions — log and continue
+        log_exception("_ensure_inventory_tables", e)
+
+def _maybe_cleanup_inventory_duplicates(cursor):
+    # Remove legacy duplicate rows (same company + name) created by per-keystroke saves.
+    try:
+        company_scope = _inventory_scope_key()
+        setting_key = f"inventory_dedup_done:{company_scope}"
+
+        # Remove duplicate quantities first, then items, keeping the newest row per name.
+        cursor.execute(
+            "WITH d AS ("
+            "SELECT id, ROW_NUMBER() OVER (PARTITION BY company, LOWER(LTRIM(RTRIM(name))) "
+            "ORDER BY updated_at DESC, id DESC) AS rn "
+            "FROM inventory_items WHERE company=?"
+            ") "
+            "DELETE q FROM inventory_quantities q INNER JOIN d ON q.item_id = d.id WHERE d.rn > 1",
+            (company_scope,)
+        )
+        cursor.execute(
+            "WITH d AS ("
+            "SELECT id, ROW_NUMBER() OVER (PARTITION BY company, LOWER(LTRIM(RTRIM(name))) "
+            "ORDER BY updated_at DESC, id DESC) AS rn "
+            "FROM inventory_items WHERE company=?"
+            ") "
+            "DELETE p FROM inventory_purchases p INNER JOIN d ON p.item_id = d.id WHERE d.rn > 1",
+            (company_scope,)
+        )
+        cursor.execute(
+            "WITH d AS ("
+            "SELECT id, ROW_NUMBER() OVER (PARTITION BY company, LOWER(LTRIM(RTRIM(name))) "
+            "ORDER BY updated_at DESC, id DESC) AS rn "
+            "FROM inventory_items WHERE company=?"
+            ") "
+            "DELETE FROM inventory_items WHERE id IN (SELECT id FROM d WHERE rn > 1)",
+            (company_scope,)
+        )
+
+        cursor.execute("SELECT COUNT(*) FROM app_settings WHERE setting_key=?", (setting_key,))
+        exists = cursor.fetchone()[0] > 0
+        if exists:
+            cursor.execute("UPDATE app_settings SET setting_value=? WHERE setting_key=?", ('1', setting_key))
+        else:
+            cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", (setting_key, '1'))
+    except Exception as e:
+        log_exception("_maybe_cleanup_inventory_duplicates", e)
+
+def _cleanup_inventory_draft_prefixes(cursor):
+    try:
+        company_scope = _inventory_scope_key()
+        cursor.execute(
+            "WITH draft AS ("
+            "SELECT i.id "
+            "FROM inventory_items i "
+            "WHERE i.company=? "
+            "AND LEN(LTRIM(RTRIM(i.name))) > 0 "
+            "AND ISNULL(i.cost, 0) = 0 "
+            "AND ISNULL(i.min_stock, 0) = 0 "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_quantities q WHERE q.item_id=i.id AND ISNULL(q.qty, 0) <> 0) "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_purchases p WHERE p.item_id=i.id AND ISNULL(p.qty, 0) <> 0) "
+            "AND EXISTS ("
+            "SELECT 1 FROM inventory_items full_item "
+            "WHERE full_item.company=i.company "
+            "AND full_item.id<>i.id "
+            "AND LOWER(LTRIM(RTRIM(full_item.name))) LIKE LOWER(LTRIM(RTRIM(i.name))) + '%' "
+            "AND LEN(LTRIM(RTRIM(full_item.name))) > LEN(LTRIM(RTRIM(i.name)))"
+            ")"
+            ") "
+            "DELETE q FROM inventory_quantities q INNER JOIN draft d ON q.item_id=d.id",
+            (company_scope,)
+        )
+        cursor.execute(
+            "WITH draft AS ("
+            "SELECT i.id "
+            "FROM inventory_items i "
+            "WHERE i.company=? "
+            "AND LEN(LTRIM(RTRIM(i.name))) > 0 "
+            "AND ISNULL(i.cost, 0) = 0 "
+            "AND ISNULL(i.min_stock, 0) = 0 "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_quantities q WHERE q.item_id=i.id AND ISNULL(q.qty, 0) <> 0) "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_purchases p WHERE p.item_id=i.id AND ISNULL(p.qty, 0) <> 0) "
+            "AND EXISTS ("
+            "SELECT 1 FROM inventory_items full_item "
+            "WHERE full_item.company=i.company "
+            "AND full_item.id<>i.id "
+            "AND LOWER(LTRIM(RTRIM(full_item.name))) LIKE LOWER(LTRIM(RTRIM(i.name))) + '%' "
+            "AND LEN(LTRIM(RTRIM(full_item.name))) > LEN(LTRIM(RTRIM(i.name)))"
+            ")"
+            ") "
+            "DELETE p FROM inventory_purchases p INNER JOIN draft d ON p.item_id=d.id",
+            (company_scope,)
+        )
+        cursor.execute(
+            "DELETE i FROM inventory_items i "
+            "WHERE i.company=? "
+            "AND LEN(LTRIM(RTRIM(i.name))) > 0 "
+            "AND ISNULL(i.cost, 0) = 0 "
+            "AND ISNULL(i.min_stock, 0) = 0 "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_quantities q WHERE q.item_id=i.id AND ISNULL(q.qty, 0) <> 0) "
+            "AND NOT EXISTS (SELECT 1 FROM inventory_purchases p WHERE p.item_id=i.id AND ISNULL(p.qty, 0) <> 0) "
+            "AND EXISTS ("
+            "SELECT 1 FROM inventory_items full_item "
+            "WHERE full_item.company=i.company "
+            "AND full_item.id<>i.id "
+            "AND LOWER(LTRIM(RTRIM(full_item.name))) LIKE LOWER(LTRIM(RTRIM(i.name))) + '%' "
+            "AND LEN(LTRIM(RTRIM(full_item.name))) > LEN(LTRIM(RTRIM(i.name)))"
+            ")",
+            (company_scope,)
+        )
+    except Exception as e:
+        log_exception("_cleanup_inventory_draft_prefixes", e)
+
+def _migrate_inventory_from_app_settings(cursor, company_scope: str):
+    # Migrate old JSON snapshots/master from app_settings into normalized tables if found
+    try:
+        # Enumerate keys for this company
+        prefix_snapshot = f"inventory_snapshot:{company_scope}:"
+        cursor.execute("SELECT setting_key, setting_value FROM app_settings WHERE setting_key LIKE ?", (prefix_snapshot + '%',))
+        rows = cursor.fetchall()
+        if rows:
+            _ensure_inventory_tables(cursor)
+            import json
+            for key, val in rows:
+                try:
+                    data = json.loads(val) if val else None
+                    if not data:
+                        continue
+                    fy = data.get('financial_year') or key.split(':')[-2]
+                    month = int(data.get('month') or key.split(':')[-1])
+                    for r in data.get('rows') or []:
+                        name = (r.get('name') or '').strip()
+                        if not name:
+                            continue
+                        cost = float(r.get('cost') or 0)
+                        min_stock = float(r.get('min_stock') or 0)
+                        # upsert item
+                        cursor.execute("SELECT id FROM inventory_items WHERE company=? AND LOWER(name)=LOWER(?)", (company_scope, name))
+                        found = cursor.fetchone()
+                        if found:
+                            item_id = found[0]
+                            cursor.execute("UPDATE inventory_items SET client_row_id=COALESCE(client_row_id, CONCAT('inv-', CAST(id AS NVARCHAR(32)))), cost=?, min_stock=?, updated_at=? WHERE id=?", (cost, min_stock, datetime.datetime.utcnow(), item_id))
+                        else:
+                            cursor.execute("INSERT INTO inventory_items (client_row_id, company, name, cost, min_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (f"inv-{uuid.uuid4().hex}", company_scope, name, cost, min_stock, datetime.datetime.utcnow()))
+                            cursor.execute("SELECT SCOPE_IDENTITY()")
+                            item_id = int(cursor.fetchone()[0])
+                        qtys = r.get('qty') or []
+                        # delete existing qtys for that fy/month
+                        cursor.execute("DELETE FROM inventory_quantities WHERE item_id=? AND company=? AND financial_year=? AND month=?", (item_id, company_scope, fy, month))
+                        for i, q in enumerate(qtys):
+                            try:
+                                qv = float(q or 0)
+                            except Exception:
+                                qv = 0.0
+                            cursor.execute("INSERT INTO inventory_quantities (item_id, company, financial_year, month, day, qty) VALUES (?, ?, ?, ?, ?, ?)", (item_id, company_scope, fy, month, i + 1, qv))
+                except Exception as e:
+                    log_exception("_migrate_inventory_from_app_settings_row", e)
+            try:
+                # remove migrated keys to avoid duplicate migration
+                cursor.execute("DELETE FROM app_settings WHERE setting_key LIKE ?", (prefix_snapshot + '%',))
+            except Exception:
+                pass
+    except Exception as e:
+        log_exception("_migrate_inventory_from_app_settings", e)
+
+def _get_inventory_rows_from_tables(cursor, company_scope: str, financial_year: str, month: int):
+    # Ensure tables exist
+    _ensure_inventory_tables(cursor)
+    # Read items
+    cursor.execute("SELECT id, client_row_id, name, cost, min_stock, updated_at FROM inventory_items WHERE company=? ORDER BY id", (company_scope,))
+    items = cursor.fetchall()
+    if not items:
+        return []
+
+    item_ids = [int(item[0]) for item in items]
+
+    def fetch_day_values(table_name: str):
+        values = {}
+        chunk_size = 900
+        for offset in range(0, len(item_ids), chunk_size):
+            chunk = item_ids[offset:offset + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            cursor.execute(
+                f"SELECT item_id, day, qty FROM {table_name} "
+                f"WHERE company=? AND financial_year=? AND month=? AND item_id IN ({placeholders})",
+                (company_scope, financial_year, int(month), *chunk)
+            )
+            for item_id, day, qty in cursor.fetchall():
+                values.setdefault(int(item_id), {})[int(day)] = float(qty or 0)
+        return values
+
+    quantity_map = fetch_day_values("inventory_quantities")
+    purchase_map = fetch_day_values("inventory_purchases")
+
+    result = []
+    for item in items:
+        item_id, client_row_id, name, cost, min_stock, updated_at = item
+        # Build qty array; default up to 31 days
+        qtys = [0] * 31
+        purchases = [0] * 31
+        for d, qv in quantity_map.get(int(item_id), {}).items():
+            if 1 <= d <= 31:
+                qtys[d - 1] = qv
+        for d, qv in purchase_map.get(int(item_id), {}).items():
+            if 1 <= d <= 31:
+                purchases[d - 1] = qv
+        result.append({
+            'id': client_row_id or f'inv-{item_id}',
+            'name': name,
+            'cost': float(cost or 0),
+            'min_stock': float(min_stock or 0),
+            'qty': qtys,
+            'purchase_qty': purchases,
+            'updated_at': updated_at.isoformat() if isinstance(updated_at, datetime.datetime) else (str(updated_at) if updated_at else None)
+        })
+    return result
+
+def _save_inventory_rows_to_tables(cursor, company_scope: str, financial_year: str, month: int, rows):
+    _ensure_inventory_tables(cursor)
+    # Upsert each item and write quantities (delete existing quantities for item/fy/month)
+    for r in (rows or []):
+        row_id = str(r.get('id') or '').strip()
+        name = (r.get('name') or '').strip()
+        if not name:
+            continue
+        cost = float(r.get('cost') or 0)
+        min_stock = float(r.get('min_stock') or 0)
+        if not row_id:
+            row_id = f"inv-{uuid.uuid4().hex}"
+        # find existing item by stable row id first, then legacy name fallback
+        cursor.execute("SELECT id FROM inventory_items WHERE company=? AND client_row_id=?", (company_scope, row_id))
+        found = cursor.fetchone()
+        if not found:
+            cursor.execute("SELECT id FROM inventory_items WHERE company=? AND LOWER(name)=LOWER(?)", (company_scope, name))
+            found = cursor.fetchone()
+        if found:
+            item_id = found[0]
+            cursor.execute("UPDATE inventory_items SET client_row_id=?, name=?, cost=?, min_stock=?, updated_at=? WHERE id=?", (row_id, name, cost, min_stock, datetime.datetime.utcnow(), item_id))
+        else:
+            cursor.execute("INSERT INTO inventory_items (client_row_id, company, name, cost, min_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (row_id, company_scope, name, cost, min_stock, datetime.datetime.utcnow()))
+            cursor.execute("SELECT SCOPE_IDENTITY()")
+            item_id = int(cursor.fetchone()[0])
+        # delete existing quantities for this item for given fy/month
+        cursor.execute("DELETE FROM inventory_quantities WHERE item_id=? AND company=? AND financial_year=? AND month=?", (item_id, company_scope, financial_year, int(month)))
+        cursor.execute("DELETE FROM inventory_purchases WHERE item_id=? AND company=? AND financial_year=? AND month=?", (item_id, company_scope, financial_year, int(month)))
+        qtys = r.get('qty') or []
+        purchases = r.get('purchase_qty') or []
+        for i, q in enumerate(qtys):
+            try:
+                qv = float(q or 0)
+            except Exception:
+                qv = 0.0
+            cursor.execute("INSERT INTO inventory_quantities (item_id, company, financial_year, month, day, qty) VALUES (?, ?, ?, ?, ?, ?)", (item_id, company_scope, financial_year, int(month), int(i + 1), qv))
+        for i, q in enumerate(purchases):
+            try:
+                qv = float(q or 0)
+            except Exception:
+                qv = 0.0
+            if qv <= 0:
+                continue
+            cursor.execute("INSERT INTO inventory_purchases (item_id, company, financial_year, month, day, qty) VALUES (?, ?, ?, ?, ?, ?)", (item_id, company_scope, financial_year, int(month), int(i + 1), qv))
+
 def _set_json_setting(cursor, key: str, value):
     import json
     payload = json.dumps(value, ensure_ascii=False)
@@ -667,6 +1046,10 @@ def _set_json_setting(cursor, key: str, value):
     else:
         cursor.execute("INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)", (key, payload))
 
+def _delete_legacy_inventory_settings(cursor, company_scope: str):
+    cursor.execute("DELETE FROM app_settings WHERE setting_key LIKE ?", (f"inventory_snapshot:{company_scope}:%",))
+    cursor.execute("DELETE FROM app_settings WHERE setting_key LIKE ?", (f"inventory_master:{company_scope}:%",))
+
 @app.get("/inventory/snapshot")
 def get_inventory_snapshot(financial_year: Optional[str] = None, month: Optional[int] = None):
     conn = get_db_connection()
@@ -676,19 +1059,20 @@ def get_inventory_snapshot(financial_year: Optional[str] = None, month: Optional
         month_num = int(month) if month is not None else datetime.date.today().month
         if month_num < 1 or month_num > 12:
             raise HTTPException(status_code=400, detail="Invalid month")
+        company_scope = _inventory_scope_key()
+        # Try normalized tables first
+        try:
+            rows = _get_inventory_rows_from_tables(cursor, company_scope, fy, month_num)
+            if rows:
+                conn.close()
+                return {"found": True, "financial_year": fy, "month": month_num, "rows": rows, "updated_at": None}
+        except Exception as e:
+            log_exception("get_inventory_snapshot_tables", e)
 
-        key = _inventory_snapshot_key(fy, month_num)
-        data = _get_json_setting(cursor, key)
+        _delete_legacy_inventory_settings(cursor, company_scope)
+        conn.commit()
         conn.close()
-        if not data:
-            return {"found": False, "financial_year": fy, "month": month_num, "rows": [], "updated_at": None}
-        return {
-            "found": True,
-            "financial_year": data.get("financial_year", fy),
-            "month": int(data.get("month", month_num) or month_num),
-            "rows": data.get("rows", []) or [],
-            "updated_at": data.get("updated_at")
-        }
+        return {"found": False, "financial_year": fy, "month": month_num, "rows": [], "updated_at": None}
     except HTTPException:
         close_conn_safely(conn)
         raise
@@ -698,7 +1082,8 @@ def get_inventory_snapshot(financial_year: Optional[str] = None, month: Optional
         return {"found": False, "financial_year": financial_year, "month": month, "rows": [], "updated_at": None}
 
 @app.post("/inventory/snapshot")
-def save_inventory_snapshot(req: InventorySnapshotRequest):
+def save_inventory_snapshot(req: InventorySnapshotRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -708,16 +1093,14 @@ def save_inventory_snapshot(req: InventorySnapshotRequest):
             raise HTTPException(status_code=400, detail="Financial year is required")
         if month_num < 1 or month_num > 12:
             raise HTTPException(status_code=400, detail="Invalid month")
-
-        payload = {
-            "financial_year": fy,
-            "month": month_num,
-            "rows": [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in (req.rows or [])],
-            "updated_at": req.updated_at or datetime.datetime.utcnow().isoformat()
-        }
-        _set_json_setting(cursor, _inventory_snapshot_key(fy, month_num), payload)
-        conn.close()
-        return {"status": "Saved", "found": True}
+        company_scope = _inventory_scope_key()
+        try:
+            _save_inventory_rows_to_tables(cursor, company_scope, fy, month_num, [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in (req.rows or [])])
+            conn.commit()
+            conn.close()
+            return {"status": "Saved", "found": True}
+        except Exception as e:
+            raise RuntimeError(f"Failed to save inventory tables: {str(e)}")
     except HTTPException:
         close_conn_safely(conn)
         raise
@@ -732,39 +1115,94 @@ def get_inventory_master(financial_year: Optional[str] = None):
     cursor = conn.cursor()
     try:
         fy = (financial_year or get_selected_financial_year(cursor) or "").strip()
-        key = _inventory_master_key(fy)
-        data = _get_json_setting(cursor, key)
+        company_scope = _inventory_scope_key()
+        try:
+            _ensure_inventory_tables(cursor)
+            cursor.execute("SELECT client_row_id, name, cost, min_stock, updated_at FROM inventory_items WHERE company=? ORDER BY id", (company_scope,))
+            items = cursor.fetchall()
+            if items:
+                rows = []
+                for it in items:
+                    client_row_id, name, cost, min_stock, updated_at = it
+                    rows.append({
+                        'id': client_row_id,
+                        'name': name,
+                        'cost': float(cost or 0),
+                        'min_stock': float(min_stock or 0),
+                        'updated_at': updated_at.isoformat() if isinstance(updated_at, datetime.datetime) else (str(updated_at) if updated_at else None)
+                    })
+                conn.close()
+                return {"found": True, "financial_year": fy, "rows": rows, "updated_at": None}
+        except Exception as e:
+            log_exception("get_inventory_master_tables", e)
+
+        _delete_legacy_inventory_settings(cursor, company_scope)
+        conn.commit()
         conn.close()
-        if not data:
-            return {"found": False, "financial_year": fy, "rows": [], "updated_at": None}
-        return {
-            "found": True,
-            "financial_year": data.get("financial_year", fy),
-            "rows": data.get("rows", []) or [],
-            "updated_at": data.get("updated_at")
-        }
+        return {"found": False, "financial_year": fy, "rows": [], "updated_at": None}
     except Exception as e:
         close_conn_safely(conn)
         log_exception("get_inventory_master", e)
         return {"found": False, "financial_year": financial_year, "rows": [], "updated_at": None}
 
 @app.post("/inventory/master")
-def save_inventory_master(req: InventoryMasterRequest):
+def save_inventory_master(req: InventoryMasterRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         fy = (req.financial_year or "").strip()
         if not fy:
             raise HTTPException(status_code=400, detail="Financial year is required")
-
-        payload = {
-            "financial_year": fy,
-            "rows": [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in (req.rows or [])],
-            "updated_at": req.updated_at or datetime.datetime.utcnow().isoformat()
-        }
-        _set_json_setting(cursor, _inventory_master_key(fy), payload)
-        conn.close()
-        return {"status": "Saved", "found": True}
+        company_scope = _inventory_scope_key()
+        try:
+            # Persist into inventory_items table
+            _ensure_inventory_tables(cursor)
+            for r in (req.rows or []):
+                row_id = str(r.get('id') if isinstance(r, dict) else (r.id if hasattr(r, 'id') else '')).strip()
+                name = (r.get('name') if isinstance(r, dict) else (r.name if hasattr(r, 'name') else '') ) or ''
+                name = str(name).strip()
+                if not name:
+                    continue
+                cost = float(r.get('cost') if isinstance(r, dict) else (r.cost if hasattr(r, 'cost') else 0) or 0)
+                min_stock = float(r.get('min_stock') if isinstance(r, dict) else (r.min_stock if hasattr(r, 'min_stock') else 0) or 0)
+                if not row_id:
+                    row_id = f"inv-{uuid.uuid4().hex}"
+                cursor.execute("SELECT id FROM inventory_items WHERE company=? AND client_row_id=?", (company_scope, row_id))
+                found = cursor.fetchone()
+                if not found:
+                    cursor.execute("SELECT id FROM inventory_items WHERE company=? AND LOWER(name)=LOWER(?)", (company_scope, name))
+                    found = cursor.fetchone()
+                if found:
+                    cursor.execute("UPDATE inventory_items SET client_row_id=?, name=?, cost=?, min_stock=?, updated_at=? WHERE id=?", (row_id, name, cost, min_stock, datetime.datetime.utcnow(), found[0]))
+                else:
+                    cursor.execute("INSERT INTO inventory_items (client_row_id, company, name, cost, min_stock, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (row_id, company_scope, name, cost, min_stock, datetime.datetime.utcnow()))
+            keep_ids = []
+            for r in (req.rows or []):
+                row_id = str(r.get('id') if isinstance(r, dict) else (r.id if hasattr(r, 'id') else '')).strip()
+                name = (r.get('name') if isinstance(r, dict) else (r.name if hasattr(r, 'name') else '') ) or ''
+                name = str(name).strip()
+                if row_id and name:
+                    keep_ids.append(row_id)
+            if keep_ids:
+                placeholders = ",".join("?" for _ in keep_ids)
+                cursor.execute(
+                    f"DELETE q FROM inventory_quantities q INNER JOIN inventory_items i ON q.item_id=i.id WHERE i.company=? AND i.client_row_id IS NOT NULL AND i.client_row_id NOT IN ({placeholders})",
+                    (company_scope, *keep_ids)
+                )
+                cursor.execute(
+                    f"DELETE p FROM inventory_purchases p INNER JOIN inventory_items i ON p.item_id=i.id WHERE i.company=? AND i.client_row_id IS NOT NULL AND i.client_row_id NOT IN ({placeholders})",
+                    (company_scope, *keep_ids)
+                )
+                cursor.execute(
+                    f"DELETE FROM inventory_items WHERE company=? AND client_row_id IS NOT NULL AND client_row_id NOT IN ({placeholders})",
+                    (company_scope, *keep_ids)
+                )
+            conn.commit()
+            conn.close()
+            return {"status": "Saved", "found": True}
+        except Exception as e:
+            raise RuntimeError(f"Failed to save inventory master tables: {str(e)}")
     except HTTPException:
         close_conn_safely(conn)
         raise
@@ -795,6 +1233,8 @@ def _ensure_space_mono_fonts():
     # Local-only lookup. PDF generation is intentionally restricted to Space Mono.
     candidate_dirs = [
         os.path.join(CONFIG_DIR, "fonts"),
+        os.path.join(os.getcwd(), "fonts"),
+        os.path.join(os.path.dirname(__file__), "fonts"),
         os.path.join(os.getcwd(), "assets", "fonts"),
         os.path.join(os.path.dirname(__file__), "assets", "fonts"),
         os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")
@@ -877,12 +1317,13 @@ def _build_inventory_pdf(
     fy: str,
     rows: List[InventoryProductRow],
     average_mode: str = "monthly",
-    only_reorder: bool = False
+    only_reorder: bool = False,
+    show_stock_value: bool = False
 ):
     try:
         import calendar
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import landscape, A4
+        from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     except Exception as e:
@@ -909,10 +1350,12 @@ def _build_inventory_pdf(
     normalized_rows = []
     for r in rows:
         qty = [_safe_float(x) for x in (r.qty or [])]
-        max_days = max(max_days, len(qty))
+        purchase_qty = [_safe_float(x) for x in (getattr(r, "purchase_qty", None) or [])]
+        max_days = max(max_days, len(qty), len(purchase_qty))
         normalized_rows.append({
             "name": (r.name or "").strip(),
             "qty": qty,
+            "purchase_qty": purchase_qty,
             "min_stock": _safe_float(getattr(r, "min_stock", 0.0)),
             "cost": _safe_float(getattr(r, "cost", 0.0))
         })
@@ -920,14 +1363,17 @@ def _build_inventory_pdf(
     if max_days <= 0:
         max_days = 31
 
-    days = list(range(1, max_days + 1))
+    today = datetime.date.today()
+    is_current_month = (month_num == today.month)
+    end_day = min(today.day, max_days) if is_current_month else max_days
+    start_day = max(1, end_day - 6)
+    days = list(range(start_day, end_day + 1))
 
-    month_abbr = calendar.month_abbr[month_num] if 1 <= month_num <= 12 else "Mon"
     month_title = calendar.month_name[month_num] if 1 <= month_num <= 12 else str(month)
 
     doc = SimpleDocTemplate(
         pdf_path,
-        pagesize=landscape(A4),
+        pagesize=A4,
         leftMargin=18,
         rightMargin=18,
         topMargin=16,
@@ -962,6 +1408,20 @@ def _build_inventory_pdf(
         leading=10,
         textColor=colors.HexColor('#6B7280')
     )
+    metric_label_style = ParagraphStyle(
+        'InvMetricLbl',
+        fontName=regular_font,
+        fontSize=7,
+        leading=9,
+        textColor=colors.HexColor('#64748B')
+    )
+    metric_value_style = ParagraphStyle(
+        'InvMetricVal',
+        fontName=semibold_font,
+        fontSize=13,
+        leading=15,
+        textColor=colors.HexColor('#111827')
+    )
     section_style = ParagraphStyle(
         'InvSection',
         fontName=semibold_font,
@@ -972,6 +1432,14 @@ def _build_inventory_pdf(
 
     elems = []
 
+    def _purchase_for_day(qty_list, purchase_list, idx):
+        if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
+            return _safe_float(purchase_list[idx])
+        return 0.0
+
+    def _format_qty(val):
+        return f"{val:,.0f}" if abs(val - int(val)) < 1e-9 else f"{val:,.2f}"
+
     avg_mode = (average_mode or "monthly").strip().lower()
     if avg_mode not in ("monthly", "last7"):
         avg_mode = "monthly"
@@ -979,18 +1447,32 @@ def _build_inventory_pdf(
     report_rows = []
     grand_total = 0.0
     grand_value = 0.0
+    grand_incoming_today = 0.0
+    grand_incoming_report = 0.0
     total_daily_outflow = 0.0
     max_avg_days_used = 0
     reorder_count = 0
+    def _purchase_for_day(qty_list, purchase_list, idx):
+        if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
+            return _safe_float(purchase_list[idx])
+        return 0.0
     for r in normalized_rows:
         qty = r["qty"]
-        # Stock total should represent latest available stock, not sum of daily snapshots.
-        row_total = _safe_float(qty[max_days - 1] if (max_days - 1) < len(qty) else (qty[-1] if qty else 0))
+        purchase_qty = r.get("purchase_qty", []) or []
+        # Closing/current stock should match the current day shown in the report (end_day),
+        # not the last array element (which may include future days as zeros).
+        current_idx = min(max(end_day - 1, 0), len(qty) - 1) if qty else -1
+        current_qty_base = _safe_float(qty[current_idx] if current_idx >= 0 else 0)
+        current_purchase = _purchase_for_day(qty, purchase_qty, current_idx) if current_idx >= 0 else 0.0
+        closing_qty = _safe_float(current_qty_base + current_purchase)
+        row_total = closing_qty
         cost = _safe_float(r.get("cost", 0.0))
         row_value = row_total * cost
         grand_total += row_total
         grand_value += row_value
-        current_qty = _safe_float(qty[max_days - 1] if (max_days - 1) < len(qty) else (qty[-1] if qty else 0))
+        grand_incoming_today += current_purchase
+        grand_incoming_report += sum(_purchase_for_day(qty, purchase_qty, d - 1) for d in days)
+        current_qty = closing_qty
 
         # Daily outflow (sales/consumption) from stock deltas:
         # if stock drops from previous day, it is treated as movement-out.
@@ -1019,6 +1501,7 @@ def _build_inventory_pdf(
         report_rows.append({
             "name": r["name"],
             "qty": qty,
+            "purchase_qty": purchase_qty,
             "row_total": row_total,
             "row_value": row_value,
             "current_qty": current_qty,
@@ -1037,8 +1520,6 @@ def _build_inventory_pdf(
 
     avg_daily = (total_daily_outflow / max(max_avg_days_used, 1)) if total_daily_outflow > 0 else 0.0
 
-    elems.append(Paragraph("M-Finlogs Inventory Report", title_style))
-
     month_chip = Table([[Paragraph(f"MONTH: {month_title.upper()}", ParagraphStyle(
         'InvMonthChip',
         fontName=semibold_font,
@@ -1055,119 +1536,170 @@ def _build_inventory_pdf(
         ('TOPPADDING', (0, 0), (0, 0), 6),
         ('BOTTOMPADDING', (0, 0), (0, 0), 6),
     ]))
-    elems.append(month_chip)
-    elems.append(Spacer(1, 6))
+    header_table = Table(
+        [[Paragraph("M-Finlogs Inventory Report", title_style), month_chip]],
+        colWidths=[A4[0] - doc.leftMargin - doc.rightMargin - 180, 180]
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0)
+    ]))
+    elems.append(header_table)
+    elems.append(Spacer(1, 8))
 
-    rows_label = len(report_rows) if only_reorder else len(normalized_rows)
+    rows_label = len([r for r in report_rows if r.get("name")]) if only_reorder else len([r for r in normalized_rows if r.get("name")])
     mode_label = "Last 7 Days" if avg_mode == "last7" else "Monthly Average"
-    elems.append(Paragraph(f"{fy} | Products: {rows_label} | Current Qty: {grand_total:,.2f} | Current Value: {grand_value:,.2f} | Rule: {mode_label}", sub_style))
+    elems.append(Paragraph(f"{fy} | Products: {rows_label} | Current Qty: {grand_total:,.2f} | Days: {start_day}-{end_day} | Rule: {mode_label}", sub_style))
     elems.append(Paragraph(f"Generated: {datetime.datetime.now().strftime('%d %b %Y, %H:%M')}", sub_style))
     elems.append(Spacer(1, 10))
 
-    cards_data = [[
+    cards_cells = [[
         [Paragraph(f"{grand_total:,.2f}", card_value_style), Paragraph("Current Quantity", card_label_style)],
-        [Paragraph(f"{grand_value:,.2f}", card_value_style), Paragraph("Current Stock Value", card_label_style)],
+        [Paragraph(f"{grand_incoming_report:,.2f}", card_value_style), Paragraph("Purchase In", card_label_style)],
         [Paragraph(f"{avg_daily:,.1f}", card_value_style), Paragraph("Avg Daily Movement", card_label_style)],
         [Paragraph(f"{reorder_count}", card_value_style), Paragraph("Reorder Products", card_label_style)]
     ]]
-    cards_table = Table(cards_data, colWidths=[180, 180, 180, 180])
+    card_width = (A4[0] - doc.leftMargin - doc.rightMargin) / 4
+    cards_table = Table(cards_cells, colWidths=[card_width] * 4)
     cards_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F9FAFB')),
-        ('BOX', (0, 0), (-1, -1), 0.25, colors.HexColor('#E5E7EB')),
-        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#E5E7EB')),
-        ('LEFTPADDING', (0, 0), (-1, -1), 10),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP')
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
+        ('BOX', (0, 0), (-1, -1), 0.35, colors.HexColor('#CBD5E1')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#E2E8F0')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, 0), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+        ('TOPPADDING', (0, 1), (-1, 1), 1),
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 8),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
     ]))
     elems.append(cards_table)
     elems.append(Spacer(1, 12))
 
-    page_width = landscape(A4)[0] - doc.leftMargin - doc.rightMargin
-    fixed_width = 352  # Product + current + cost + min + status
-    target_day_col_width = 28
-    days_per_table = max(8, int((page_width - fixed_width) / target_day_col_width))
-    days_per_table = min(max(days_per_table, 8), max(len(days), 1))
+    page_width = A4[0] - doc.leftMargin - doc.rightMargin
 
-    day_chunks = [days[i:i + days_per_table] for i in range(0, len(days), days_per_table)]
-    if not day_chunks:
-        day_chunks = [days]
+    def _purchase_for_day(qty_list, purchase_list, idx):
+        if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
+            return _safe_float(purchase_list[idx])
+        return 0.0
 
-    for chunk_index, day_chunk in enumerate(day_chunks):
-        header = ["Product", "Current", "Cost", "Min", "Status"] + [str(d) for d in day_chunk]
-        data = [header]
-        reorder_rows = []
+    def _format_qty(val):
+        return f"{val:,.0f}" if abs(val - int(val)) < 1e-9 else f"{val:,.2f}"
 
-        for r in report_rows:
-            qty = r["qty"]
-            row_vals = []
-            for d in day_chunk:
-                v = _safe_float(qty[d - 1] if d - 1 < len(qty) else 0)
-                row_vals.append(f"{v:,.0f}" if abs(v - int(v)) < 1e-9 else f"{v:,.2f}")
+    header = ["Product", "Opening", "Purchase", "Closing"] + [str(d) for d in days]
+    data = [header]
+    reorder_rows = []
+    group_rows = []
+    group_index = 1
 
-            data.append([
-                r["name"][:26],
-                f"{r['row_total']:,.2f}",
-                f"{r['cost']:,.2f}" if r['cost'] > 0 else "-",
-                f"{r['min_stock']:,.2f}" if r['min_stock'] > 0 else "-",
-                r["status"]
-            ] + row_vals)
+    for r in report_rows:
+        if not r["name"]:
+            if len(data) > 1 and data[-1][0] != "":
+                data.append([f"Group {group_index}"] + [""] * (len(header) - 1))
+                group_rows.append(len(data) - 1)
+                group_index += 1
+            continue
 
-            if r["is_reorder"]:
-                reorder_rows.append(len(data) - 1)
+        qty = r["qty"]
+        purchases = r.get("purchase_qty", []) or []
+        row_vals = []
+        incoming_total = 0.0
+        for d in days:
+            idx = d - 1
+            qv = _safe_float(qty[idx] if idx < len(qty) else 0)
+            pv = _purchase_for_day(qty, purchases, idx)
+            incoming_total += pv
+            cell = _format_qty(qv)
+            if pv > 0:
+                cell = f"{cell}\n+{_format_qty(pv)}"
+            row_vals.append(cell)
 
-        day_col_width = max(24, min(34, (page_width - fixed_width) / max(len(day_chunk), 1)))
-        col_widths = [112, 62, 52, 46, 64] + [day_col_width] * len(day_chunk)
+        opening_idx = max(start_day - 1, 0)
+        opening_qty = _safe_float(qty[opening_idx] if opening_idx < len(qty) else 0)
+        current_idx = min(max(end_day - 1, 0), len(qty) - 1) if qty else -1
+        closing_base_qty = _safe_float(qty[current_idx] if current_idx >= 0 else 0)
+        closing_purchase = _purchase_for_day(qty, purchases, current_idx) if current_idx >= 0 else 0.0
+        closing_qty = _safe_float(closing_base_qty + closing_purchase)
 
-        table = Table(data, repeatRows=1, colWidths=col_widths)
-        style_cmds = [
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
-            ('FONTNAME', (0, 0), (-1, 0), semibold_font),
-            ('FONTNAME', (0, 1), (-1, -1), regular_font),
-            ('FONTSIZE', (0, 0), (4, 0), 7),
-            ('FONTSIZE', (5, 0), (-1, 0), 6.5),
-            ('FONTSIZE', (0, 1), (4, -1), 7.5),
-            ('FONTSIZE', (5, 1), (-1, -1), 6.5),
-            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 0), (3, -1), 'RIGHT'),
-            ('ALIGN', (4, 0), (4, -1), 'CENTER'),
-            ('ALIGN', (5, 0), (-1, 0), 'CENTER'),
-            ('ALIGN', (5, 1), (-1, -1), 'RIGHT'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d1d5db')),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
-            ('LEFTPADDING', (0, 0), (4, -1), 6),
-            ('RIGHTPADDING', (0, 0), (4, -1), 6),
-            ('LEFTPADDING', (5, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (5, 0), (-1, -1), 3),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
-        ]
+        data.append([
+            r["name"][:28],
+            _format_qty(opening_qty),
+            _format_qty(incoming_total),
+            _format_qty(closing_qty)
+        ] + row_vals)
 
-        for ridx in range(1, len(data)):
-            for cidx in range(1, len(data[ridx])):
-                raw_val = data[ridx][cidx]
-                if str(raw_val).strip() in ("0", "0.00", "0.0"):
-                    style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#D1D5DB')))
+        if r["is_reorder"]:
+            reorder_rows.append(len(data) - 1)
 
-        for ridx in reorder_rows:
-            style_cmds.extend([
-                ('TEXTCOLOR', (0, ridx), (1, ridx), colors.HexColor('#B91C1C')),
-                ('FONTNAME', (0, ridx), (1, ridx), semibold_font),
-                ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#FEF2F2')),
-            ])
+    if data and data[-1][0].startswith("Group "):
+        data.pop()
+        group_rows.pop()
 
-        table.setStyle(TableStyle(style_cmds))
+    fixed_width = 286
+    day_col_width = max(30, min(38, (page_width - fixed_width) / max(len(days), 1)))
+    col_widths = [112, 52, 62, 60] + [day_col_width] * len(days)
 
-        if len(day_chunks) == 1:
-            elems.append(Paragraph("Daily Stock Grid", section_style))
-        else:
-            elems.append(Paragraph(f"Daily Stock Grid ({day_chunk[0]}-{day_chunk[-1]})", section_style))
-        elems.append(table)
-        if chunk_index < len(day_chunks) - 1:
-            elems.append(Spacer(1, 8))
+    table = Table(data, repeatRows=1, colWidths=col_widths)
+    style_cmds = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#374151')),
+        ('FONTNAME', (0, 0), (-1, 0), semibold_font),
+        ('FONTNAME', (0, 1), (-1, -1), regular_font),
+        ('FONTSIZE', (0, 0), (-1, 0), 7),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#D1D5DB')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
+        ('LEFTPADDING', (0, 0), (0, -1), 6),
+        ('RIGHTPADDING', (0, 0), (0, -1), 6),
+        ('LEFTPADDING', (1, 0), (-1, -1), 3),
+        ('RIGHTPADDING', (1, 0), (-1, -1), 3),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
+    ]
+    current_day_col = 4 + max(0, end_day - start_day)
+    style_cmds.extend([
+        ('BACKGROUND', (current_day_col, 0), (current_day_col, -1), colors.HexColor('#DBEAFE')),
+        ('TEXTCOLOR', (current_day_col, 0), (current_day_col, 0), colors.HexColor('#1E3A8A')),
+        ('FONTNAME', (current_day_col, 0), (current_day_col, -1), semibold_font),
+        ('LINEBEFORE', (current_day_col, 0), (current_day_col, -1), 0.8, colors.HexColor('#2563EB')),
+        ('LINEAFTER', (current_day_col, 0), (current_day_col, -1), 0.8, colors.HexColor('#2563EB'))
+    ])
+
+    for ridx in range(1, len(data)):
+        for cidx in range(4, len(data[ridx])):
+            if "\n+" in str(data[ridx][cidx]):
+                style_cmds.append(('BACKGROUND', (cidx, ridx), (cidx, ridx), colors.HexColor('#ECFDF3')))
+                style_cmds.append(('TEXTCOLOR', (cidx, ridx), (cidx, ridx), colors.HexColor('#047857')))
+
+    for ridx in group_rows:
+        style_cmds.extend([
+            ('SPAN', (0, ridx), (-1, ridx)),
+            ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#E5E7EB')),
+            ('TEXTCOLOR', (0, ridx), (-1, ridx), colors.HexColor('#475569')),
+            ('FONTNAME', (0, ridx), (-1, ridx), semibold_font),
+            ('ALIGN', (0, ridx), (-1, ridx), 'LEFT'),
+        ])
+
+    for ridx in reorder_rows:
+        style_cmds.extend([
+            ('TEXTCOLOR', (0, ridx), (3, ridx), colors.HexColor('#B91C1C')),
+            ('FONTNAME', (0, ridx), (3, ridx), semibold_font),
+            ('BACKGROUND', (0, ridx), (-1, ridx), colors.HexColor('#FEF2F2')),
+        ])
+
+    table.setStyle(TableStyle(style_cmds))
+
+    elems.append(Paragraph(f"Daily Stock (Last 7 Days: {start_day}-{end_day})", section_style))
+    elems.append(table)
+    elems.append(Spacer(1, 6))
 
     # Per-day stock value summary
     day_value_data = [["Day", "Total Qty", "Stock Value"]]
@@ -1206,13 +1738,49 @@ def _build_inventory_pdf(
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4)
     ]))
     elems.append(value_table)
-
     elems.append(Spacer(1, 6))
 
     doc.build(elems)
 
+def _get_inventory_pdf_day_range(rows: List[InventoryProductRow], month: str):
+    try:
+        import calendar
+        month_map = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        label = (month or "").strip().lower()
+        month_num = month_map.get(label)
+        if month_num is None:
+            month_num = int(label) if label.isdigit() else datetime.date.today().month
+        month_num = month_num if 1 <= month_num <= 12 else datetime.date.today().month
+        max_days = max(
+            [
+                max(
+                    len(r.qty or []),
+                    len(getattr(r, "purchase_qty", None) or [])
+                )
+                for r in (rows or [])
+            ] or [31]
+        )
+        max_days = max_days if max_days > 0 else 31
+        today = datetime.date.today()
+        end_day = min(today.day, max_days) if month_num == today.month else max_days
+        start_day = max(1, end_day - 6)
+        month_slug = calendar.month_name[month_num] if 1 <= month_num <= 12 else str(month)
+        return month_slug, start_day, end_day
+    except Exception:
+        safe_month = (month or "Month").strip() or "Month"
+        return safe_month, 1, 1
+
+def _inventory_pdf_filename(month: str, fy: str, rows: List[InventoryProductRow]) -> str:
+    month_label, start_day, end_day = _get_inventory_pdf_day_range(rows, month)
+    raw = f"Inventory_{month_label}_Days_{start_day}-{end_day}_{fy}.pdf"
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("_")
+
 @app.post("/report/inventory/email-pdf")
-def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
+def send_inventory_pdf_mail(req: InventoryPdfMailRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     month = (req.month or "").strip()
     if not month:
         raise HTTPException(status_code=400, detail="Month is required")
@@ -1246,7 +1814,8 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
             fy,
             req.rows,
             average_mode=req.average_mode,
-            only_reorder=req.only_reorder
+            only_reorder=req.only_reorder,
+            show_stock_value=req.show_stock_value
         )
 
         msg = EmailMessage()
@@ -1271,7 +1840,7 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
 
         with open(temp_pdf, "rb") as f:
             pdf_bytes = f.read()
-        filename = f"Inventory_{month}_{fy}.pdf".replace(" ", "_")
+        filename = _inventory_pdf_filename(month, fy, req.rows)
         msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
 
         recipients = [x.strip() for x in (to_addr + ("," + cc_clean if cc_clean else "")).split(",") if x.strip()]
@@ -1311,7 +1880,8 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest):
                 pass
 
 @app.post("/report/inventory/pdf-preview")
-def preview_inventory_pdf(req: InventoryPdfPreviewRequest):
+def preview_inventory_pdf(req: InventoryPdfPreviewRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     month = (req.month or "").strip()
     if not month:
         raise HTTPException(status_code=400, detail="Month is required")
@@ -1332,13 +1902,14 @@ def preview_inventory_pdf(req: InventoryPdfPreviewRequest):
             fy,
             req.rows,
             average_mode=req.average_mode,
-            only_reorder=req.only_reorder
+            only_reorder=req.only_reorder,
+            show_stock_value=req.show_stock_value
         )
 
         with open(temp_pdf, "rb") as f:
             pdf_bytes = f.read()
 
-        filename = f"Inventory_{month}_{fy}.pdf".replace(" ", "_")
+        filename = _inventory_pdf_filename(month, fy, req.rows)
         headers = {"Content-Disposition": f'inline; filename="{filename}"'}
         return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
     except RuntimeError as e:
@@ -1383,7 +1954,8 @@ def list_companies():
         return [{"name": "default", "key": "default"}]
 
 @app.post("/companies")
-def create_company(req: CompanyCreateRequest):
+def create_company(req: CompanyCreateRequest, authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     name = (req.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Company name required")
@@ -1391,7 +1963,8 @@ def create_company(req: CompanyCreateRequest):
     return {"status": "Created"}
 
 @app.post("/company/select")
-def select_company(req: CompanySelectRequest):
+def select_company(req: CompanySelectRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     global current_company
     name = (req.name or "").strip()
     if not name:
@@ -1441,7 +2014,8 @@ class PartyCreate(BaseModel):
     credit: bool
 
 @app.post("/party")
-def create_party(party: PartyCreate):
+def create_party(party: PartyCreate, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -1452,12 +2026,8 @@ def create_party(party: PartyCreate):
              conn.close()
              raise HTTPException(status_code=400, detail="Only one Bank account is allowed.")
 
-    normalized = normalize_party_key(party.name)
     try:
-        cursor.execute(
-            "INSERT INTO parties (name, normalized_name, type, credit_allowed) VALUES (?, ?, ?, ?)",
-            (party.name, normalized, party.ptype, 1 if party.credit else 0)
-        )
+        get_or_create_party_id(cursor, party.name, party.ptype, party.credit)
         conn.close()
         return {"status": "Party Created"}
     except Exception as e:
@@ -1466,7 +2036,8 @@ def create_party(party: PartyCreate):
         return {"status": "Error", "detail": str(e)}
 
 @app.post("/transaction")
-def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: str, amount: float):
+def add_transaction(date: str, bill_no: str, party: str, txn_type: str, mode: str, amount: float, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1979,8 +2550,10 @@ def get_outstanding_report():
         FROM parties p
         LEFT JOIN transactions t ON p.party_id = t.party_id
         WHERE p.type = 'Credit Customer'
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         GROUP BY p.name
-    """)
+    """, (fy_start.isoformat(), fy_end.isoformat()))
     rows = cursor.fetchall()
     conn.close()
 
@@ -2039,6 +2612,7 @@ def get_outstanding_report():
 def get_outstanding_party_detail(party: str):
     conn = get_db_connection()
     cursor = conn.cursor()
+    _, fy_start, fy_end = get_financial_year_bounds(cursor)
 
     normalized = normalize_party_key(party)
     cursor.execute("SELECT COUNT(*) FROM parties WHERE normalized_name=?", (normalized,))
@@ -2053,9 +2627,11 @@ def get_outstanding_party_detail(party: str):
         FROM transactions t
         INNER JOIN parties p ON p.party_id = t.party_id
         WHERE p.normalized_name = ?
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         ORDER BY t.txn_date ASC, t.txn_id ASC
         """,
-        (normalized,)
+        (normalized, fy_start.isoformat(), fy_end.isoformat())
     )
     ledger_rows = cursor.fetchall()
 
@@ -2068,8 +2644,10 @@ def get_outstanding_party_detail(party: str):
         FROM transactions t
         INNER JOIN parties p ON p.party_id = t.party_id
         WHERE p.normalized_name = ?
+          AND t.txn_date >= ?
+          AND t.txn_date <= ?
         """,
-        (normalized,)
+        (normalized, fy_start.isoformat(), fy_end.isoformat())
     )
     sums = cursor.fetchone()
 
@@ -2300,14 +2878,15 @@ def get_dashboard_metrics():
     }
 
 @app.post("/backup")
-def backup_database(path: str = None):
+def backup_database(path: str = None, authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     """SQL Server backup - requires administrative privileges"""
     try:
         import datetime
         import shutil
         import os
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        database = SQL_DATABASE
+        database = get_runtime_database_name()
         conn = get_master_connection()
         
         # SQL Server backups cannot run in a transaction.
@@ -2321,7 +2900,7 @@ def backup_database(path: str = None):
         
         # SQL Server BACKUP command
         safe_path = escape_sql_path(server_backup_path)
-        backup_query = f"BACKUP DATABASE [{database}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
+        backup_query = f"BACKUP DATABASE [{escape_sql_identifier(database)}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
         cursor.execute(backup_query)
         
         # CRITICAL FIX: You MUST consume the progress messages (result sets)
@@ -2352,7 +2931,8 @@ def backup_database(path: str = None):
 
 
 @app.post("/backup/auto")
-def backup_database_auto():
+def backup_database_auto(authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     """Automatic SQL Server backup"""
     try:
         import datetime
@@ -2381,11 +2961,11 @@ def backup_database_auto():
                 detail=f"Auto backup failed: app has no write permission on {backup_dir}. {perm_err}",
             )
         
-        database = SQL_DATABASE
+        database = get_runtime_database_name()
         backup_path = os.path.join(backup_dir, f"auto_{database}_{timestamp}.bak")
         
         safe_path = escape_sql_path(backup_path)
-        backup_query = f"BACKUP DATABASE [{database}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
+        backup_query = f"BACKUP DATABASE [{escape_sql_identifier(database)}] TO DISK = '{safe_path}' WITH FORMAT, INIT"
         cursor.execute(backup_query)
         
         # CRITICAL FIX: Consume the result sets
@@ -2416,25 +2996,27 @@ def backup_database_auto():
         raise HTTPException(status_code=500, detail=f"Auto backup failed: {e}")
 
 @app.post("/restore")
-def restore_database(path: str):
+def restore_database(path: str, authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     """SQL Server restore - requires administrative privileges"""
     try:
         if not os.path.exists(path):
             raise HTTPException(status_code=404, detail="Backup file not found")
         
-        database = SQL_DATABASE
+        database = get_runtime_database_name()
         
         conn = get_master_connection()
         cursor = conn.cursor()
         
         # Set database to single user mode before restore
-        cursor.execute(f"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
+        safe_database = escape_sql_identifier(database)
+        cursor.execute(f"ALTER DATABASE [{safe_database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE")
         # Restore database
         safe_path = escape_sql_path(path)
-        restore_query = f"RESTORE DATABASE [{database}] FROM DISK = '{safe_path}' WITH REPLACE"
+        restore_query = f"RESTORE DATABASE [{safe_database}] FROM DISK = '{safe_path}' WITH REPLACE"
         cursor.execute(restore_query)
         # Set back to multi-user mode
-        cursor.execute(f"ALTER DATABASE [{database}] SET MULTI_USER")
+        cursor.execute(f"ALTER DATABASE [{safe_database}] SET MULTI_USER")
         conn.close()
         
         return {"status": "Restore Successful"}
@@ -2446,7 +3028,8 @@ def restore_database(path: str):
 from fastapi import UploadFile, File
 
 @app.post("/import")
-async def import_transactions(file: UploadFile = File(...)):
+async def import_transactions(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     try:
         import shutil
         import os
@@ -2469,6 +3052,7 @@ async def import_transactions(file: UploadFile = File(...)):
         success = 0
         errors = 0
         failed_rows = []  # Track which rows failed and why
+        party_id_cache = {}
         
         for idx, row in df.iterrows():
             row_num = idx + 2  # +2 because: 0-indexed + 1 header row
@@ -2516,18 +3100,17 @@ async def import_transactions(file: UploadFile = File(...)):
                 except:
                     amount = 0.0
                 
-                cursor.execute("SELECT party_id FROM parties WHERE normalized_name=?", (normalize_party_key(party),))
-                res = cursor.fetchone()
-                if res:
-                    pid = res[0]
-                else:
-                    norm = normalize_party_key(party)
-                    cursor.execute("INSERT INTO parties (name, normalized_name, type, credit_allowed) VALUES (?, ?, 'Customer', 1)", (str(party), norm))
-                    pid = cursor.lastrowid
+                party_key = normalize_party_key(party)
+                pid = party_id_cache.get(party_key)
+                if pid is None:
+                    pid = get_or_create_party_id(cursor, str(party), "Customer", True)
+                    party_id_cache[party_key] = pid
+                txn_date = parse_date_str(date) or datetime.date.today()
+                txn_fy = financial_year_for_date(txn_date)
                 
                 cursor.execute(
-                    "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, amount) VALUES (?, ?, ?, ?, ?, ?)",
-                    (date, bill, pid, ttype, mode, amount)
+                    "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (date, bill, pid, ttype, mode, txn_fy, amount)
                 )
                 success += 1
             except Exception as row_err:
@@ -2535,6 +3118,7 @@ async def import_transactions(file: UploadFile = File(...)):
                 errors += 1
         
         conn.close()
+        invalidate_report_cache()
         
         # Build detailed response
         response_detail = f"✓ Imported: {success} rows"
@@ -2727,7 +3311,8 @@ def get_opening_cash():
     return {"opening_cash": get_setting("opening_cash_seed", 0.0)}
 
 @app.post("/settings/opening-cash")
-def set_opening_cash(req: OpeningCashRequest):
+def set_opening_cash(req: OpeningCashRequest, authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     try:
         set_setting("opening_cash_seed", float(req.amount))
         invalidate_report_cache()
@@ -2738,7 +3323,8 @@ def set_opening_cash(req: OpeningCashRequest):
         return {"status": "Error", "detail": str(e)}
 
 @app.post("/cash/hand")
-def set_cash_in_hand(req: CashInHandRequest):
+def set_cash_in_hand(req: CashInHandRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2756,7 +3342,8 @@ def set_cash_in_hand(req: CashInHandRequest):
         return {"status": "Error", "detail": str(e)}
 
 @app.post("/cash/hand/reset")
-def reset_cash_in_hand(req: CashInHandResetRequest):
+def reset_cash_in_hand(req: CashInHandResetRequest, authorization: Optional[str] = Header(None)):
+    require_authenticated(authorization)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -2777,7 +3364,8 @@ class RenamePartyRequest(BaseModel):
     admin_user: str
 
 @app.post("/party/rename")
-def rename_party(req: RenamePartyRequest):
+def rename_party(req: RenamePartyRequest, authorization: Optional[str] = Header(None)):
+    require_admin(require_authenticated(authorization))
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -3062,6 +3650,14 @@ def edit_transaction(req: EditTxnRequest, authorization: Optional[str] = Header(
             if not party_row:
                 raise HTTPException(status_code=404, detail="Party not found")
             cursor.execute("UPDATE transactions SET party_id=? WHERE txn_id=?", (party_row[0], req.txn_id))
+        elif req.field == "txn_date":
+            txn_date = parse_date_str(req.new_value)
+            if not txn_date:
+                raise HTTPException(status_code=400, detail="Invalid transaction date")
+            cursor.execute(
+                "UPDATE transactions SET txn_date=?, financial_year=? WHERE txn_id=?",
+                (txn_date.isoformat(), financial_year_for_date(txn_date), req.txn_id)
+            )
         else:
             cursor.execute(f"UPDATE transactions SET {db_field}=? WHERE txn_id=?", (req.new_value, req.txn_id))
 
@@ -3257,7 +3853,11 @@ def save_db_config(req: DbConfigRequest, authorization: Optional[str] = Header(N
         
         # Save to config.py
         auth_comment = 'SQL Server' if req.auth_type == 'sql' else 'Windows'
-        safe_backup_dir = (req.backup_dir or "").replace("\\", "\\\\")
+        safe_server = json.dumps(req.server or "")
+        safe_database = json.dumps(req.database or "")
+        safe_username = json.dumps(req.username if req.auth_type == "sql" else "")
+        safe_password = json.dumps(req.password if req.auth_type == "sql" else "")
+        safe_backup_dir = json.dumps(req.backup_dir or "")
         config_content = f"""# SQL Server Configuration
 # Update these values with your SQL Server connection details
 
@@ -3266,13 +3866,13 @@ def save_db_config(req: DbConfigRequest, authorization: Optional[str] = Header(N
 # - "localhost\\SQLEXPRESS" for SQL Express
 # - "localhost\\MSSQLSERVER" for named instance
 # - "." for local default instance
-SQL_SERVER = "{req.server}"  # Your SQL Server instance
+SQL_SERVER = {safe_server}  # Your SQL Server instance
 
-SQL_DATABASE = "{req.database}"  # database name
-SQL_USERNAME = "{req.username if req.auth_type == 'sql' else ''}"  # SQL Server username (leave empty for Windows Auth)
-SQL_PASSWORD = "{req.password if req.auth_type == 'sql' else ''}"  # SQL Server password (leave empty for Windows Auth)
+SQL_DATABASE = {safe_database}  # database name
+SQL_USERNAME = {safe_username}  # SQL Server username (leave empty for Windows Auth)
+SQL_PASSWORD = {safe_password}  # SQL Server password (leave empty for Windows Auth)
 SQL_DRIVER = "{{ODBC Driver 17 for SQL Server}}"  # or "{{SQL Server}}" for older versions
-BACKUP_TARGET_DIR = "{safe_backup_dir}"  # UNC share path for SQL Server backups (optional)
+BACKUP_TARGET_DIR = {safe_backup_dir}  # UNC share path for SQL Server backups (optional)
 
 # Connection string - {auth_comment} Authentication
 """
