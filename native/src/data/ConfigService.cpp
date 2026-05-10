@@ -37,6 +37,11 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
     }
 
     const QJsonObject payload = QJsonDocument::fromJson(file.readAll()).object();
+    const QString authType = payload.value(QStringLiteral("auth_type")).toString();
+    const bool useWindowsAuth = authType.isEmpty()
+        ? payload.value(QStringLiteral("windows_auth")).toBool(true)
+        : authType != QStringLiteral("sql");
+
     return domain::DatabaseConfig{
         payload.value(QStringLiteral("server")).toString(QStringLiteral("localhost")),
         payload.value(QStringLiteral("database")).toString(QStringLiteral("finlogs")),
@@ -45,7 +50,7 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
         payload.value(QStringLiteral("driver")).toString(QStringLiteral("{ODBC Driver 17 for SQL Server}")),
         payload.value(QStringLiteral("api_base")).toString(QStringLiteral("http://127.0.0.1:8000")),
         payload.value(QStringLiteral("backup_dir")).toString(QStringLiteral("D:/finlogs")),
-        payload.value(QStringLiteral("windows_auth")).toBool(true)
+        useWindowsAuth
     };
 }
 
@@ -59,6 +64,7 @@ void JsonConfigService::writeDatabaseConfig(const domain::DatabaseConfig& config
     payload.insert(QStringLiteral("api_base"), config.apiBaseUrl);
     payload.insert(QStringLiteral("backup_dir"), config.backupDir);
     payload.insert(QStringLiteral("windows_auth"), config.useWindowsAuth);
+    payload.insert(QStringLiteral("auth_type"), config.useWindowsAuth ? QStringLiteral("windows") : QStringLiteral("sql"));
 
     QFile file(configPath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {

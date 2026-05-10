@@ -170,29 +170,64 @@ function deleteServerTask() {
     });
 }
 
+function ensureJwtSecret(userDataPath) {
+    const secretPath = path.join(userDataPath, 'jwt_secret.key');
+    let jwtSecret = (process.env.JWT_SECRET_KEY || '').trim();
+
+    if (jwtSecret.length >= 32) {
+        return jwtSecret;
+    }
+
+    if (fs.existsSync(secretPath)) {
+        const fromFile = (fs.readFileSync(secretPath, 'utf8') || '').trim();
+        if (fromFile.length >= 32) {
+            return fromFile;
+        }
+    }
+
+    jwtSecret = crypto.randomBytes(48).toString('hex');
+    fs.writeFileSync(secretPath, jwtSecret, { encoding: 'utf8', mode: 0o600 });
+    return jwtSecret;
+}
+
+function readClientConfig(userDataPath) {
+    try {
+        const configPath = path.join(userDataPath, 'db_config.json');
+        if (!fs.existsSync(configPath)) return {};
+        return JSON.parse(fs.readFileSync(configPath, 'utf8') || '{}');
+    } catch (_e) {
+        return {};
+    }
+}
+
+function isLocalApiBase(apiBase) {
+    if (!apiBase || typeof apiBase !== 'string') return true;
+    try {
+        const parsed = new URL(/^https?:\/\//i.test(apiBase) ? apiBase : `http://${apiBase}`);
+        const host = parsed.hostname.toLowerCase();
+        return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    } catch (_e) {
+        return true;
+    }
+}
+
 async function startBackend() {
     // Start backend in both dev and production mode
     const { spawn } = require('child_process');
 
     const userDataPath = app.getPath('userData');
-    const secretPath = path.join(userDataPath, 'jwt_secret.key');
-    let jwtSecret = (process.env.JWT_SECRET_KEY || '').trim();
+    const clientConfig = readClientConfig(userDataPath);
+    if (!isLocalApiBase(clientConfig.api_base)) {
+        console.log(`Remote API configured (${clientConfig.api_base}); skipping local backend startup.`);
+        return true;
+    }
 
-    if (jwtSecret.length < 32) {
-        try {
-            if (fs.existsSync(secretPath)) {
-                const fromFile = (fs.readFileSync(secretPath, 'utf8') || '').trim();
-                if (fromFile.length >= 32) {
-                    jwtSecret = fromFile;
-                }
-            }
-            if (jwtSecret.length < 32) {
-                jwtSecret = crypto.randomBytes(48).toString('hex');
-                fs.writeFileSync(secretPath, jwtSecret, { encoding: 'utf8', mode: 0o600 });
-            }
-        } catch (e) {
-            console.error('Failed to initialize JWT secret:', e);
-        }
+    let jwtSecret = '';
+    try {
+        jwtSecret = ensureJwtSecret(userDataPath);
+    } catch (e) {
+        console.error('Failed to initialize JWT secret:', e);
+        return false;
     }
 
     const envVars = {
@@ -201,20 +236,16 @@ async function startBackend() {
         JWT_SECRET_KEY: jwtSecret
     };
 
-    // Force-clean any stale scheduler/port owner so startup is deterministic.
     killBackend();
-    await deleteServerTask();
-    await killPort8000();
-    await new Promise((r) => setTimeout(r, 180));
 
     let portFree = await isPortFree(8000, '127.0.0.1');
     if (!portFree) {
-        await killPort8000();
-        portFree = await isPortFree(8000, '127.0.0.1');
-        if (!portFree) {
-            console.warn('Backend not started: port 8000 still in use.');
-            return false;
+        if (await isBackendResponsive(1500)) {
+            console.log('Using existing responsive backend on port 8000.');
+            return true;
         }
+        console.warn('Backend not started: port 8000 is in use by a non-responsive process.');
+        return false;
     }
 
     if (app.isPackaged) {
@@ -445,8 +476,6 @@ ipcMain.handle('folder:openAutoBackup', async () => {
 ipcMain.handle('server:restart', async () => {
     try {
         killBackend();
-        await deleteServerTask();
-        await killPort8000();
         await new Promise((r) => setTimeout(r, 220));
         const started = await startBackend();
         if (!started) {
@@ -461,11 +490,9 @@ ipcMain.handle('server:restart', async () => {
 ipcMain.handle('server:stop', async () => {
     try {
         killBackend();
-        await deleteServerTask();
-        await killPort8000();
         const portFree = await isPortFree(8000, '127.0.0.1');
         if (!portFree) {
-            return { success: false, error: 'Port 8000 is still in use.' };
+            return { success: false, error: 'The in-app backend stopped, but another process is still using port 8000.' };
         }
         return { success: true };
     } catch (e) {
@@ -477,6 +504,7 @@ ipcMain.handle('server:install', async () => {
     try {
         const taskName = 'M-FinlogsServer';
         const userDataPath = app.getPath('userData');
+        const jwtSecret = ensureJwtSecret(userDataPath);
         
         // Create a startup script instead of inline command
         const scriptPath = path.join(userDataPath, 'start_server.bat');
@@ -488,6 +516,7 @@ ipcMain.handle('server:install', async () => {
 set FINLOGS_CONFIG_DIR=${userDataPath}
 set FINLOGS_HOST=0.0.0.0
 set FINLOGS_PORT=8000
+set JWT_SECRET_KEY=${jwtSecret}
 "${backendPath}"`;
         } else {
             scriptContent = `@echo off
@@ -495,6 +524,7 @@ cd /d "${__dirname}"
 set FINLOGS_CONFIG_DIR=${userDataPath}
 set FINLOGS_HOST=0.0.0.0
 set FINLOGS_PORT=8000
+set JWT_SECRET_KEY=${jwtSecret}
 python -m uvicorn backend:app --host 0.0.0.0 --port 8000`;
         }
         

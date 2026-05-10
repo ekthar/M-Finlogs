@@ -1432,7 +1432,7 @@ def _build_inventory_pdf(
 
     elems = []
 
-    def _purchase_for_day(qty_list, purchase_list, idx):
+    def _purchase_for_day(purchase_list, idx):
         if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
             return _safe_float(purchase_list[idx])
         return 0.0
@@ -1452,10 +1452,6 @@ def _build_inventory_pdf(
     total_daily_outflow = 0.0
     max_avg_days_used = 0
     reorder_count = 0
-    def _purchase_for_day(qty_list, purchase_list, idx):
-        if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
-            return _safe_float(purchase_list[idx])
-        return 0.0
     for r in normalized_rows:
         qty = r["qty"]
         purchase_qty = r.get("purchase_qty", []) or []
@@ -1463,15 +1459,15 @@ def _build_inventory_pdf(
         # not the last array element (which may include future days as zeros).
         current_idx = min(max(end_day - 1, 0), len(qty) - 1) if qty else -1
         current_qty_base = _safe_float(qty[current_idx] if current_idx >= 0 else 0)
-        current_purchase = _purchase_for_day(qty, purchase_qty, current_idx) if current_idx >= 0 else 0.0
-        closing_qty = _safe_float(current_qty_base + current_purchase)
+        current_purchase = _purchase_for_day(purchase_qty, current_idx) if current_idx >= 0 else 0.0
+        closing_qty = current_qty_base
         row_total = closing_qty
         cost = _safe_float(r.get("cost", 0.0))
         row_value = row_total * cost
         grand_total += row_total
         grand_value += row_value
         grand_incoming_today += current_purchase
-        grand_incoming_report += sum(_purchase_for_day(qty, purchase_qty, d - 1) for d in days)
+        grand_incoming_report += sum(_purchase_for_day(purchase_qty, d - 1) for d in days)
         current_qty = closing_qty
 
         # Daily outflow (sales/consumption) from stock deltas:
@@ -1583,11 +1579,6 @@ def _build_inventory_pdf(
 
     page_width = A4[0] - doc.leftMargin - doc.rightMargin
 
-    def _purchase_for_day(qty_list, purchase_list, idx):
-        if idx < len(purchase_list) and _safe_float(purchase_list[idx]) > 0:
-            return _safe_float(purchase_list[idx])
-        return 0.0
-
     def _format_qty(val):
         return f"{val:,.0f}" if abs(val - int(val)) < 1e-9 else f"{val:,.2f}"
 
@@ -1612,7 +1603,7 @@ def _build_inventory_pdf(
         for d in days:
             idx = d - 1
             qv = _safe_float(qty[idx] if idx < len(qty) else 0)
-            pv = _purchase_for_day(qty, purchases, idx)
+            pv = _purchase_for_day(purchases, idx)
             incoming_total += pv
             cell = _format_qty(qv)
             if pv > 0:
@@ -1623,8 +1614,7 @@ def _build_inventory_pdf(
         opening_qty = _safe_float(qty[opening_idx] if opening_idx < len(qty) else 0)
         current_idx = min(max(end_day - 1, 0), len(qty) - 1) if qty else -1
         closing_base_qty = _safe_float(qty[current_idx] if current_idx >= 0 else 0)
-        closing_purchase = _purchase_for_day(qty, purchases, current_idx) if current_idx >= 0 else 0.0
-        closing_qty = _safe_float(closing_base_qty + closing_purchase)
+        closing_qty = closing_base_qty
 
         data.append([
             r["name"][:28],
@@ -1778,6 +1768,35 @@ def _inventory_pdf_filename(month: str, fy: str, rows: List[InventoryProductRow]
     raw = f"Inventory_{month_label}_Days_{start_day}-{end_day}_{fy}.pdf"
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("_")
 
+def _send_mail_with_pdf(
+    smtp_host: str,
+    smtp_port: int,
+    sender: str,
+    sender_password: str,
+    recipients: List[str],
+    msg: EmailMessage
+):
+    host = (smtp_host or "").strip()
+    if not host:
+        raise HTTPException(status_code=400, detail="SMTP host is required")
+    if smtp_port <= 0:
+        raise HTTPException(status_code=400, detail=f"SMTP port is invalid: {smtp_port}")
+    if not recipients:
+        raise HTTPException(status_code=400, detail="At least one recipient email is required")
+
+    if smtp_port == 465:
+        with smtplib.SMTP_SSL(host, smtp_port, timeout=25) as smtp:
+            smtp.login(sender, sender_password)
+            smtp.send_message(msg, from_addr=sender, to_addrs=recipients)
+        return
+
+    with smtplib.SMTP(host, smtp_port, timeout=25) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(sender, sender_password)
+        smtp.send_message(msg, from_addr=sender, to_addrs=recipients)
+
 @app.post("/report/inventory/email-pdf")
 def send_inventory_pdf_mail(req: InventoryPdfMailRequest, authorization: Optional[str] = Header(None)):
     require_authenticated(authorization)
@@ -1844,11 +1863,14 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest, authorization: Optiona
         msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
 
         recipients = [x.strip() for x in (to_addr + ("," + cc_clean if cc_clean else "")).split(",") if x.strip()]
-        with smtplib.SMTP(req.smtp_host.strip(), int(req.smtp_port), timeout=25) as smtp:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.login(sender, req.sender_password)
-            smtp.send_message(msg, from_addr=sender, to_addrs=recipients)
+        _send_mail_with_pdf(
+            req.smtp_host,
+            int(req.smtp_port),
+            sender,
+            req.sender_password,
+            recipients,
+            msg
+        )
 
         return {
             "status": "Sent",
@@ -1869,6 +1891,11 @@ def send_inventory_pdf_mail(req: InventoryPdfMailRequest, authorization: Optiona
         )
     except smtplib.SMTPException as e:
         raise HTTPException(status_code=400, detail=f"SMTP error: {str(e)}")
+    except OSError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"SMTP connection failed for {req.smtp_host}:{req.smtp_port}: {str(e)}"
+        )
     except Exception as e:
         log_exception("send_inventory_pdf_mail", e)
         raise HTTPException(status_code=500, detail=f"Failed to send inventory report mail: {str(e)}")
@@ -2087,17 +2114,12 @@ def get_ledger(party: str, start: str = None, end: str = None):
             
         party_id = row[0]
 
-        selected_fy, fy_start, fy_end = get_financial_year_bounds(cursor)
+        selected_fy = get_selected_financial_year(cursor)
 
-        # Bound ledger to selected financial year. If start is omitted, start at FY start.
-        start_date = parse_date_str(start) if start else fy_start
-        end_date = parse_date_str(end) if end else fy_end
+        start_date = parse_date_str(start) if start else None
+        end_date = parse_date_str(end) if end else None
 
-        if start_date < fy_start:
-            start_date = fy_start
-        if end_date > fy_end:
-            end_date = fy_end
-        if start_date > end_date:
+        if start_date and end_date and start_date > end_date:
             conn.close()
             return {
                 "data": [],
@@ -2109,29 +2131,34 @@ def get_ledger(party: str, start: str = None, end: str = None):
 
         # Opening balance is cumulative before start date (supports April 1 opening = March 31 closing).
         # Include common legacy spelling variant "Reciept" and case/space variations.
-        opening_query = """
-            SELECT SUM(
-                CASE
-                    WHEN UPPER(LTRIM(RTRIM(txn_type))) = 'SALE' THEN amount
-                    WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN -amount
-                    ELSE 0
-                END
-            )
-            FROM transactions
-            WHERE party_id=? AND txn_date < ?
-        """
-        cursor.execute(opening_query, (party_id, start_date.isoformat()))
-        opening_result = cursor.fetchone()
-        opening_balance = float(opening_result[0] or 0) if opening_result else 0
+        opening_balance = 0.0
+        if start_date:
+            opening_query = """
+                SELECT SUM(
+                    CASE
+                        WHEN UPPER(LTRIM(RTRIM(txn_type))) = 'SALE' THEN amount
+                        WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('RECEIPT', 'RECIEPT', 'SALE RETURN') THEN -amount
+                        ELSE 0
+                    END
+                )
+                FROM transactions
+                WHERE party_id=? AND txn_date < ?
+            """
+            cursor.execute(opening_query, (party_id, start_date.isoformat()))
+            opening_result = cursor.fetchone()
+            opening_balance = float(opening_result[0] or 0) if opening_result else 0
         balance = opening_balance
 
         # Get filtered transactions for display
         query = "SELECT txn_id, txn_date, bill_no, txn_type, payment_mode, amount FROM transactions WHERE party_id=?"
         params = [party_id]
 
-        query += " AND txn_date >= ? AND txn_date <= ?"
-        params.append(start_date.isoformat())
-        params.append(end_date.isoformat())
+        if start_date:
+            query += " AND txn_date >= ?"
+            params.append(start_date.isoformat())
+        if end_date:
+            query += " AND txn_date <= ?"
+            params.append(end_date.isoformat())
 
         query += " ORDER BY txn_date, txn_id"
         cursor.execute(query, params)
@@ -2168,8 +2195,8 @@ def get_ledger(party: str, start: str = None, end: str = None):
         return {
             "data": ledger,
             "opening_balance": float(opening_balance),
-            "period_start": start_date.isoformat(),
-            "period_end": end_date.isoformat(),
+            "period_start": start_date.isoformat() if start_date else None,
+            "period_end": end_date.isoformat() if end_date else None,
             "financial_year": selected_fy
         }
     except Exception as e:

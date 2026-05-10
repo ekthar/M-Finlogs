@@ -956,7 +956,7 @@ function updateGlobalReportContext(viewId) {
     if (viewId === 'ledgerView') {
         const s = document.getElementById('ledgerStart')?.value;
         const e = document.getElementById('ledgerEnd')?.value;
-        range = s || e ? `${s || '-'} to ${e || '-'}` : 'Selected FY';
+        range = s || e ? `${s || '-'} to ${e || '-'}` : 'All years';
     } else if (viewId === 'purchaseReportView') {
         const s = document.getElementById('purchaseFrom')?.value;
         const e = document.getElementById('purchaseTo')?.value;
@@ -1026,7 +1026,7 @@ async function loadLedgerReport() {
         const openingLabel = openingBalance < 0
             ? `${formatMoney(Math.abs(openingBalance))} Cr`
             : `${formatMoney(openingBalance)} Dr`;
-        const startLabel = payload && payload.period_start ? formatDateShort(payload.period_start) : 'selected period';
+        const startLabel = payload && payload.period_start ? formatDateShort(payload.period_start) : 'all years';
         openingChip.textContent = `Opening (${startLabel}): ${openingLabel}`;
         openingChip.classList.remove('positive', 'negative');
         openingChip.classList.add(openingBalance < 0 ? 'negative' : 'positive');
