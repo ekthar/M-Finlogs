@@ -16,7 +16,7 @@
     "dist": "npm run package:desktop",
     "dist:with-backend": "npm run preflight:build && npm run close:packaging && npm run clean:packaging && npm run build:backend && npm run dist",
     "dist:server-app": "npm run dist:with-backend",
-    "dist:client": "npm run preflight:build && npm run package:desktop",
+    "dist:client": "npm run preflight:build && npm run build:backend && npm run package:desktop",
     "dist:all": "npm run dist:production",
     "dist:production": "npm run build:server && npm run package:server && npm run dist:client"
   },
