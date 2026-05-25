@@ -15,6 +15,7 @@ enum class UserRole {
 enum class TransactionType {
     Sale,
     SaleReturn,
+    Purchase,
     Expense,
     Receipt
 };
@@ -110,4 +111,3 @@ struct BackupResult final {
 };
 
 } // namespace mfinlogs::domain
-

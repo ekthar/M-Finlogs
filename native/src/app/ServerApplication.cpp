@@ -1,10 +1,12 @@
 #include "app/ServerApplication.h"
 
 #include <QCoreApplication>
+#include <QDate>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QHostAddress>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QProcess>
@@ -29,6 +31,55 @@ void writeServerPid() {
     }
 }
 
+QByteArray jsonBytes(const QJsonObject& payload) {
+    return QJsonDocument(payload).toJson(QJsonDocument::Compact);
+}
+
+QByteArray jsonBytes(const QJsonArray& payload) {
+    return QJsonDocument(payload).toJson(QJsonDocument::Compact);
+}
+
+QByteArray errorBytes(const std::exception& err) {
+    QJsonObject payload;
+    payload.insert(QStringLiteral("detail"), QString::fromUtf8(err.what()));
+    return jsonBytes(payload);
+}
+
+QString transactionTypeName(mfinlogs::domain::TransactionType type) {
+    switch (type) {
+    case mfinlogs::domain::TransactionType::Sale:
+        return QStringLiteral("Sale");
+    case mfinlogs::domain::TransactionType::SaleReturn:
+        return QStringLiteral("Sale Return");
+    case mfinlogs::domain::TransactionType::Purchase:
+        return QStringLiteral("Purchase");
+    case mfinlogs::domain::TransactionType::Expense:
+        return QStringLiteral("Expense");
+    case mfinlogs::domain::TransactionType::Receipt:
+        return QStringLiteral("Receipt");
+    }
+    return QStringLiteral("Unknown");
+}
+
+QString paymentModeName(mfinlogs::domain::PaymentMode mode) {
+    switch (mode) {
+    case mfinlogs::domain::PaymentMode::Credit:
+        return QStringLiteral("Credit");
+    case mfinlogs::domain::PaymentMode::Cash:
+        return QStringLiteral("Cash");
+    case mfinlogs::domain::PaymentMode::Upi:
+        return QStringLiteral("UPI");
+    case mfinlogs::domain::PaymentMode::Bank:
+        return QStringLiteral("Bank");
+    }
+    return QStringLiteral("Unknown");
+}
+
+mfinlogs::domain::ReportRange recentReportRange() {
+    const QDate end = QDate::currentDate();
+    return mfinlogs::domain::ReportRange{end.addDays(-30), end, 30};
+}
+
 } // namespace
 
 namespace mfinlogs::app {
@@ -47,16 +98,129 @@ void ServerApplication::registerRoutes() {
         QJsonObject payload;
         payload.insert(QStringLiteral("status"), QStringLiteral("ok"));
         payload.insert(QStringLiteral("runtime"), QStringLiteral("native"));
-        return QJsonDocument(payload).toJson(QJsonDocument::Compact);
+        return jsonBytes(payload);
     });
 
     server_.route("/companies", [this]() {
         try {
-            return QJsonDocument(context_.services().companies->listCompanies()).toJson(QJsonDocument::Compact);
+            return jsonBytes(context_.services().companies->listCompanies());
         } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/setup/status", [this]() {
+        try {
             QJsonObject payload;
-            payload.insert(QStringLiteral("detail"), QString::fromUtf8(err.what()));
-            return QJsonDocument(payload).toJson(QJsonDocument::Compact);
+            const bool needsSetup = context_.services().auth->setupRequired();
+            payload.insert(QStringLiteral("needs_setup"), needsSetup);
+            payload.insert(QStringLiteral("reason"), needsSetup ? QStringLiteral("Admin password not configured") : QStringLiteral("Setup already completed"));
+            return jsonBytes(payload);
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/financial-years", [this]() {
+        try {
+            QJsonObject payload;
+            payload.insert(QStringLiteral("years"), context_.services().financialYears->listFinancialYears());
+            payload.insert(QStringLiteral("selected"), context_.services().financialYears->selectedFinancialYear());
+            return jsonBytes(payload);
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/parties", [this]() {
+        try {
+            return jsonBytes(context_.services().parties->listParties());
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/transactions", [this]() {
+        try {
+            const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 50, 30);
+            QJsonArray transactions;
+            for (const domain::TransactionRow& row : rows) {
+                QJsonObject item;
+                item.insert(QStringLiteral("id"), row.id);
+                item.insert(QStringLiteral("date"), row.date.toString(Qt::ISODate));
+                item.insert(QStringLiteral("bill_no"), row.billNo);
+                item.insert(QStringLiteral("party"), row.party);
+                item.insert(QStringLiteral("type"), transactionTypeName(row.type));
+                item.insert(QStringLiteral("mode"), paymentModeName(row.mode));
+                item.insert(QStringLiteral("amount"), row.amount);
+                transactions.append(item);
+            }
+
+            QJsonObject payload;
+            payload.insert(QStringLiteral("transactions"), transactions);
+            payload.insert(QStringLiteral("page"), 1);
+            payload.insert(QStringLiteral("limit"), 50);
+            payload.insert(QStringLiteral("total"), transactions.size());
+            payload.insert(QStringLiteral("total_pages"), 1);
+            return jsonBytes(payload);
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/dashboard", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->dashboardMetrics());
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/daily-summary", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->dailySummary(recentReportRange()));
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/short-excess", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->shortExcess(recentReportRange()));
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/outstanding", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->outstanding());
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/trial-balance", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->trialBalance());
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/report/pnl", [this]() {
+        try {
+            return jsonBytes(context_.services().reports->profitAndLoss());
+        } catch (const std::exception& err) {
+            return errorBytes(err);
+        }
+    });
+
+    server_.route("/audit", [this]() {
+        try {
+            return jsonBytes(context_.services().audit->listAuditLogs(QStringLiteral("native")));
+        } catch (const std::exception& err) {
+            return errorBytes(err);
         }
     });
 }

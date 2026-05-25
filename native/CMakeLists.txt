@@ -36,6 +36,8 @@ set(MFINLOGS_NATIVE_SOURCES
     src/data/ConfigService.cpp
     src/data/SchemaInitializer.h
     src/data/SchemaInitializer.cpp
+    src/data/SqlBusinessServices.h
+    src/data/SqlBusinessServices.cpp
     src/data/SqlDatabase.h
     src/data/SqlDatabase.cpp
     src/domain/DomainErrors.h
