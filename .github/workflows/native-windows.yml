@@ -38,7 +38,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2019_64
-          modules: "qtcharts qthttpserver"
+          modules: "qtcharts qthttpserver qtwebsockets"
           cache: false
 
       - name: Setup MSVC
