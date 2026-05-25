@@ -3,6 +3,11 @@
 #include "app/AppContext.h"
 
 #include <QMainWindow>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QTableWidget>
+
+class QGridLayout;
 
 namespace mfinlogs::app {
 
@@ -11,8 +16,22 @@ public:
     explicit DesktopApplication(AppContext& context);
 
 private:
+    QWidget* buildDashboardPage();
+    QWidget* buildTransactionsPage();
+    QWidget* buildPartiesPage();
+    QWidget* buildReportPage(const QString& title, const QString& description);
+    QWidget* buildAuditPage();
+    QWidget* buildSettingsPage();
+    QWidget* buildComingSoonPage(const QString& title, const QString& description);
     void buildNavigation();
-    void buildPlaceholderWorkspace();
+    void loadAuditLogs(QTableWidget& table);
+    void loadDashboard(QGridLayout& metricGrid);
+    void loadParties(QTableWidget& table);
+    void loadReportTable(QTableWidget& table, const QString& reportName);
+    void loadTransactions(QTableWidget& table);
+    void setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows);
+    void showError(const QString& title, const std::exception& err);
+    void applyTheme();
     void wireActions();
 
     AppContext& context_;
