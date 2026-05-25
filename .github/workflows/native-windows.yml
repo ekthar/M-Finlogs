@@ -24,7 +24,7 @@ jobs:
         shell: pwsh
 
     env:
-      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      MFINLOGS_VCPKG_ROOT: ${{ github.workspace }}\external\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
 
     steps:
@@ -51,8 +51,8 @@ jobs:
 
       - name: Setup vcpkg
         run: |
-          git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          git clone https://github.com/microsoft/vcpkg.git $env:MFINLOGS_VCPKG_ROOT
+          & "$env:MFINLOGS_VCPKG_ROOT\bootstrap-vcpkg.bat"
 
       - name: Configure
         run: |
@@ -61,7 +61,7 @@ jobs:
             -B native\build `
             -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:MFINLOGS_VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET="$env:VCPKG_DEFAULT_TRIPLET"
 
       - name: Build
