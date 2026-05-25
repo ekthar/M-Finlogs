@@ -471,7 +471,7 @@ public:
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
         QStringList merged;
-        const QString selected = selectedFinancialYear(database.handle());
+        const QString selected = SqlServiceBase::selectedFinancialYear(database.handle());
         merged.append(selected);
         merged.append(financialYearForDate(QDate::currentDate()));
 

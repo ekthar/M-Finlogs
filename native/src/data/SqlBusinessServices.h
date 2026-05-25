@@ -1,6 +1,6 @@
 #pragma once
 
-#include "domain/ServiceInterfaces.h"
+#include "domain/ServiceRegistry.h"
 
 #include <memory>
 
