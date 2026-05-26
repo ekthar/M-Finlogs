@@ -1,7 +1,5 @@
 {
   "name": "mfinlogs-native",
   "version": "0.1.0",
-  "dependencies": [
-    "curl"
-  ]
+  "dependencies": []
 }

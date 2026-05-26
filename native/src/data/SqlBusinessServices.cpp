@@ -4,8 +4,6 @@
 #include "data/SqlDatabase.h"
 #include "domain/DomainErrors.h"
 
-#include <curl/curl.h>
-
 #include <QCryptographicHash>
 #include <QBuffer>
 #include <QDate>
@@ -1349,81 +1347,8 @@ public:
     }
 
     void sendPdfMail(const domain::InventoryPdfMailRequest& request) override {
-        if (request.toEmail.trimmed().isEmpty()) {
-            throw domain::DomainError("Inventory mail recipient is required");
-        }
-        if (request.senderEmail.trimmed().isEmpty()) {
-            throw domain::DomainError("Inventory mail sender email is required");
-        }
-        if (request.smtpHost.trimmed().isEmpty()) {
-            throw domain::DomainError("Inventory mail SMTP host is required");
-        }
-
-        const QByteArray pdf = buildPdfPreview(request);
-        curl_global_init(CURL_GLOBAL_DEFAULT);
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            curl_global_cleanup();
-            throw domain::DomainError("Could not initialize SMTP client");
-        }
-
-        curl_slist* recipients = nullptr;
-        curl_mime* mime = nullptr;
-        try {
-            const QString smtpUrl = QStringLiteral("smtp://%1:%2").arg(request.smtpHost.trimmed()).arg(request.smtpPort);
-            curl_easy_setopt(curl, CURLOPT_URL, smtpUrl.toUtf8().constData());
-            curl_easy_setopt(curl, CURLOPT_USERNAME, request.senderEmail.trimmed().toUtf8().constData());
-            curl_easy_setopt(curl, CURLOPT_PASSWORD, request.senderPassword.toUtf8().constData());
-            curl_easy_setopt(curl, CURLOPT_MAIL_FROM, request.senderEmail.trimmed().toUtf8().constData());
-            curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
-
-            const QStringList toRecipients = request.toEmail.split(QStringLiteral(","), Qt::SkipEmptyParts);
-            for (const QString& recipient : toRecipients) {
-                recipients = curl_slist_append(recipients, recipient.trimmed().toUtf8().constData());
-            }
-            const QStringList ccRecipients = request.ccEmail.split(QStringLiteral(","), Qt::SkipEmptyParts);
-            for (const QString& recipient : ccRecipients) {
-                recipients = curl_slist_append(recipients, recipient.trimmed().toUtf8().constData());
-            }
-            curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
-
-            mime = curl_mime_init(curl);
-            curl_mimepart* bodyPart = curl_mime_addpart(mime);
-            const QString body = request.notes.trimmed().isEmpty()
-                ? QStringLiteral("Please find attached the M-Finlogs inventory report.")
-                : request.notes.trimmed();
-            curl_mime_data(bodyPart, body.toUtf8().constData(), CURL_ZERO_TERMINATED);
-            curl_mime_type(bodyPart, "text/plain");
-
-            curl_mimepart* attachment = curl_mime_addpart(mime);
-            curl_mime_data(attachment, pdf.constData(), static_cast<size_t>(pdf.size()));
-            curl_mime_filename(attachment, "inventory-report.pdf");
-            curl_mime_type(attachment, "application/pdf");
-            curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
-
-            const CURLcode code = curl_easy_perform(curl);
-            if (code != CURLE_OK) {
-                throw domain::DomainError(QStringLiteral("Inventory SMTP send failed: %1").arg(QString::fromUtf8(curl_easy_strerror(code))).toStdString());
-            }
-        } catch (...) {
-            if (mime) {
-                curl_mime_free(mime);
-            }
-            if (recipients) {
-                curl_slist_free_all(recipients);
-            }
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
-            throw;
-        }
-        if (mime) {
-            curl_mime_free(mime);
-        }
-        if (recipients) {
-            curl_slist_free_all(recipients);
-        }
-        curl_easy_cleanup(curl);
-        curl_global_cleanup();
+        Q_UNUSED(request);
+        throw domain::DomainError("Inventory email sending is disabled in the no-libcurl native package. Use Preview PDF and send the saved PDF from your mail client.");
     }
 
 private:

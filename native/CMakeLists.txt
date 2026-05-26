@@ -19,10 +19,6 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     HttpServer
 )
 
-find_package(CURL REQUIRED)
-
-# Runtime DLLs are collected by the Windows Actions packaging step.
-
 qt_standard_project_setup()
 
 set(MFINLOGS_NATIVE_SOURCES
@@ -65,7 +61,6 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::Charts
     Qt6::PrintSupport
     Qt6::HttpServer
-    CURL::libcurl
 )
 
 if(WIN32)
