@@ -1,0 +1,77 @@
+name: Native Windows Build Fresh
+
+on:
+  push:
+    branches:
+      - C
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build Qt native app
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      MFINLOGS_VCPKG_ROOT: ${{ github.workspace }}\external\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          modules: "qtcharts qthttpserver qtwebsockets"
+          cache: false
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git $env:MFINLOGS_VCPKG_ROOT
+          & "$env:MFINLOGS_VCPKG_ROOT\bootstrap-vcpkg.bat"
+
+      - name: Configure
+        run: |
+          cmake `
+            -S native `
+            -B native\build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:MFINLOGS_VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET="$env:VCPKG_DEFAULT_TRIPLET"
+
+      - name: Build
+        run: cmake --build native\build --config Release --target mfinlogs-native
+
+      - name: Package native executable
+        run: |
+          $packageDir = "native\build\package"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          New-Item -ItemType Directory -Force -Path "$packageDir\fonts" | Out-Null
+          Copy-Item -LiteralPath "native\build\Release\mfinlogs-native.exe" -Destination $packageDir -Force
+          Copy-Item -LiteralPath "db_config.json" -Destination $packageDir -Force
+          Copy-Item -Path "fonts\SpaceMono-*.ttf" -Destination "$packageDir\fonts" -Force
+          windeployqt --release --compiler-runtime "$packageDir\mfinlogs-native.exe"
+          $vcpkgBin = "$env:MFINLOGS_VCPKG_ROOT\installed\$env:VCPKG_DEFAULT_TRIPLET\bin"
+          if (Test-Path -LiteralPath $vcpkgBin) {
+            Copy-Item -Path "$vcpkgBin\*.dll" -Destination $packageDir -Force
+          }
+
+      - name: Upload native executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfinlogs-native-windows
+          path: native\build\package\**
