@@ -327,6 +327,48 @@ QString moneyText(double value) {
     return QStringLiteral("%1").arg(value, 0, 'f', 2);
 }
 
+QString humanizeHeaderKey(const QString& key) {
+    if (key == QStringLiteral("id")) {
+        return QStringLiteral("ID");
+    }
+    if (key == QStringLiteral("bill_no")) {
+        return QStringLiteral("Bill No");
+    }
+    if (key == QStringLiteral("min_stock")) {
+        return QStringLiteral("Min Stock");
+    }
+    if (key == QStringLiteral("stock_value")) {
+        return QStringLiteral("Stock Value");
+    }
+    if (key == QStringLiteral("sale_returns")) {
+        return QStringLiteral("Sale Returns");
+    }
+    QStringList parts = key.split(QLatin1Char('_'), Qt::SkipEmptyParts);
+    for (QString& part : parts) {
+        if (!part.isEmpty()) {
+            part[0] = part[0].toUpper();
+        }
+    }
+    return parts.join(QStringLiteral(" "));
+}
+
+QStringList humanizeHeaderKeys(const QStringList& headers) {
+    QStringList labels;
+    labels.reserve(headers.size());
+    for (const QString& key : headers) {
+        labels.append(humanizeHeaderKey(key));
+    }
+    return labels;
+}
+
+void ensureTableHeaders(QTableWidget& table, const QStringList& headers) {
+    table.clear();
+    table.clearSpans();
+    table.setRowCount(0);
+    table.setColumnCount(headers.size());
+    table.setHorizontalHeaderLabels(humanizeHeaderKeys(headers));
+}
+
 QString transactionTypeText(mfinlogs::domain::TransactionType type) {
     switch (type) {
     case mfinlogs::domain::TransactionType::Sale:
@@ -1152,8 +1194,10 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     QTableWidget* table = createDataTable(page);
     const domain::ReportRange initialRange{start->date(), end->date(), rangeDays(start->date(), end->date())};
     loadReportTable(*table, title, search->text().trimmed(), initialRange);
-    connect(search, &QLineEdit::textChanged, this, [this, table, title](const QString& query) {
+    connect(search, &QLineEdit::textChanged, this, [this, table, title, search, start, end](const QString& query) {
         if (title == QStringLiteral("Party Ledger")) {
+            const domain::ReportRange range{start->date(), end->date(), rangeDays(start->date(), end->date())};
+            loadReportTable(*table, title, query.trimmed(), range);
             return;
         }
         applyTableSearch(*table, query);
@@ -1572,56 +1616,61 @@ void DesktopApplication::loadDashboard(QGridLayout& metricGrid) {
 }
 
 void DesktopApplication::loadTransactions(QTableWidget& table) {
+    const QStringList headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
+    ensureTableHeaders(table, headers);
     try {
         const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 100, 365);
         QJsonArray data;
         for (const domain::TransactionRow& row : rows) {
             data.append(transactionToJson(row));
         }
-        setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, data);
+        setTableRows(table, headers, data);
     } catch (const std::exception& err) {
         showError(QStringLiteral("Transactions"), err);
     }
 }
 
 void DesktopApplication::loadParties(QTableWidget& table) {
+    const QStringList headers = {QStringLiteral("name"), QStringLiteral("type")};
+    ensureTableHeaders(table, headers);
     try {
-        setTableRows(table, {QStringLiteral("name"), QStringLiteral("type")}, context_.services().parties->listParties());
+        setTableRows(table, headers, context_.services().parties->listParties());
     } catch (const std::exception& err) {
         showError(QStringLiteral("Parties"), err);
     }
 }
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
-    try {
-        const int visibleDays = daysInInventoryMonth(month);
-        QStringList headers = {QStringLiteral("row_id"), QStringLiteral("Product"), QStringLiteral("Cost"), QStringLiteral("Min Stock")};
-        for (int day = 1; day <= 31; day += 1) {
-            headers.append(QStringLiteral("%1 Qty").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
-        }
-        for (int day = 1; day <= 31; day += 1) {
-            headers.append(QStringLiteral("%1 In").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
-        }
+    const int visibleDays = daysInInventoryMonth(month);
+    QStringList headers = {QStringLiteral("row_id"), QStringLiteral("Product"), QStringLiteral("Cost"), QStringLiteral("Min Stock")};
+    for (int day = 1; day <= 31; day += 1) {
+        headers.append(QStringLiteral("%1 Qty").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+    }
+    for (int day = 1; day <= 31; day += 1) {
+        headers.append(QStringLiteral("%1 In").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+    }
 
+    table.clearSpans();
+    table.clear();
+    table.setColumnCount(headers.size());
+    table.setRowCount(0);
+    table.setHorizontalHeaderLabels(headers);
+    table.setColumnHidden(0, true);
+
+    table.setColumnWidth(1, 230);
+    table.setColumnWidth(2, 95);
+    table.setColumnWidth(3, 100);
+    for (int day = 1; day <= 31; day += 1) {
+        const bool visible = day <= visibleDays;
+        table.setColumnHidden(3 + day, !visible);
+        table.setColumnHidden(34 + day, !visible);
+        table.setColumnWidth(3 + day, 78);
+        table.setColumnWidth(34 + day, 72);
+    }
+    try {
         const QJsonArray rows = context_.services().inventory->loadSnapshot(financialYear, month);
         const int rowCount = rows.isEmpty() ? 1 : rows.size();
-        table.clearSpans();
-        table.clear();
-        table.setColumnCount(headers.size());
         table.setRowCount(rowCount);
-        table.setHorizontalHeaderLabels(headers);
-        table.setColumnHidden(0, true);
-
-        table.setColumnWidth(1, 230);
-        table.setColumnWidth(2, 95);
-        table.setColumnWidth(3, 100);
-        for (int day = 1; day <= 31; day += 1) {
-            const bool visible = day <= visibleDays;
-            table.setColumnHidden(3 + day, !visible);
-            table.setColumnHidden(34 + day, !visible);
-            table.setColumnWidth(3 + day, 78);
-            table.setColumnWidth(34 + day, 72);
-        }
 
         if (rows.isEmpty()) {
             QTableWidgetItem* empty = createTableItem(QStringLiteral("No inventory rows yet. Type a product name above and press Enter."), Qt::ItemIsEnabled | Qt::ItemIsSelectable);
@@ -1629,7 +1678,7 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
             for (int columnIndex = 2; columnIndex < headers.size(); columnIndex += 1) {
                 table.setItem(0, columnIndex, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
             }
-            table.setSpan(0, 1, 1, 6);
+            table.setSpan(0, 1, 1, headers.size() - 1);
             return;
         }
 
@@ -1654,22 +1703,47 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
 }
 
 void DesktopApplication::loadInventoryValue(QTableWidget& table, const QString& financialYear, int month) {
+    const QStringList headers = {QStringLiteral("day"), QStringLiteral("quantity"), QStringLiteral("stock_value")};
+    ensureTableHeaders(table, headers);
     try {
-        setTableRows(table, {QStringLiteral("day"), QStringLiteral("quantity"), QStringLiteral("stock_value")}, context_.services().inventory->stockValue(financialYear, month));
+        setTableRows(table, headers, context_.services().inventory->stockValue(financialYear, month));
     } catch (const std::exception& err) {
         showError(QStringLiteral("Stock Value"), err);
     }
 }
 
 void DesktopApplication::loadAuditLogs(QTableWidget& table) {
+    const QStringList headers = {QStringLiteral("timestamp"), QStringLiteral("username"), QStringLiteral("action"), QStringLiteral("details")};
+    ensureTableHeaders(table, headers);
     try {
-        setTableRows(table, {QStringLiteral("timestamp"), QStringLiteral("username"), QStringLiteral("action"), QStringLiteral("details")}, context_.services().audit->listAuditLogs(QStringLiteral("native")));
+        setTableRows(table, headers, context_.services().audit->listAuditLogs(QStringLiteral("native")));
     } catch (const std::exception& err) {
         showError(QStringLiteral("Audit Logs"), err);
     }
 }
 
 void DesktopApplication::loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range) {
+    QStringList headers;
+    if (reportName == QStringLiteral("Party Ledger")) {
+        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")};
+    } else if (reportName == QStringLiteral("Day Book")) {
+        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
+    } else if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
+        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
+    } else if (reportName == QStringLiteral("Outstanding")) {
+        headers = {QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("balance")};
+    } else if (reportName == QStringLiteral("Trial Balance")) {
+        headers = {QStringLiteral("account"), QStringLiteral("debit"), QStringLiteral("credit"), QStringLiteral("balance")};
+    } else if (reportName == QStringLiteral("Profit & Loss")) {
+        headers = {QStringLiteral("metric"), QStringLiteral("amount")};
+    } else if (reportName == QStringLiteral("Daily Summary")) {
+        headers = {QStringLiteral("date"), QStringLiteral("sales"), QStringLiteral("sale_returns"), QStringLiteral("receipts"), QStringLiteral("expenses"), QStringLiteral("net_sales")};
+    } else if (reportName == QStringLiteral("Short / Excess")) {
+        headers = {QStringLiteral("date"), QStringLiteral("cash_in_hand")};
+    }
+    if (!headers.isEmpty()) {
+        ensureTableHeaders(table, headers);
+    }
     try {
         if (range.start > range.end) {
             throw std::invalid_argument("Report start date must be before end date");
@@ -1685,15 +1759,15 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
                 placeholder.insert(QStringLiteral("amount"), 0.0);
                 placeholder.insert(QStringLiteral("balance"), 0.0);
                 rows.append(placeholder);
-                setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, rows);
+                setTableRows(table, headers, rows);
                 return;
             }
             const QJsonObject report = context_.services().reports->ledger(partyName, range);
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, report.value(QStringLiteral("data")).toArray());
+            setTableRows(table, headers, report.value(QStringLiteral("data")).toArray());
             return;
         }
         if (reportName == QStringLiteral("Day Book")) {
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, context_.services().reports->dayBook(range.end));
+            setTableRows(table, headers, context_.services().reports->dayBook(range.end));
             return;
         }
         if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
@@ -1710,16 +1784,16 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
                 }
                 data.append(transactionToJson(row));
             }
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, data);
+            setTableRows(table, headers, data);
             return;
         }
         if (reportName == QStringLiteral("Outstanding")) {
             const QJsonObject report = context_.services().reports->outstanding();
-            setTableRows(table, {QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("balance")}, report.value(QStringLiteral("data")).toArray());
+            setTableRows(table, headers, report.value(QStringLiteral("data")).toArray());
             return;
         }
         if (reportName == QStringLiteral("Trial Balance")) {
-            setTableRows(table, {QStringLiteral("account"), QStringLiteral("debit"), QStringLiteral("credit"), QStringLiteral("balance")}, context_.services().reports->trialBalance());
+            setTableRows(table, headers, context_.services().reports->trialBalance());
             return;
         }
         if (reportName == QStringLiteral("Profit & Loss")) {
@@ -1737,16 +1811,16 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
             netProfit.insert(QStringLiteral("metric"), QStringLiteral("Net Profit"));
             netProfit.insert(QStringLiteral("amount"), report.value(QStringLiteral("net_profit")).toDouble());
             rows.append(netProfit);
-            setTableRows(table, {QStringLiteral("metric"), QStringLiteral("amount")}, rows);
+            setTableRows(table, headers, rows);
             return;
         }
 
         if (reportName == QStringLiteral("Daily Summary")) {
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("sales"), QStringLiteral("sale_returns"), QStringLiteral("receipts"), QStringLiteral("expenses"), QStringLiteral("net_sales")}, context_.services().reports->dailySummary(range));
+            setTableRows(table, headers, context_.services().reports->dailySummary(range));
             return;
         }
         if (reportName == QStringLiteral("Short / Excess")) {
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("cash_in_hand")}, context_.services().reports->shortExcess(range));
+            setTableRows(table, headers, context_.services().reports->shortExcess(range));
         }
     } catch (const std::exception& err) {
         showError(reportName, err);
@@ -1803,9 +1877,11 @@ QJsonArray DesktopApplication::inventoryRowsFromTable(QTableWidget& table) {
 }
 
 void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows) {
+    const int previousColumns = table.property("columnCount").toInt();
+    const bool shouldAutoSize = previousColumns != headers.size() || !table.property("columnsSized").toBool();
     table.clear();
     table.setColumnCount(headers.size());
-    table.setHorizontalHeaderLabels(headers);
+    table.setHorizontalHeaderLabels(humanizeHeaderKeys(headers));
     table.clearSpans();
     table.horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table.horizontalHeader()->setStretchLastSection(true);
@@ -1845,8 +1921,12 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
             table.setItem(rowIndex, columnIndex, item);
         }
     }
-    table.resizeColumnsToContents();
-    table.horizontalHeader()->setStretchLastSection(true);
+    if (shouldAutoSize) {
+        table.resizeColumnsToContents();
+        table.horizontalHeader()->setStretchLastSection(true);
+        table.setProperty("columnsSized", true);
+    }
+    table.setProperty("columnCount", headers.size());
 }
 
 void DesktopApplication::showError(const QString& title, const std::exception& err) {
