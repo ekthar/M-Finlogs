@@ -16,6 +16,7 @@ public:
     explicit DesktopApplication(AppContext& context);
 
 private:
+    QWidget* buildWelcomePage(QStackedWidget& pages, QListWidget& nav);
     QWidget* buildDailyEntryPage();
     QWidget* buildDashboardPage();
     QWidget* buildPartiesPage();
@@ -24,8 +25,8 @@ private:
     QWidget* buildInventoryValuePage();
     QWidget* buildAuditPage();
     QWidget* buildSettingsPage();
-    QWidget* buildComingSoonPage(const QString& title, const QString& description);
     void buildNavigation();
+    bool showAuthDialog();
     void loadAuditLogs(QTableWidget& table);
     void loadDashboard(QGridLayout& metricGrid);
     void loadParties(QTableWidget& table);

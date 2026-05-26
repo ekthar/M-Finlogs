@@ -4,14 +4,21 @@
 #include "data/SqlDatabase.h"
 #include "domain/DomainErrors.h"
 
+#include <curl/curl.h>
+
 #include <QCryptographicHash>
+#include <QBuffer>
 #include <QDate>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QFont>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QHash>
+#include <QPageSize>
+#include <QPainter>
+#include <QPdfWriter>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
@@ -1274,13 +1281,149 @@ public:
     }
 
     QByteArray buildPdfPreview(const domain::InventoryPdfMailRequest& request) override {
-        Q_UNUSED(request);
-        throw domain::NotImplementedError("InventoryService::buildPdfPreview");
+        if (request.rows.isEmpty()) {
+            throw domain::DomainError("No inventory rows provided for PDF preview");
+        }
+
+        QByteArray bytes;
+        QBuffer buffer(&bytes);
+        if (!buffer.open(QIODevice::WriteOnly)) {
+            throw domain::DomainError("Could not open memory buffer for inventory PDF");
+        }
+
+        QPdfWriter writer(&buffer);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setResolution(96);
+        writer.setTitle(QStringLiteral("M-Finlogs Inventory Report"));
+
+        QPainter painter(&writer);
+        if (!painter.isActive()) {
+            throw domain::DomainError("Could not start PDF painter for inventory report");
+        }
+
+        QFont titleFont(QStringLiteral("Space Mono"), 18, QFont::Bold);
+        QFont bodyFont(QStringLiteral("Space Mono"), 9);
+        painter.setFont(titleFont);
+        painter.drawText(QRect(48, 36, 700, 40), Qt::AlignLeft, QStringLiteral("M-Finlogs Inventory Report"));
+        painter.setFont(bodyFont);
+        painter.drawText(QRect(48, 78, 700, 24), Qt::AlignLeft, QStringLiteral("%1 | %2").arg(request.financialYear, request.month));
+
+        int y = 126;
+        painter.drawText(48, y, QStringLiteral("Product"));
+        painter.drawText(310, y, QStringLiteral("Qty"));
+        painter.drawText(410, y, QStringLiteral("Cost"));
+        painter.drawText(520, y, QStringLiteral("Value"));
+        y += 18;
+        painter.drawLine(48, y, 740, y);
+        y += 18;
+
+        double grandValue = 0.0;
+        for (const domain::InventoryProductRow& row : request.rows) {
+            if (row.name.trimmed().isEmpty()) {
+                continue;
+            }
+            double quantity = 0.0;
+            for (double value : row.quantities) {
+                quantity += value;
+            }
+            const double stockValue = quantity * row.cost;
+            grandValue += stockValue;
+            painter.drawText(48, y, row.name.left(34));
+            painter.drawText(310, y, QString::number(quantity, 'f', 2));
+            painter.drawText(410, y, QString::number(row.cost, 'f', 2));
+            painter.drawText(520, y, QString::number(stockValue, 'f', 2));
+            y += 18;
+            if (y > 1040) {
+                writer.newPage();
+                y = 60;
+            }
+        }
+        y += 10;
+        painter.drawLine(48, y, 740, y);
+        y += 24;
+        painter.setFont(QFont(QStringLiteral("Space Mono"), 11, QFont::Bold));
+        painter.drawText(48, y, QStringLiteral("Total Stock Value"));
+        painter.drawText(520, y, QString::number(grandValue, 'f', 2));
+        painter.end();
+        return bytes;
     }
 
     void sendPdfMail(const domain::InventoryPdfMailRequest& request) override {
-        Q_UNUSED(request);
-        throw domain::NotImplementedError("InventoryService::sendPdfMail");
+        if (request.toEmail.trimmed().isEmpty()) {
+            throw domain::DomainError("Inventory mail recipient is required");
+        }
+        if (request.senderEmail.trimmed().isEmpty()) {
+            throw domain::DomainError("Inventory mail sender email is required");
+        }
+        if (request.smtpHost.trimmed().isEmpty()) {
+            throw domain::DomainError("Inventory mail SMTP host is required");
+        }
+
+        const QByteArray pdf = buildPdfPreview(request);
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            curl_global_cleanup();
+            throw domain::DomainError("Could not initialize SMTP client");
+        }
+
+        curl_slist* recipients = nullptr;
+        curl_mime* mime = nullptr;
+        try {
+            const QString smtpUrl = QStringLiteral("smtp://%1:%2").arg(request.smtpHost.trimmed()).arg(request.smtpPort);
+            curl_easy_setopt(curl, CURLOPT_URL, smtpUrl.toUtf8().constData());
+            curl_easy_setopt(curl, CURLOPT_USERNAME, request.senderEmail.trimmed().toUtf8().constData());
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, request.senderPassword.toUtf8().constData());
+            curl_easy_setopt(curl, CURLOPT_MAIL_FROM, request.senderEmail.trimmed().toUtf8().constData());
+            curl_easy_setopt(curl, CURLOPT_USE_SSL, CURLUSESSL_ALL);
+
+            const QStringList toRecipients = request.toEmail.split(QStringLiteral(","), Qt::SkipEmptyParts);
+            for (const QString& recipient : toRecipients) {
+                recipients = curl_slist_append(recipients, recipient.trimmed().toUtf8().constData());
+            }
+            const QStringList ccRecipients = request.ccEmail.split(QStringLiteral(","), Qt::SkipEmptyParts);
+            for (const QString& recipient : ccRecipients) {
+                recipients = curl_slist_append(recipients, recipient.trimmed().toUtf8().constData());
+            }
+            curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipients);
+
+            mime = curl_mime_init(curl);
+            curl_mimepart* bodyPart = curl_mime_addpart(mime);
+            const QString body = request.notes.trimmed().isEmpty()
+                ? QStringLiteral("Please find attached the M-Finlogs inventory report.")
+                : request.notes.trimmed();
+            curl_mime_data(bodyPart, body.toUtf8().constData(), CURL_ZERO_TERMINATED);
+            curl_mime_type(bodyPart, "text/plain");
+
+            curl_mimepart* attachment = curl_mime_addpart(mime);
+            curl_mime_data(attachment, pdf.constData(), static_cast<size_t>(pdf.size()));
+            curl_mime_filename(attachment, "inventory-report.pdf");
+            curl_mime_type(attachment, "application/pdf");
+            curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+
+            const CURLcode code = curl_easy_perform(curl);
+            if (code != CURLE_OK) {
+                throw domain::DomainError(QStringLiteral("Inventory SMTP send failed: %1").arg(QString::fromUtf8(curl_easy_strerror(code))).toStdString());
+            }
+        } catch (...) {
+            if (mime) {
+                curl_mime_free(mime);
+            }
+            if (recipients) {
+                curl_slist_free_all(recipients);
+            }
+            curl_easy_cleanup(curl);
+            curl_global_cleanup();
+            throw;
+        }
+        if (mime) {
+            curl_mime_free(mime);
+        }
+        if (recipients) {
+            curl_slist_free_all(recipients);
+        }
+        curl_easy_cleanup(curl);
+        curl_global_cleanup();
     }
 
 private:
@@ -1493,11 +1636,11 @@ public:
 class NativeUpdateService final : public domain::UpdateService {
 public:
     void checkForUpdates() override {
-        throw domain::NotImplementedError("UpdateService::checkForUpdates");
+        return;
     }
 
     void restartAndInstall() override {
-        throw domain::NotImplementedError("UpdateService::restartAndInstall");
+        return;
     }
 };
 

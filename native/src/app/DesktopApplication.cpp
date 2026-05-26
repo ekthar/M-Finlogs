@@ -9,8 +9,10 @@
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateEdit>
+#include <QDialog>
 #include <QDoubleSpinBox>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QComboBox>
 #include <QFormLayout>
@@ -18,6 +20,7 @@
 #include <QFontDatabase>
 #include <QFrame>
 #include <QGridLayout>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonArray>
@@ -29,7 +32,9 @@
 #include <QListWidgetItem>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QParallelAnimationGroup>
 #include <QPushButton>
+#include <QPropertyAnimation>
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -40,6 +45,7 @@
 #include <QToolBar>
 #include <QVariant>
 #include <QVBoxLayout>
+#include <QTimer>
 
 #include <exception>
 #include <algorithm>
@@ -184,6 +190,18 @@ QFrame* createMetricTile(const QString& label, const QString& value, QWidget* pa
     return tile;
 }
 
+void animatePanel(QWidget& widget, int delayMs) {
+    QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&widget);
+    effect->setOpacity(0.0);
+    widget.setGraphicsEffect(effect);
+    QPropertyAnimation* fade = new QPropertyAnimation(effect, "opacity", &widget);
+    fade->setDuration(420);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(QEasingCurve::OutCubic);
+    QTimer::singleShot(delayMs, fade, [fade]() { fade->start(QAbstractAnimation::DeleteWhenStopped); });
+}
+
 QString moneyText(double value) {
     return QStringLiteral("%1").arg(value, 0, 'f', 2);
 }
@@ -321,6 +339,9 @@ DesktopApplication::DesktopApplication(AppContext& context)
     applyTheme();
     buildNavigation();
     wireActions();
+    if (!showAuthDialog()) {
+        QTimer::singleShot(0, qApp, &QApplication::quit);
+    }
 }
 
 void DesktopApplication::applyTheme() {
@@ -339,6 +360,8 @@ void DesktopApplication::applyTheme() {
         "QListWidget#sidebar::item:disabled { color: #8a948c; font-size: 11px; font-weight: 700; padding-top: 12px; }"
         "QLabel#brand { color: #2d3a33; font-size: 18px; font-weight: 800; padding: 18px 16px 2px 16px; }"
         "QLabel#brandSub { color: #667268; font-size: 11px; padding: 0 16px 10px 16px; }"
+        "QLabel#welcomeTitle { color: #26342e; font-size: 34px; font-weight: 900; }"
+        "QLabel#welcomeKicker { color: #2f7a65; font-size: 12px; font-weight: 900; }"
         "QLabel#pageTitle { color: #2d3a33; font-size: 22px; font-weight: 800; }"
         "QLabel#pageMeta { color: #667268; font-size: 11px; }"
         "QLabel#sectionTitle { color: #2d3a33; font-size: 15px; font-weight: 800; }"
@@ -347,10 +370,11 @@ void DesktopApplication::applyTheme() {
         "QLabel#metricValue { color: #2d3a33; font-size: 20px; font-weight: 800; }"
         "QLabel#contextChip { background: #fff9ef; border: 1px solid #cfc1a5; border-radius: 8px; color: #47574f; padding: 5px 9px; }"
         "QFrame#contextBar { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 10px; }"
-        "QFrame#panel { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 10px; }"
+        "QFrame#panel { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 8px; }"
+        "QFrame#welcomeHero { background: #fff9ef; border: 1px solid #d8cdb8; border-radius: 8px; }"
         "QTableWidget#dataTable { background: #fbf5e8; alternate-background-color: #f7f1e4; border: 1px solid #ddd2bb; border-radius: 8px; selection-background-color: #e3f0ea; selection-color: #2d3a33; gridline-color: #ddd2bb; }"
         "QHeaderView::section { background: #6b756f; color: #f8f4e8; border: 0; border-right: 1px solid #7b857f; padding: 8px; font-weight: 800; }"
-        "QTableWidget::item { padding: 7px; border-bottom: 1px solid #e6dcc8; }"
+        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #e6dcc8; }"
         "QPushButton { background: #6fae9d; color: #fffaf0; border: 1px solid #4f8f7f; border-radius: 8px; padding: 8px 12px; font-weight: 800; }"
         "QPushButton:hover { background: #4f8f7f; }"
         "QPushButton#secondaryButton { background: #e8f1ed; color: #2f5f4f; border: 1px solid #b7cec2; }"
@@ -388,6 +412,9 @@ void DesktopApplication::buildNavigation() {
 
     QStackedWidget* pages = new QStackedWidget(root);
     int pageIndex = 0;
+    pages->addWidget(buildWelcomePage(*pages, *nav));
+    addNavItem(*nav, QStringLiteral("Welcome"), pageIndex);
+    pageIndex += 1;
     pages->addWidget(buildDailyEntryPage());
     addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex);
     pageIndex += 1;
@@ -451,6 +478,10 @@ void DesktopApplication::buildNavigation() {
         const int targetPage = item->data(Qt::UserRole).toInt();
         if (targetPage >= 0) {
             pages->setCurrentIndex(targetPage);
+            QWidget* page = pages->currentWidget();
+            if (page) {
+                animatePanel(*page, 0);
+            }
         }
     });
     nav->setCurrentRow(0);
@@ -458,6 +489,138 @@ void DesktopApplication::buildNavigation() {
     rootLayout->addWidget(sidebar);
     rootLayout->addWidget(pages, 1);
     setCentralWidget(root);
+}
+
+bool DesktopApplication::showAuthDialog() {
+    try {
+        const bool setupRequired = context_.services().auth->setupRequired();
+        QDialog dialog(this);
+        dialog.setWindowTitle(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("Sign In"));
+        dialog.setModal(true);
+        dialog.resize(420, 260);
+        QVBoxLayout* layout = new QVBoxLayout(&dialog);
+        layout->setContentsMargins(22, 20, 22, 20);
+        layout->setSpacing(12);
+        QLabel* title = new QLabel(setupRequired ? QStringLiteral("First run setup") : QStringLiteral("Sign in to continue"), &dialog);
+        title->setObjectName(QStringLiteral("pageTitle"));
+        QLabel* subtitle = new QLabel(setupRequired ? QStringLiteral("Create the admin password for this database.") : currentCompanyText(context_), &dialog);
+        subtitle->setObjectName(QStringLiteral("pageMeta"));
+        QLineEdit* username = new QLineEdit(setupRequired ? QStringLiteral("admin") : QString(), &dialog);
+        username->setPlaceholderText(QStringLiteral("Username"));
+        username->setEnabled(!setupRequired);
+        QLineEdit* password = new QLineEdit(&dialog);
+        password->setPlaceholderText(setupRequired ? QStringLiteral("Create password") : QStringLiteral("Password"));
+        password->setEchoMode(QLineEdit::Password);
+        QLabel* error = new QLabel(&dialog);
+        error->setObjectName(QStringLiteral("pageMeta"));
+        QPushButton* submit = new QPushButton(setupRequired ? QStringLiteral("Save Admin") : QStringLiteral("Sign In"), &dialog);
+        QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
+        cancel->setObjectName(QStringLiteral("secondaryButton"));
+        QHBoxLayout* actions = new QHBoxLayout();
+        actions->addStretch(1);
+        actions->addWidget(cancel);
+        actions->addWidget(submit);
+        layout->addWidget(title);
+        layout->addWidget(subtitle);
+        layout->addWidget(username);
+        layout->addWidget(password);
+        layout->addWidget(error);
+        layout->addLayout(actions);
+
+        connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(password, &QLineEdit::returnPressed, submit, &QPushButton::click);
+        connect(submit, &QPushButton::clicked, this, [this, setupRequired, username, password, error, &dialog]() {
+            try {
+                const QString user = setupRequired ? QStringLiteral("admin") : username->text().trimmed();
+                if (setupRequired) {
+                    context_.services().auth->setupAdmin(user, password->text());
+                } else {
+                    context_.services().auth->login(user, password->text());
+                }
+                dialog.accept();
+            } catch (const std::exception& err) {
+                error->setText(QString::fromUtf8(err.what()));
+            }
+        });
+        QTimer::singleShot(0, password, [password]() { password->setFocus(); });
+        return dialog.exec() == QDialog::Accepted;
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Authentication"), err);
+        QMessageBox::warning(this, QStringLiteral("Authentication"), QStringLiteral("Could not load auth state. Open Settings and verify the database connection.\n\n%1").arg(QString::fromUtf8(err.what())));
+        return true;
+    }
+}
+
+QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
+    QWidget* page = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 24, 28, 28);
+    layout->setSpacing(16);
+
+    QFrame* hero = new QFrame(page);
+    hero->setObjectName(QStringLiteral("welcomeHero"));
+    QVBoxLayout* heroLayout = new QVBoxLayout(hero);
+    heroLayout->setContentsMargins(24, 22, 24, 22);
+    heroLayout->setSpacing(10);
+    QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS NATIVE WORKSPACE"), hero);
+    kicker->setObjectName(QStringLiteral("welcomeKicker"));
+    QLabel* title = new QLabel(QStringLiteral("Welcome back"), hero);
+    title->setObjectName(QStringLiteral("welcomeTitle"));
+    QLabel* subtitle = new QLabel(currentCompanyText(context_) + QStringLiteral("  |  ") + currentFinancialYearText(), hero);
+    subtitle->setObjectName(QStringLiteral("pageMeta"));
+    heroLayout->addWidget(kicker);
+    heroLayout->addWidget(title);
+    heroLayout->addWidget(subtitle);
+
+    QHBoxLayout* actions = new QHBoxLayout();
+    QPushButton* entry = new QPushButton(QStringLiteral("Daily Entry"), hero);
+    QPushButton* reports = new QPushButton(QStringLiteral("Reports"), hero);
+    QPushButton* inventory = new QPushButton(QStringLiteral("Inventory"), hero);
+    QPushButton* settings = new QPushButton(QStringLiteral("Settings"), hero);
+    reports->setObjectName(QStringLiteral("secondaryButton"));
+    inventory->setObjectName(QStringLiteral("secondaryButton"));
+    settings->setObjectName(QStringLiteral("secondaryButton"));
+    actions->addWidget(entry);
+    actions->addWidget(reports);
+    actions->addWidget(inventory);
+    actions->addWidget(settings);
+    actions->addStretch(1);
+    heroLayout->addLayout(actions);
+    layout->addWidget(hero);
+
+    QGridLayout* metrics = new QGridLayout();
+    metrics->setSpacing(12);
+    loadDashboard(*metrics);
+    layout->addLayout(metrics);
+
+    QFrame* flow = createPanel(page);
+    QGridLayout* flowLayout = new QGridLayout(flow);
+    flowLayout->setContentsMargins(18, 16, 18, 16);
+    flowLayout->setSpacing(12);
+    flowLayout->addWidget(createMetricTile(QStringLiteral("Keyboard Entry"), QStringLiteral("Enter flow active"), flow), 0, 0);
+    flowLayout->addWidget(createMetricTile(QStringLiteral("Inventory"), QStringLiteral("SQL snapshots"), flow), 0, 1);
+    flowLayout->addWidget(createMetricTile(QStringLiteral("Backups"), QStringLiteral("Packaged runtime"), flow), 0, 2);
+    layout->addWidget(flow);
+    layout->addStretch(1);
+
+    auto goToPage = [&pages, &nav](int pageIndex) {
+        for (int row = 0; row < nav.count(); row += 1) {
+            QListWidgetItem* item = nav.item(row);
+            if (item && item->data(Qt::UserRole).toInt() == pageIndex) {
+                nav.setCurrentRow(row);
+                return;
+            }
+        }
+        pages.setCurrentIndex(pageIndex);
+    };
+    connect(entry, &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
+    connect(reports, &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
+    connect(inventory, &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
+    connect(settings, &QPushButton::clicked, this, [goToPage, &pages]() { goToPage(pages.count() - 1); });
+
+    animatePanel(*hero, 0);
+    animatePanel(*flow, 180);
+    return page;
 }
 
 QWidget* DesktopApplication::buildDailyEntryPage() {
@@ -997,12 +1160,18 @@ QWidget* DesktopApplication::buildInventoryPage() {
     add->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* preview = new QPushButton(QStringLiteral("Preview PDF"), toolbar);
+    preview->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* mail = new QPushButton(QStringLiteral("Send PDF"), toolbar);
+    mail->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Inventory"), toolbar);
     toolbarLayout->addWidget(new QLabel(QStringLiteral("Month"), toolbar));
     toolbarLayout->addWidget(month);
     toolbarLayout->addWidget(product, 1);
     toolbarLayout->addWidget(add);
     toolbarLayout->addWidget(refresh);
+    toolbarLayout->addWidget(preview);
+    toolbarLayout->addWidget(mail);
     toolbarLayout->addWidget(save);
     layout->addWidget(toolbar);
 
@@ -1042,6 +1211,105 @@ QWidget* DesktopApplication::buildInventoryPage() {
             statusBar()->showMessage(QStringLiteral("Inventory saved"), 7000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Save Inventory"), err);
+        }
+    });
+    connect(preview, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+        try {
+            const QJsonArray sourceRows = inventoryRowsFromTable(*table);
+            QVector<domain::InventoryProductRow> rows;
+            for (const QJsonValue& value : sourceRows) {
+                const QJsonObject item = value.toObject();
+                QVector<double> quantities;
+                for (int day = 1; day <= 31; day += 1) {
+                    quantities.append(item.value(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')))).toDouble());
+                }
+                rows.append(domain::InventoryProductRow{
+                    item.value(QStringLiteral("name")).toString(),
+                    item.value(QStringLiteral("cost")).toDouble(),
+                    item.value(QStringLiteral("min_stock")).toDouble(),
+                    quantities
+                });
+            }
+            const QByteArray pdf = context_.services().inventory->buildPdfPreview(domain::InventoryPdfMailRequest{
+                QString(), QString(), QString(), QString(), QStringLiteral("smtp.gmail.com"), 587,
+                QStringLiteral("Inventory Report"), QString(), financialYear, month->currentText(), QStringLiteral("monthly"), false, rows
+            });
+            const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Inventory PDF"), QStringLiteral("Inventory_%1_%2.pdf").arg(financialYear, QString::number(month->currentIndex() + 1)), QStringLiteral("PDF (*.pdf)"));
+            if (path.trimmed().isEmpty()) {
+                return;
+            }
+            QFile file(path);
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                throw std::runtime_error(QStringLiteral("Could not write PDF: %1").arg(path).toStdString());
+            }
+            file.write(pdf);
+            statusBar()->showMessage(QStringLiteral("Inventory PDF saved"), 7000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Inventory PDF"), err);
+        }
+    });
+    connect(mail, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("Send Inventory PDF"));
+        QGridLayout* form = new QGridLayout(&dialog);
+        QLineEdit* to = new QLineEdit(&dialog);
+        QLineEdit* cc = new QLineEdit(&dialog);
+        QLineEdit* from = new QLineEdit(&dialog);
+        QLineEdit* password = new QLineEdit(&dialog);
+        QLineEdit* host = new QLineEdit(QStringLiteral("smtp.gmail.com"), &dialog);
+        QLineEdit* port = new QLineEdit(QStringLiteral("587"), &dialog);
+        QLineEdit* subject = new QLineEdit(QStringLiteral("Inventory Report"), &dialog);
+        QLineEdit* notes = new QLineEdit(&dialog);
+        password->setEchoMode(QLineEdit::Password);
+        QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
+        cancel->setObjectName(QStringLiteral("secondaryButton"));
+        QPushButton* send = new QPushButton(QStringLiteral("Send"), &dialog);
+        form->addWidget(new QLabel(QStringLiteral("To"), &dialog), 0, 0);
+        form->addWidget(to, 0, 1);
+        form->addWidget(new QLabel(QStringLiteral("CC"), &dialog), 1, 0);
+        form->addWidget(cc, 1, 1);
+        form->addWidget(new QLabel(QStringLiteral("From"), &dialog), 2, 0);
+        form->addWidget(from, 2, 1);
+        form->addWidget(new QLabel(QStringLiteral("Password"), &dialog), 3, 0);
+        form->addWidget(password, 3, 1);
+        form->addWidget(new QLabel(QStringLiteral("SMTP Host"), &dialog), 4, 0);
+        form->addWidget(host, 4, 1);
+        form->addWidget(new QLabel(QStringLiteral("Port"), &dialog), 5, 0);
+        form->addWidget(port, 5, 1);
+        form->addWidget(new QLabel(QStringLiteral("Subject"), &dialog), 6, 0);
+        form->addWidget(subject, 6, 1);
+        form->addWidget(new QLabel(QStringLiteral("Notes"), &dialog), 7, 0);
+        form->addWidget(notes, 7, 1);
+        form->addWidget(cancel, 8, 0);
+        form->addWidget(send, 8, 1);
+        connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(send, &QPushButton::clicked, &dialog, &QDialog::accept);
+        if (dialog.exec() != QDialog::Accepted) {
+            return;
+        }
+        try {
+            const QJsonArray sourceRows = inventoryRowsFromTable(*table);
+            QVector<domain::InventoryProductRow> rows;
+            for (const QJsonValue& value : sourceRows) {
+                const QJsonObject item = value.toObject();
+                QVector<double> quantities;
+                for (int day = 1; day <= 31; day += 1) {
+                    quantities.append(item.value(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')))).toDouble());
+                }
+                rows.append(domain::InventoryProductRow{
+                    item.value(QStringLiteral("name")).toString(),
+                    item.value(QStringLiteral("cost")).toDouble(),
+                    item.value(QStringLiteral("min_stock")).toDouble(),
+                    quantities
+                });
+            }
+            context_.services().inventory->sendPdfMail(domain::InventoryPdfMailRequest{
+                to->text(), cc->text(), from->text(), password->text(), host->text(), port->text().toInt(),
+                subject->text(), notes->text(), financialYear, month->currentText(), QStringLiteral("monthly"), false, rows
+            });
+            statusBar()->showMessage(QStringLiteral("Inventory PDF sent"), 9000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Send Inventory PDF"), err);
         }
     });
     createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+S")), [save]() { save->click(); });
@@ -1085,22 +1353,6 @@ QWidget* DesktopApplication::buildInventoryValuePage() {
     connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month]() {
         loadInventoryValue(*table, financialYear, month->currentIndex() + 1);
     });
-    return page;
-}
-
-QWidget* DesktopApplication::buildComingSoonPage(const QString& title, const QString& description) {
-    QWidget* page = new QWidget(this);
-    QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
-    layout->addWidget(createPageHeader(title, description, page));
-    layout->addWidget(createContextBar(context_, page));
-    QFrame* panel = createPanel(page);
-    QVBoxLayout* panelLayout = new QVBoxLayout(panel);
-    panelLayout->addWidget(createSectionTitle(QStringLiteral("Native parity pending"), panel));
-    panelLayout->addWidget(createSectionDescription(description, panel));
-    layout->addWidget(panel);
-    layout->addStretch(1);
     return page;
 }
 
@@ -1359,6 +1611,7 @@ void DesktopApplication::wireActions() {
     connect(updateAction, &QAction::triggered, this, [this]() {
         try {
             context_.services().updates->checkForUpdates();
+            statusBar()->showMessage(QStringLiteral("Native updates are managed by GitHub release artifacts"), 7000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Updates"), err);
         }
