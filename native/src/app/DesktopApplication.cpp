@@ -295,7 +295,7 @@ QShortcut* createShortcut(QWidget& owner, const QKeySequence& sequence, const st
     return shortcut;
 }
 
-void focusWidget(QWidget& widget) {
+void focusEntryWidget(QWidget& widget) {
     widget.setFocus(Qt::ShortcutFocusReason);
     if (QLineEdit* lineEdit = qobject_cast<QLineEdit*>(&widget)) {
         lineEdit->selectAll();
@@ -518,16 +518,16 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(clear, 1, 8);
     layout->addWidget(entryPanel);
 
-    createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusWidget(*bill); });
-    createShortcut(*date, QKeySequence(Qt::Key_Enter), [bill]() { focusWidget(*bill); });
-    createShortcut(*bill, QKeySequence(Qt::Key_Return), [party]() { focusWidget(*party); });
-    createShortcut(*bill, QKeySequence(Qt::Key_Enter), [party]() { focusWidget(*party); });
-    createShortcut(*party, QKeySequence(Qt::Key_Return), [type]() { focusWidget(*type); });
-    createShortcut(*party, QKeySequence(Qt::Key_Enter), [type]() { focusWidget(*type); });
-    createShortcut(*type, QKeySequence(Qt::Key_Return), [mode]() { focusWidget(*mode); });
-    createShortcut(*type, QKeySequence(Qt::Key_Enter), [mode]() { focusWidget(*mode); });
-    createShortcut(*mode, QKeySequence(Qt::Key_Return), [amount]() { focusWidget(*amount); });
-    createShortcut(*mode, QKeySequence(Qt::Key_Enter), [amount]() { focusWidget(*amount); });
+    createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusEntryWidget(*bill); });
+    createShortcut(*date, QKeySequence(Qt::Key_Enter), [bill]() { focusEntryWidget(*bill); });
+    createShortcut(*bill, QKeySequence(Qt::Key_Return), [party]() { focusEntryWidget(*party); });
+    createShortcut(*bill, QKeySequence(Qt::Key_Enter), [party]() { focusEntryWidget(*party); });
+    createShortcut(*party, QKeySequence(Qt::Key_Return), [type]() { focusEntryWidget(*type); });
+    createShortcut(*party, QKeySequence(Qt::Key_Enter), [type]() { focusEntryWidget(*type); });
+    createShortcut(*type, QKeySequence(Qt::Key_Return), [mode]() { focusEntryWidget(*mode); });
+    createShortcut(*type, QKeySequence(Qt::Key_Enter), [mode]() { focusEntryWidget(*mode); });
+    createShortcut(*mode, QKeySequence(Qt::Key_Return), [amount]() { focusEntryWidget(*amount); });
+    createShortcut(*mode, QKeySequence(Qt::Key_Enter), [amount]() { focusEntryWidget(*amount); });
     createShortcut(*amount, QKeySequence(Qt::Key_Return), [save]() { save->click(); });
     createShortcut(*amount, QKeySequence(Qt::Key_Enter), [save]() { save->click(); });
     createShortcut(*entryPanel, QKeySequence(QStringLiteral("F1")), [type]() { type->setCurrentText(QStringLiteral("Sale")); });
@@ -568,8 +568,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         applyTableSearch(*table, transactionSearch->text());
     });
     createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+S")), [save]() { save->click(); });
-    createShortcut(*page, QKeySequence(QStringLiteral("Alt+N")), [date]() { focusWidget(*date); });
-    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+K")), [transactionSearch]() { focusWidget(*transactionSearch); });
+    createShortcut(*page, QKeySequence(QStringLiteral("Alt+N")), [date]() { focusEntryWidget(*date); });
+    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+K")), [transactionSearch]() { focusEntryWidget(*transactionSearch); });
     const std::shared_ptr<int> editingId = std::make_shared<int>(0);
     connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, editingId]() {
         *editingId = 0;
@@ -580,7 +580,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         mode->setCurrentIndex(0);
         amount->setValue(0.0);
         save->setText(QStringLiteral("Save Entry"));
-        focusWidget(*bill);
+        focusEntryWidget(*bill);
     });
     connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, date, bill, party, type, mode, amount, save, editingId]() {
         const QList<QTableWidgetItem*> selected = table->selectedItems();
@@ -645,7 +645,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                 type->setCurrentText(QStringLiteral("Sale"));
                 mode->setCurrentText(QStringLiteral("Credit"));
                 amount->setValue(0.0);
-                focusWidget(*bill);
+                focusEntryWidget(*bill);
             }
             loadTransactions(*table);
             applyTableSearch(*table, transactionSearch->text());
