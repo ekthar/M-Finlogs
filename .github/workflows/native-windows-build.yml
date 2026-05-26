@@ -29,11 +29,6 @@ jobs:
           python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 -O C:\Qt --modules qtcharts qthttpserver qtwebsockets
           "$env:QT_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
       - name: Configure
         run: |
           cmake `
