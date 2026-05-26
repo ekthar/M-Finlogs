@@ -28,6 +28,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringList>
@@ -37,6 +38,7 @@
 #include <QVBoxLayout>
 
 #include <exception>
+#include <memory>
 #include <stdexcept>
 
 namespace {
@@ -148,6 +150,36 @@ QString moneyText(double value) {
     return QStringLiteral("%1").arg(value, 0, 'f', 2);
 }
 
+QString transactionTypeText(mfinlogs::domain::TransactionType type) {
+    switch (type) {
+    case mfinlogs::domain::TransactionType::Sale:
+        return QStringLiteral("Sale");
+    case mfinlogs::domain::TransactionType::SaleReturn:
+        return QStringLiteral("Sale Return");
+    case mfinlogs::domain::TransactionType::Purchase:
+        return QStringLiteral("Purchase");
+    case mfinlogs::domain::TransactionType::Expense:
+        return QStringLiteral("Expense");
+    case mfinlogs::domain::TransactionType::Receipt:
+        return QStringLiteral("Receipt");
+    }
+    return QStringLiteral("Sale");
+}
+
+QString paymentModeText(mfinlogs::domain::PaymentMode mode) {
+    switch (mode) {
+    case mfinlogs::domain::PaymentMode::Credit:
+        return QStringLiteral("Credit");
+    case mfinlogs::domain::PaymentMode::Cash:
+        return QStringLiteral("Cash");
+    case mfinlogs::domain::PaymentMode::Upi:
+        return QStringLiteral("UPI");
+    case mfinlogs::domain::PaymentMode::Bank:
+        return QStringLiteral("Bank");
+    }
+    return QStringLiteral("Cash");
+}
+
 mfinlogs::domain::TransactionType transactionTypeFromText(const QString& text) {
     if (text == QStringLiteral("Sale")) {
         return mfinlogs::domain::TransactionType::Sale;
@@ -185,38 +217,8 @@ QJsonObject transactionToJson(const mfinlogs::domain::TransactionRow& row) {
     item.insert(QStringLiteral("party"), row.party);
     item.insert(QStringLiteral("amount"), row.amount);
 
-    switch (row.type) {
-    case mfinlogs::domain::TransactionType::Sale:
-        item.insert(QStringLiteral("type"), QStringLiteral("Sale"));
-        break;
-    case mfinlogs::domain::TransactionType::SaleReturn:
-        item.insert(QStringLiteral("type"), QStringLiteral("Sale Return"));
-        break;
-    case mfinlogs::domain::TransactionType::Purchase:
-        item.insert(QStringLiteral("type"), QStringLiteral("Purchase"));
-        break;
-    case mfinlogs::domain::TransactionType::Expense:
-        item.insert(QStringLiteral("type"), QStringLiteral("Expense"));
-        break;
-    case mfinlogs::domain::TransactionType::Receipt:
-        item.insert(QStringLiteral("type"), QStringLiteral("Receipt"));
-        break;
-    }
-
-    switch (row.mode) {
-    case mfinlogs::domain::PaymentMode::Credit:
-        item.insert(QStringLiteral("mode"), QStringLiteral("Credit"));
-        break;
-    case mfinlogs::domain::PaymentMode::Cash:
-        item.insert(QStringLiteral("mode"), QStringLiteral("Cash"));
-        break;
-    case mfinlogs::domain::PaymentMode::Upi:
-        item.insert(QStringLiteral("mode"), QStringLiteral("UPI"));
-        break;
-    case mfinlogs::domain::PaymentMode::Bank:
-        item.insert(QStringLiteral("mode"), QStringLiteral("Bank"));
-        break;
-    }
+    item.insert(QStringLiteral("type"), transactionTypeText(row.type));
+    item.insert(QStringLiteral("mode"), paymentModeText(row.mode));
 
     return item;
 }
@@ -403,6 +405,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     amount->setMaximum(999999999.0);
     amount->setDecimals(2);
     QPushButton* save = new QPushButton(QStringLiteral("Save Entry"), entryPanel);
+    QPushButton* deleteButton = new QPushButton(QStringLiteral("Delete"), entryPanel);
+    deleteButton->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* clear = new QPushButton(QStringLiteral("Clear"), entryPanel);
     clear->setObjectName(QStringLiteral("secondaryButton"));
 
@@ -419,7 +423,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 0, 5);
     form->addWidget(amount, 1, 5);
     form->addWidget(save, 1, 6);
-    form->addWidget(clear, 1, 7);
+    form->addWidget(deleteButton, 1, 7);
+    form->addWidget(clear, 1, 8);
     layout->addWidget(entryPanel);
 
     QFrame* tablePanel = createPanel(page);
@@ -435,15 +440,46 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     loadTransactions(*table);
     tableLayout->addWidget(table);
     connect(refresh, &QPushButton::clicked, this, [this, table]() { loadTransactions(*table); });
-    connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount]() {
+    const std::shared_ptr<int> editingId = std::make_shared<int>(0);
+    connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, editingId]() {
+        *editingId = 0;
         date->setDate(QDate::currentDate());
         bill->clear();
         party->setText(QStringLiteral("Customer"));
         type->setCurrentIndex(0);
         mode->setCurrentIndex(0);
         amount->setValue(0.0);
+        save->setText(QStringLiteral("Save Entry"));
     });
-    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table]() {
+    connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, date, bill, party, type, mode, amount, save, editingId]() {
+        const QList<QTableWidgetItem*> selected = table->selectedItems();
+        if (selected.isEmpty()) {
+            return;
+        }
+        const int rowIndex = selected.first()->row();
+        const QTableWidgetItem* idItem = table->item(rowIndex, 0);
+        if (!idItem) {
+            return;
+        }
+        const int transactionId = idItem->data(Qt::UserRole).toInt();
+        if (transactionId <= 0) {
+            return;
+        }
+        try {
+            const domain::TransactionRow row = context_.services().transactions->getTransaction(transactionId);
+            *editingId = transactionId;
+            date->setDate(row.date);
+            bill->setText(row.billNo);
+            party->setText(row.party);
+            type->setCurrentText(transactionTypeText(row.type));
+            mode->setCurrentText(paymentModeText(row.mode));
+            amount->setValue(row.amount);
+            save->setText(QStringLiteral("Update Entry"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Load Entry"), err);
+        }
+    });
+    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save]() {
         try {
             const QString partyName = party->text().trimmed();
             if (partyName.isEmpty()) {
@@ -453,18 +489,55 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                 throw std::invalid_argument("Amount must be greater than zero");
             }
 
-            context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
-                date->date(),
-                bill->text().trimmed(),
-                partyName,
-                transactionTypeFromText(type->currentText()),
-                paymentModeFromText(mode->currentText()),
-                amount->value()
-            });
+            if (*editingId > 0) {
+                const QString adminUser = QStringLiteral("native-admin");
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("txn_date"), date->date().toString(Qt::ISODate), adminUser});
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("bill_no"), bill->text().trimmed(), adminUser});
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("party"), partyName, adminUser});
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("txn_type"), type->currentText(), adminUser});
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("payment_mode"), mode->currentText(), adminUser});
+                context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("amount"), QString::number(amount->value(), 'f', 2), adminUser});
+                statusBar()->showMessage(QStringLiteral("Transaction updated"), 5000);
+            } else {
+                context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                    date->date(),
+                    bill->text().trimmed(),
+                    partyName,
+                    transactionTypeFromText(type->currentText()),
+                    paymentModeFromText(mode->currentText()),
+                    amount->value()
+                });
+                statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
+            }
             loadTransactions(*table);
-            statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
+            *editingId = 0;
+            save->setText(QStringLiteral("Save Entry"));
         } catch (const std::exception& err) {
             showError(QStringLiteral("Save Entry"), err);
+        }
+    });
+    connect(deleteButton, &QPushButton::clicked, this, [this, table, editingId, save]() {
+        if (*editingId <= 0) {
+            statusBar()->showMessage(QStringLiteral("Select a transaction to delete"), 5000);
+            return;
+        }
+        const QMessageBox::StandardButton result = QMessageBox::question(
+            this,
+            QStringLiteral("Delete Transaction"),
+            QStringLiteral("Delete selected transaction?"),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        if (result != QMessageBox::Yes) {
+            return;
+        }
+        try {
+            context_.services().transactions->deleteTransaction(domain::TransactionDeleteRequest{*editingId, QStringLiteral("native-admin")});
+            *editingId = 0;
+            save->setText(QStringLiteral("Save Entry"));
+            loadTransactions(*table);
+            statusBar()->showMessage(QStringLiteral("Transaction deleted"), 5000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Delete Entry"), err);
         }
     });
     layout->addWidget(tablePanel, 1);
@@ -759,7 +832,11 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
             } else {
                 text = value.toVariant().toString();
             }
-            table.setItem(rowIndex, columnIndex, new QTableWidgetItem(text));
+            QTableWidgetItem* item = new QTableWidgetItem(text);
+            if (columnIndex == 0 && row.contains(QStringLiteral("id"))) {
+                item->setData(Qt::UserRole, row.value(QStringLiteral("id")).toInt());
+            }
+            table.setItem(rowIndex, columnIndex, item);
         }
     }
     table.resizeColumnsToContents();

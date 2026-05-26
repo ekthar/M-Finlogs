@@ -722,6 +722,13 @@ public:
             query.addBindValue(financialYearForDate(date));
             query.addBindValue(request.transactionId);
             executePrepared(query, QStringLiteral("Edit transaction date"));
+        } else if (field == QStringLiteral("party")) {
+            const int partyId = getOrCreatePartyId(database.handle(), request.newValue, QStringLiteral("Customer"), true);
+            QSqlQuery query(database.handle());
+            query.prepare(QStringLiteral("UPDATE transactions SET party_id=? WHERE txn_id=?"));
+            query.addBindValue(partyId);
+            query.addBindValue(request.transactionId);
+            executePrepared(query, QStringLiteral("Edit transaction party"));
         } else {
             static const QHash<QString, QString> fields = {
                 {QStringLiteral("bill_no"), QStringLiteral("bill_no")},
