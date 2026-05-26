@@ -674,14 +674,68 @@ QWidget* DesktopApplication::buildSettingsPage() {
     QFrame* panel = createPanel(page);
     QGridLayout* form = new QGridLayout(panel);
     const domain::DatabaseConfig config = context_.services().config->readDatabaseConfig();
-    form->addWidget(new QLabel(QStringLiteral("Server"), panel), 0, 0);
-    form->addWidget(new QLabel(config.server, panel), 0, 1);
-    form->addWidget(new QLabel(QStringLiteral("Database"), panel), 1, 0);
-    form->addWidget(new QLabel(config.database, panel), 1, 1);
-    form->addWidget(new QLabel(QStringLiteral("Authentication"), panel), 2, 0);
-    form->addWidget(new QLabel(config.useWindowsAuth ? QStringLiteral("Windows") : QStringLiteral("SQL"), panel), 2, 1);
-    form->addWidget(new QLabel(QStringLiteral("Backup Directory"), panel), 3, 0);
-    form->addWidget(new QLabel(config.backupDir, panel), 3, 1);
+    QLineEdit* server = new QLineEdit(config.server, panel);
+    QLineEdit* database = new QLineEdit(config.database, panel);
+    QComboBox* authType = new QComboBox(panel);
+    authType->addItems({QStringLiteral("Windows Authentication"), QStringLiteral("SQL Server Authentication")});
+    authType->setCurrentIndex(config.useWindowsAuth ? 0 : 1);
+    QLineEdit* username = new QLineEdit(config.username, panel);
+    QLineEdit* password = new QLineEdit(config.password, panel);
+    password->setEchoMode(QLineEdit::Password);
+    QLineEdit* backupDir = new QLineEdit(config.backupDir, panel);
+    QLineEdit* apiBase = new QLineEdit(config.apiBaseUrl, panel);
+    QPushButton* test = new QPushButton(QStringLiteral("Test Connection"), panel);
+    test->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* save = new QPushButton(QStringLiteral("Save Config"), panel);
+
+    form->addWidget(new QLabel(QStringLiteral("SQL Server Instance"), panel), 0, 0);
+    form->addWidget(server, 1, 0);
+    form->addWidget(new QLabel(QStringLiteral("Database Name"), panel), 0, 1);
+    form->addWidget(database, 1, 1);
+    form->addWidget(new QLabel(QStringLiteral("Authentication"), panel), 0, 2);
+    form->addWidget(authType, 1, 2);
+    form->addWidget(new QLabel(QStringLiteral("SQL Username"), panel), 2, 0);
+    form->addWidget(username, 3, 0);
+    form->addWidget(new QLabel(QStringLiteral("SQL Password"), panel), 2, 1);
+    form->addWidget(password, 3, 1);
+    form->addWidget(new QLabel(QStringLiteral("API Base"), panel), 2, 2);
+    form->addWidget(apiBase, 3, 2);
+    form->addWidget(new QLabel(QStringLiteral("Backup Directory"), panel), 4, 0);
+    form->addWidget(backupDir, 5, 0, 1, 2);
+    form->addWidget(test, 5, 2);
+    form->addWidget(save, 5, 3);
+
+    auto buildConfig = [server, database, authType, username, password, backupDir, apiBase, config]() {
+        return domain::DatabaseConfig{
+            server->text().trimmed(),
+            database->text().trimmed(),
+            username->text().trimmed(),
+            password->text(),
+            config.driver,
+            apiBase->text().trimmed(),
+            backupDir->text().trimmed(),
+            authType->currentIndex() == 0
+        };
+    };
+
+    connect(test, &QPushButton::clicked, this, [this, buildConfig]() {
+        try {
+            context_.services().config->testDatabaseConfig(buildConfig());
+            statusBar()->showMessage(QStringLiteral("SQL connection successful"), 7000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Database Test"), err);
+        }
+    });
+    connect(save, &QPushButton::clicked, this, [this, buildConfig]() {
+        try {
+            const domain::DatabaseConfig nextConfig = buildConfig();
+            context_.services().config->testDatabaseConfig(nextConfig);
+            context_.services().config->writeDatabaseConfig(nextConfig);
+            statusBar()->showMessage(QStringLiteral("Database configuration saved. Restart native app to reload all screens."), 9000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Save Database Config"), err);
+        }
+    });
     layout->addWidget(panel);
     layout->addStretch(1);
     return page;
