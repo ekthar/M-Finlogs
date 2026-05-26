@@ -7,6 +7,11 @@ on:
       - C
   pull_request:
   workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Branch or commit to build"
+        required: false
+        default: C
 
 jobs:
   build:
@@ -24,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || github.ref }}
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
