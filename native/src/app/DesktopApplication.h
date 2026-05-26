@@ -27,8 +27,10 @@ private:
     void loadAuditLogs(QTableWidget& table);
     void loadDashboard(QGridLayout& metricGrid);
     void loadParties(QTableWidget& table);
-    void loadReportTable(QTableWidget& table, const QString& reportName);
+    void loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range);
     void loadTransactions(QTableWidget& table);
+    void applyTableSearch(QTableWidget& table, const QString& query);
+    QStringList partyNames();
     void setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows);
     void showError(const QString& title, const std::exception& err);
     void applyTheme();
