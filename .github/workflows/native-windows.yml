@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       target_ref:
-        description: "Branch or commit to build"
+        description: "Git ref or commit SHA to build (for example refs/heads/C)"
         required: false
-        default: C
+        default: refs/heads/C
 
 jobs:
   build:
