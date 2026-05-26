@@ -24,3 +24,4 @@ mfinlogs-native.exe --server-stop
 
 The GUI mode calls C++ services directly. Server mode exposes a LAN REST surface backed by the same services.
 
+GitHub Actions packages the executable with Qt, vcpkg runtime DLLs, fonts, and `db_config.json`.
