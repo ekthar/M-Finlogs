@@ -5,13 +5,7 @@ on:
     branches:
       - main
       - C
-    paths:
-      - "native/**"
-      - ".github/workflows/native-windows.yml"
   pull_request:
-    paths:
-      - "native/**"
-      - ".github/workflows/native-windows.yml"
   workflow_dispatch:
 
 jobs:
