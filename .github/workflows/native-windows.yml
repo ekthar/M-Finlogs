@@ -73,16 +73,9 @@ jobs:
           Copy-Item -LiteralPath "db_config.json" -Destination $packageDir -Force
           Copy-Item -Path "fonts\SpaceMono-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --compiler-runtime "$packageDir\mfinlogs-native.exe"
-          $vcpkgInstalled = "$env:MFINLOGS_VCPKG_ROOT\installed\$env:VCPKG_DEFAULT_TRIPLET"
-          if (Test-Path -LiteralPath $vcpkgInstalled) {
-            Get-ChildItem -LiteralPath $vcpkgInstalled -Recurse -Filter "*.dll" |
-              Where-Object { $_.FullName -notmatch "\\debug\\" } |
-              Copy-Item -Destination $packageDir -Force
-          }
-          $libcurlDll = Get-ChildItem -LiteralPath $packageDir -Filter "libcurl*.dll" -ErrorAction SilentlyContinue
-          if (-not $libcurlDll) {
-            Get-ChildItem -LiteralPath $packageDir -Filter "*.dll" | Select-Object -ExpandProperty Name
-            throw "libcurl runtime DLL was not packaged"
+          $vcpkgBin = "$env:MFINLOGS_VCPKG_ROOT\installed\$env:VCPKG_DEFAULT_TRIPLET\bin"
+          if (Test-Path -LiteralPath $vcpkgBin) {
+            Copy-Item -Path "$vcpkgBin\*.dll" -Destination $packageDir -Force
           }
 
       - name: Upload native executable
