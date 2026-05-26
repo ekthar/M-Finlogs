@@ -16,8 +16,8 @@ public:
     explicit DesktopApplication(AppContext& context);
 
 private:
+    QWidget* buildDailyEntryPage();
     QWidget* buildDashboardPage();
-    QWidget* buildTransactionsPage();
     QWidget* buildPartiesPage();
     QWidget* buildReportPage(const QString& title, const QString& description);
     QWidget* buildAuditPage();

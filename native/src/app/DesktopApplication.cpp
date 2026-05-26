@@ -6,6 +6,11 @@
 #include <QApplication>
 #include <QAbstractItemView>
 #include <QDate>
+#include <QDateEdit>
+#include <QDoubleSpinBox>
+#include <QComboBox>
+#include <QFormLayout>
+#include <QFont>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -16,9 +21,11 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringList>
@@ -51,6 +58,38 @@ QFrame* createPanel(QWidget* parent) {
     return panel;
 }
 
+QFrame* createContextBar(QWidget* parent) {
+    QFrame* bar = new QFrame(parent);
+    bar->setObjectName(QStringLiteral("contextBar"));
+    QHBoxLayout* layout = new QHBoxLayout(bar);
+    layout->setContentsMargins(12, 8, 12, 8);
+    layout->setSpacing(10);
+    QLabel* company = new QLabel(QStringLiteral("Company: default"), bar);
+    QLabel* year = new QLabel(QStringLiteral("FY: current"), bar);
+    QLabel* mode = new QLabel(QStringLiteral("Runtime: native"), bar);
+    company->setObjectName(QStringLiteral("contextChip"));
+    year->setObjectName(QStringLiteral("contextChip"));
+    mode->setObjectName(QStringLiteral("contextChip"));
+    layout->addWidget(company);
+    layout->addWidget(year);
+    layout->addStretch(1);
+    layout->addWidget(mode);
+    return bar;
+}
+
+QWidget* createPageHeader(const QString& title, const QString& subtitle, QWidget* parent) {
+    QWidget* header = new QWidget(parent);
+    QVBoxLayout* layout = new QVBoxLayout(header);
+    layout->setContentsMargins(0, 0, 0, 0);
+    QLabel* titleLabel = new QLabel(title, header);
+    QLabel* subtitleLabel = new QLabel(subtitle, header);
+    titleLabel->setObjectName(QStringLiteral("pageTitle"));
+    subtitleLabel->setObjectName(QStringLiteral("pageMeta"));
+    layout->addWidget(titleLabel);
+    layout->addWidget(subtitleLabel);
+    return header;
+}
+
 QTableWidget* createDataTable(QWidget* parent) {
     QTableWidget* table = new QTableWidget(parent);
     table->setObjectName(QStringLiteral("dataTable"));
@@ -63,6 +102,20 @@ QTableWidget* createDataTable(QWidget* parent) {
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     table->setShowGrid(false);
     return table;
+}
+
+QListWidgetItem* addGroupItem(QListWidget& nav, const QString& label) {
+    QListWidgetItem* item = new QListWidgetItem(label, &nav);
+    item->setFlags(Qt::NoItemFlags);
+    item->setData(Qt::UserRole, -1);
+    item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    return item;
+}
+
+QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex) {
+    QListWidgetItem* item = new QListWidgetItem(label, &nav);
+    item->setData(Qt::UserRole, pageIndex);
+    return item;
 }
 
 QFrame* createMetricTile(const QString& label, const QString& value, QWidget* parent) {
@@ -139,30 +192,38 @@ DesktopApplication::DesktopApplication(AppContext& context)
 }
 
 void DesktopApplication::applyTheme() {
+    qApp->setFont(QFont(QStringLiteral("Cascadia Mono"), 10));
     qApp->setStyleSheet(QStringLiteral(
-        "QMainWindow, QWidget#workspace { background: #f5f7fb; color: #182230; font-family: 'Segoe UI'; font-size: 13px; }"
-        "QListWidget#sidebar { background: #111827; border: 0; color: #cbd5e1; padding: 10px 8px; }"
-        "QListWidget#sidebar::item { border-radius: 6px; min-height: 34px; padding: 0 12px; }"
-        "QListWidget#sidebar::item:selected { background: #2563eb; color: #ffffff; }"
-        "QListWidget#sidebar::item:hover:!selected { background: #1f2937; color: #ffffff; }"
-        "QLabel#brand { color: #ffffff; font-size: 18px; font-weight: 700; padding: 18px 18px 4px 18px; }"
-        "QLabel#brandSub { color: #94a3b8; font-size: 12px; padding: 0 18px 14px 18px; }"
-        "QLabel#pageTitle { color: #101828; font-size: 24px; font-weight: 700; }"
-        "QLabel#pageMeta { color: #64748b; font-size: 12px; }"
-        "QLabel#sectionTitle { color: #101828; font-size: 16px; font-weight: 700; }"
-        "QLabel#sectionDescription { color: #64748b; line-height: 18px; }"
-        "QLabel#metricLabel { color: #667085; font-size: 12px; }"
-        "QLabel#metricValue { color: #101828; font-size: 22px; font-weight: 700; }"
-        "QFrame#panel { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; }"
-        "QTableWidget#dataTable { background: #ffffff; alternate-background-color: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; selection-background-color: #dbeafe; selection-color: #111827; }"
-        "QHeaderView::section { background: #f1f5f9; color: #334155; border: 0; border-bottom: 1px solid #e5e7eb; padding: 8px; font-weight: 600; }"
-        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #eef2f7; }"
-        "QPushButton { background: #2563eb; color: #ffffff; border: 0; border-radius: 6px; padding: 8px 14px; font-weight: 600; }"
-        "QPushButton:hover { background: #1d4ed8; }"
-        "QPushButton#secondaryButton { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; }"
-        "QPushButton#secondaryButton:hover { background: #f8fafc; }"
-        "QLineEdit { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; min-height: 34px; padding: 0 10px; }"
-        "QToolBar { background: #ffffff; border-bottom: 1px solid #e5e7eb; spacing: 8px; padding: 6px; }"
+        "* { font-family: 'Cascadia Mono', 'Consolas', 'Courier New', monospace; letter-spacing: 0; }"
+        "QMainWindow, QWidget#workspace { background: #f4eedf; color: #2d3a33; font-size: 12px; }"
+        "QWidget#sidebarWrap { background: #f7efdf; border-right: 1px solid #ddd2bb; }"
+        "QListWidget#sidebar { background: transparent; border: 0; color: #536158; padding: 8px 10px 12px 10px; outline: 0; }"
+        "QListWidget#sidebar::item { border-radius: 8px; min-height: 32px; padding: 0 10px; margin: 1px 0; }"
+        "QListWidget#sidebar::item:selected { background: #e3f0ea; color: #2f7a65; border: 1px solid #b7cec2; }"
+        "QListWidget#sidebar::item:hover:!selected { background: #eee5d3; color: #2d3a33; }"
+        "QListWidget#sidebar::item:disabled { color: #8a948c; font-size: 11px; font-weight: 700; padding-top: 12px; }"
+        "QLabel#brand { color: #2d3a33; font-size: 18px; font-weight: 800; padding: 18px 16px 2px 16px; }"
+        "QLabel#brandSub { color: #667268; font-size: 11px; padding: 0 16px 10px 16px; }"
+        "QLabel#pageTitle { color: #2d3a33; font-size: 22px; font-weight: 800; }"
+        "QLabel#pageMeta { color: #667268; font-size: 11px; }"
+        "QLabel#sectionTitle { color: #2d3a33; font-size: 15px; font-weight: 800; }"
+        "QLabel#sectionDescription { color: #667268; line-height: 18px; }"
+        "QLabel#metricLabel { color: #667268; font-size: 11px; font-weight: 700; }"
+        "QLabel#metricValue { color: #2d3a33; font-size: 20px; font-weight: 800; }"
+        "QLabel#contextChip { background: #fff9ef; border: 1px solid #cfc1a5; border-radius: 8px; color: #47574f; padding: 5px 9px; }"
+        "QFrame#contextBar { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 10px; }"
+        "QFrame#panel { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 10px; }"
+        "QTableWidget#dataTable { background: #fbf5e8; alternate-background-color: #f7f1e4; border: 1px solid #ddd2bb; border-radius: 8px; selection-background-color: #e3f0ea; selection-color: #2d3a33; gridline-color: #ddd2bb; }"
+        "QHeaderView::section { background: #6b756f; color: #f8f4e8; border: 0; border-right: 1px solid #7b857f; padding: 8px; font-weight: 800; }"
+        "QTableWidget::item { padding: 7px; border-bottom: 1px solid #e6dcc8; }"
+        "QPushButton { background: #6fae9d; color: #fffaf0; border: 1px solid #4f8f7f; border-radius: 8px; padding: 8px 12px; font-weight: 800; }"
+        "QPushButton:hover { background: #4f8f7f; }"
+        "QPushButton#secondaryButton { background: #e8f1ed; color: #2f5f4f; border: 1px solid #b7cec2; }"
+        "QPushButton#secondaryButton:hover { background: #dcebe4; }"
+        "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox { background: #f7f1e4; border: 1px solid #cfc1a5; border-radius: 8px; min-height: 32px; padding: 0 9px; color: #2d3a33; }"
+        "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus { background: #fff9ef; border-color: #8ea894; }"
+        "QToolBar { background: #fbf5e8; border-bottom: 1px solid #ddd2bb; spacing: 8px; padding: 6px; }"
+        "QStatusBar { background: #fbf5e8; color: #667268; border-top: 1px solid #ddd2bb; }"
     ));
 }
 
@@ -174,8 +235,8 @@ void DesktopApplication::buildNavigation() {
     rootLayout->setSpacing(0);
 
     QWidget* sidebar = new QWidget(root);
+    sidebar->setObjectName(QStringLiteral("sidebarWrap"));
     sidebar->setFixedWidth(248);
-    sidebar->setStyleSheet(QStringLiteral("background: #111827;"));
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
     sidebarLayout->setContentsMargins(0, 0, 0, 0);
     sidebarLayout->setSpacing(0);
@@ -189,35 +250,74 @@ void DesktopApplication::buildNavigation() {
 
     QListWidget* nav = new QListWidget(sidebar);
     nav->setObjectName(QStringLiteral("sidebar"));
-    nav->addItems({
-        QStringLiteral("Dashboard"),
-        QStringLiteral("Transactions"),
-        QStringLiteral("Parties"),
-        QStringLiteral("Outstanding"),
-        QStringLiteral("Trial Balance"),
-        QStringLiteral("Profit & Loss"),
-        QStringLiteral("Daily Summary"),
-        QStringLiteral("Short / Excess"),
-        QStringLiteral("Inventory"),
-        QStringLiteral("Audit Logs"),
-        QStringLiteral("Settings")
-    });
-    sidebarLayout->addWidget(nav, 1);
 
     QStackedWidget* pages = new QStackedWidget(root);
+    int pageIndex = 0;
+    pages->addWidget(buildDailyEntryPage());
+    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex);
+    pageIndex += 1;
     pages->addWidget(buildDashboardPage());
-    pages->addWidget(buildTransactionsPage());
-    pages->addWidget(buildPartiesPage());
-    pages->addWidget(buildReportPage(QStringLiteral("Outstanding"), QStringLiteral("Customer balances for the selected financial year.")));
-    pages->addWidget(buildReportPage(QStringLiteral("Trial Balance"), QStringLiteral("Account debit and credit balances.")));
-    pages->addWidget(buildReportPage(QStringLiteral("Profit & Loss"), QStringLiteral("Sales, expenses, and net profit summary.")));
-    pages->addWidget(buildReportPage(QStringLiteral("Daily Summary"), QStringLiteral("Daily sales, returns, receipts, and expenses.")));
-    pages->addWidget(buildReportPage(QStringLiteral("Short / Excess"), QStringLiteral("Cash-in-hand snapshots by day.")));
-    pages->addWidget(buildComingSoonPage(QStringLiteral("Inventory"), QStringLiteral("Inventory tables, PDF preview, and email sending are still pending in the native rewrite.")));
-    pages->addWidget(buildAuditPage());
-    pages->addWidget(buildSettingsPage());
+    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex);
+    pageIndex += 1;
 
-    connect(nav, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    addGroupItem(*nav, QStringLiteral("Reports"));
+    pages->addWidget(buildReportPage(QStringLiteral("Party Ledger"), QStringLiteral("Party ledger with date filters and running balances.")));
+    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Day Book"), QStringLiteral("Daily transaction register for selected dates.")));
+    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Daily Summary"), QStringLiteral("Daily sales, returns, receipts, and expenses.")));
+    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Short / Excess"), QStringLiteral("Cash-in-hand snapshots by day.")));
+    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Purchase Report"), QStringLiteral("Purchase summary and supplier analysis.")));
+    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Expenses"), QStringLiteral("Expense transactions and totals.")));
+    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Outstanding"), QStringLiteral("Customer balances for the selected financial year.")));
+    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Trial Balance"), QStringLiteral("Account debit and credit balances.")));
+    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildReportPage(QStringLiteral("Profit & Loss"), QStringLiteral("Sales, expenses, and net profit summary.")));
+    addNavItem(*nav, QStringLiteral("P & L"), pageIndex);
+    pageIndex += 1;
+
+    addGroupItem(*nav, QStringLiteral("Inventory"));
+    pages->addWidget(buildComingSoonPage(QStringLiteral("Inventory Management"), QStringLiteral("Inventory tables, PDF preview, and email sending are still pending in the native rewrite.")));
+    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildComingSoonPage(QStringLiteral("Stock Value Report"), QStringLiteral("Inventory valuation report will use the native inventory service once implemented.")));
+    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex);
+    pageIndex += 1;
+
+    addGroupItem(*nav, QStringLiteral("Management"));
+    pages->addWidget(buildPartiesPage());
+    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildAuditPage());
+    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex);
+    pageIndex += 1;
+    pages->addWidget(buildSettingsPage());
+    addNavItem(*nav, QStringLiteral("Settings"), pageIndex);
+    sidebarLayout->addWidget(nav, 1);
+
+    connect(nav, &QListWidget::currentRowChanged, this, [nav, pages](int row) {
+        const QListWidgetItem* item = nav->item(row);
+        if (!item) {
+            return;
+        }
+        const int targetPage = item->data(Qt::UserRole).toInt();
+        if (targetPage >= 0) {
+            pages->setCurrentIndex(targetPage);
+        }
+    });
     nav->setCurrentRow(0);
 
     rootLayout->addWidget(sidebar);
@@ -225,18 +325,97 @@ void DesktopApplication::buildNavigation() {
     setCentralWidget(root);
 }
 
+QWidget* DesktopApplication::buildDailyEntryPage() {
+    QWidget* page = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+
+    layout->addWidget(createPageHeader(
+        QStringLiteral("Daily Transactions"),
+        QStringLiteral("Enter transactions quickly and review the current register."),
+        page
+    ));
+    layout->addWidget(createContextBar(page));
+
+    QFrame* entryPanel = createPanel(page);
+    QGridLayout* form = new QGridLayout(entryPanel);
+    form->setContentsMargins(14, 14, 14, 14);
+    form->setHorizontalSpacing(10);
+    form->setVerticalSpacing(10);
+
+    QDateEdit* date = new QDateEdit(QDate::currentDate(), entryPanel);
+    date->setCalendarPopup(true);
+    QLineEdit* bill = new QLineEdit(entryPanel);
+    bill->setPlaceholderText(QStringLiteral("Bill No."));
+    QLineEdit* party = new QLineEdit(QStringLiteral("Customer"), entryPanel);
+    QComboBox* type = new QComboBox(entryPanel);
+    type->addItems({QStringLiteral("Sale"), QStringLiteral("Receipt"), QStringLiteral("Expense"), QStringLiteral("Purchase"), QStringLiteral("Sale Return")});
+    QComboBox* mode = new QComboBox(entryPanel);
+    mode->addItems({QStringLiteral("Cash"), QStringLiteral("Credit"), QStringLiteral("UPI"), QStringLiteral("Bank")});
+    QDoubleSpinBox* amount = new QDoubleSpinBox(entryPanel);
+    amount->setMaximum(999999999.0);
+    amount->setDecimals(2);
+    QPushButton* save = new QPushButton(QStringLiteral("Save Entry"), entryPanel);
+    QPushButton* clear = new QPushButton(QStringLiteral("Clear"), entryPanel);
+    clear->setObjectName(QStringLiteral("secondaryButton"));
+
+    form->addWidget(new QLabel(QStringLiteral("Date"), entryPanel), 0, 0);
+    form->addWidget(date, 1, 0);
+    form->addWidget(new QLabel(QStringLiteral("Bill No."), entryPanel), 0, 1);
+    form->addWidget(bill, 1, 1);
+    form->addWidget(new QLabel(QStringLiteral("Party"), entryPanel), 0, 2);
+    form->addWidget(party, 1, 2);
+    form->addWidget(new QLabel(QStringLiteral("Type"), entryPanel), 0, 3);
+    form->addWidget(type, 1, 3);
+    form->addWidget(new QLabel(QStringLiteral("Mode"), entryPanel), 0, 4);
+    form->addWidget(mode, 1, 4);
+    form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 0, 5);
+    form->addWidget(amount, 1, 5);
+    form->addWidget(save, 1, 6);
+    form->addWidget(clear, 1, 7);
+    layout->addWidget(entryPanel);
+
+    QFrame* tablePanel = createPanel(page);
+    QVBoxLayout* tableLayout = new QVBoxLayout(tablePanel);
+    QHBoxLayout* tableHeader = new QHBoxLayout();
+    tableHeader->addWidget(createSectionTitle(QStringLiteral("Recent Entries"), tablePanel));
+    tableHeader->addStretch(1);
+    QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), tablePanel);
+    refresh->setObjectName(QStringLiteral("secondaryButton"));
+    tableHeader->addWidget(refresh);
+    tableLayout->addLayout(tableHeader);
+    QTableWidget* table = createDataTable(tablePanel);
+    loadTransactions(*table);
+    tableLayout->addWidget(table);
+    connect(refresh, &QPushButton::clicked, this, [this, table]() { loadTransactions(*table); });
+    connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount]() {
+        date->setDate(QDate::currentDate());
+        bill->clear();
+        party->setText(QStringLiteral("Customer"));
+        type->setCurrentIndex(0);
+        mode->setCurrentIndex(0);
+        amount->setValue(0.0);
+    });
+    connect(save, &QPushButton::clicked, this, [this]() {
+        statusBar()->showMessage(QStringLiteral("Native save form is visual-only until POST transaction wiring is completed."), 7000);
+    });
+    layout->addWidget(tablePanel, 1);
+    return page;
+}
+
 QWidget* DesktopApplication::buildDashboardPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(18);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
 
-    QLabel* title = new QLabel(QStringLiteral("Dashboard"), page);
-    QLabel* meta = new QLabel(QStringLiteral("Live accounting overview from the configured SQL Server database."), page);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    meta->setObjectName(QStringLiteral("pageMeta"));
-    layout->addWidget(title);
-    layout->addWidget(meta);
+    layout->addWidget(createPageHeader(
+        QStringLiteral("Dashboard"),
+        QStringLiteral("Live accounting overview from the configured SQL Server database."),
+        page
+    ));
+    layout->addWidget(createContextBar(page));
 
     QGridLayout* metrics = new QGridLayout();
     metrics->setSpacing(12);
@@ -253,42 +432,30 @@ QWidget* DesktopApplication::buildDashboardPage() {
     return page;
 }
 
-QWidget* DesktopApplication::buildTransactionsPage() {
-    QWidget* page = new QWidget(this);
-    QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
-
-    QLabel* title = new QLabel(QStringLiteral("Transactions"), page);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(title);
-
-    QFrame* actions = createPanel(page);
-    QHBoxLayout* actionLayout = new QHBoxLayout(actions);
-    QLineEdit* search = new QLineEdit(actions);
-    search->setPlaceholderText(QStringLiteral("Search party, bill, type"));
-    QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), actions);
-    refresh->setObjectName(QStringLiteral("secondaryButton"));
-    actionLayout->addWidget(search, 1);
-    actionLayout->addWidget(refresh);
-    layout->addWidget(actions);
-
-    QTableWidget* table = createDataTable(page);
-    loadTransactions(*table);
-    connect(refresh, &QPushButton::clicked, this, [this, table]() { loadTransactions(*table); });
-    layout->addWidget(table, 1);
-    return page;
-}
-
 QWidget* DesktopApplication::buildPartiesPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(QStringLiteral("Add Party"), QStringLiteral("Create and review customer, supplier, bank, and expense parties."), page));
+    layout->addWidget(createContextBar(page));
 
-    QLabel* title = new QLabel(QStringLiteral("Parties"), page);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(title);
+    QFrame* formPanel = createPanel(page);
+    QGridLayout* form = new QGridLayout(formPanel);
+    QLineEdit* name = new QLineEdit(formPanel);
+    name->setPlaceholderText(QStringLiteral("Enter name..."));
+    QComboBox* type = new QComboBox(formPanel);
+    type->addItems({QStringLiteral("Customer"), QStringLiteral("Credit Customer"), QStringLiteral("Supplier"), QStringLiteral("Bank"), QStringLiteral("Expense")});
+    QPushButton* create = new QPushButton(QStringLiteral("Create Party"), formPanel);
+    form->addWidget(new QLabel(QStringLiteral("Party Name"), formPanel), 0, 0);
+    form->addWidget(name, 1, 0);
+    form->addWidget(new QLabel(QStringLiteral("Type"), formPanel), 0, 1);
+    form->addWidget(type, 1, 1);
+    form->addWidget(create, 1, 2);
+    connect(create, &QPushButton::clicked, this, [this]() {
+        statusBar()->showMessage(QStringLiteral("Native create-party form is visual-only until POST party wiring is completed."), 7000);
+    });
+    layout->addWidget(formPanel);
 
     QTableWidget* table = createDataTable(page);
     loadParties(*table);
@@ -299,16 +466,33 @@ QWidget* DesktopApplication::buildPartiesPage() {
 QWidget* DesktopApplication::buildReportPage(const QString& title, const QString& description) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
 
-    QLabel* heading = new QLabel(title, page);
-    heading->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(heading);
-    layout->addWidget(createSectionDescription(description, page));
+    layout->addWidget(createPageHeader(title, description, page));
+    layout->addWidget(createContextBar(page));
+
+    QFrame* filters = createPanel(page);
+    QHBoxLayout* filterLayout = new QHBoxLayout(filters);
+    QLineEdit* search = new QLineEdit(filters);
+    search->setPlaceholderText(QStringLiteral("Search party, bill, amount..."));
+    QDateEdit* start = new QDateEdit(QDate::currentDate().addDays(-30), filters);
+    start->setCalendarPopup(true);
+    QDateEdit* end = new QDateEdit(QDate::currentDate(), filters);
+    end->setCalendarPopup(true);
+    QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), filters);
+    refresh->setObjectName(QStringLiteral("secondaryButton"));
+    filterLayout->addWidget(search, 1);
+    filterLayout->addWidget(new QLabel(QStringLiteral("Start"), filters));
+    filterLayout->addWidget(start);
+    filterLayout->addWidget(new QLabel(QStringLiteral("End"), filters));
+    filterLayout->addWidget(end);
+    filterLayout->addWidget(refresh);
+    layout->addWidget(filters);
 
     QTableWidget* table = createDataTable(page);
     loadReportTable(*table, title);
+    connect(refresh, &QPushButton::clicked, this, [this, table, title]() { loadReportTable(*table, title); });
     layout->addWidget(table, 1);
     return page;
 }
@@ -316,12 +500,10 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
 QWidget* DesktopApplication::buildAuditPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
-
-    QLabel* title = new QLabel(QStringLiteral("Audit Logs"), page);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(title);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(QStringLiteral("Audit Logs"), QStringLiteral("Administrative activity and native service events."), page));
+    layout->addWidget(createContextBar(page));
 
     QTableWidget* table = createDataTable(page);
     loadAuditLogs(*table);
@@ -332,12 +514,10 @@ QWidget* DesktopApplication::buildAuditPage() {
 QWidget* DesktopApplication::buildSettingsPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
-
-    QLabel* title = new QLabel(QStringLiteral("Settings"), page);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(title);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(QStringLiteral("Settings"), QStringLiteral("Database configuration, backup paths, and native runtime controls."), page));
+    layout->addWidget(createContextBar(page));
 
     QFrame* panel = createPanel(page);
     QGridLayout* form = new QGridLayout(panel);
@@ -358,12 +538,15 @@ QWidget* DesktopApplication::buildSettingsPage() {
 QWidget* DesktopApplication::buildComingSoonPage(const QString& title, const QString& description) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(14);
-    QLabel* heading = new QLabel(title, page);
-    heading->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(heading);
-    layout->addWidget(createSectionDescription(description, page));
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(title, description, page));
+    layout->addWidget(createContextBar(page));
+    QFrame* panel = createPanel(page);
+    QVBoxLayout* panelLayout = new QVBoxLayout(panel);
+    panelLayout->addWidget(createSectionTitle(QStringLiteral("Native parity pending"), panel));
+    panelLayout->addWidget(createSectionDescription(description, panel));
+    layout->addWidget(panel);
     layout->addStretch(1);
     return page;
 }
@@ -413,6 +596,32 @@ void DesktopApplication::loadAuditLogs(QTableWidget& table) {
 
 void DesktopApplication::loadReportTable(QTableWidget& table, const QString& reportName) {
     try {
+        if (reportName == QStringLiteral("Party Ledger")) {
+            QJsonArray rows;
+            QJsonObject placeholder;
+            placeholder.insert(QStringLiteral("date"), QStringLiteral("--"));
+            placeholder.insert(QStringLiteral("bill_no"), QStringLiteral("--"));
+            placeholder.insert(QStringLiteral("type"), QStringLiteral("Select party in native service wiring"));
+            placeholder.insert(QStringLiteral("mode"), QStringLiteral("--"));
+            placeholder.insert(QStringLiteral("amount"), 0.0);
+            placeholder.insert(QStringLiteral("balance"), 0.0);
+            rows.append(placeholder);
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, rows);
+            return;
+        }
+        if (reportName == QStringLiteral("Day Book")) {
+            const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 100, 1);
+            QJsonArray data;
+            for (const domain::TransactionRow& row : rows) {
+                data.append(transactionToJson(row));
+            }
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, data);
+            return;
+        }
+        if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, QJsonArray());
+            return;
+        }
         if (reportName == QStringLiteral("Outstanding")) {
             const QJsonObject report = context_.services().reports->outstanding();
             setTableRows(table, {QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("balance")}, report.value(QStringLiteral("data")).toArray());
