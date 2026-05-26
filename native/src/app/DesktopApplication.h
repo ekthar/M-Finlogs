@@ -8,6 +8,8 @@
 #include <QTableWidget>
 
 class QGridLayout;
+class QListWidget;
+class QStackedWidget;
 
 namespace mfinlogs::app {
 
