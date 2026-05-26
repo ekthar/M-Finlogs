@@ -21,6 +21,8 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
 
 find_package(CURL REQUIRED)
 
+# Runtime DLLs are collected by the Windows Actions packaging step.
+
 qt_standard_project_setup()
 
 set(MFINLOGS_NATIVE_SOURCES
