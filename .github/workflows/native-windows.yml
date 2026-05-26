@@ -64,8 +64,19 @@ jobs:
       - name: Build
         run: cmake --build native\build --config Release --target mfinlogs-native
 
+      - name: Package native executable
+        run: |
+          $packageDir = "native\build\package"
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+          Copy-Item -LiteralPath "native\build\Release\mfinlogs-native.exe" -Destination $packageDir -Force
+          windeployqt --release --compiler-runtime "$packageDir\mfinlogs-native.exe"
+          $vcpkgBin = "$env:MFINLOGS_VCPKG_ROOT\installed\$env:VCPKG_DEFAULT_TRIPLET\bin"
+          if (Test-Path -LiteralPath $vcpkgBin) {
+            Copy-Item -Path "$vcpkgBin\*.dll" -Destination $packageDir -Force
+          }
+
       - name: Upload native executable
         uses: actions/upload-artifact@v4
         with:
           name: mfinlogs-native-windows
-          path: native\build\Release\mfinlogs-native.exe
+          path: native\build\package\**
