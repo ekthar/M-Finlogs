@@ -10,6 +10,7 @@
 #include <QDate>
 #include <QDateEdit>
 #include <QDoubleSpinBox>
+#include <QEvent>
 #include <QFileDialog>
 #include <QComboBox>
 #include <QFormLayout>
@@ -30,6 +31,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -43,8 +45,35 @@
 #include <algorithm>
 #include <memory>
 #include <stdexcept>
+#include <functional>
 
 namespace {
+
+class DefaultPartyTextFilter final : public QObject {
+public:
+    explicit DefaultPartyTextFilter(QLineEdit& input)
+        : QObject(&input), input_(input) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched != &input_) {
+            return QObject::eventFilter(watched, event);
+        }
+        if (event->type() == QEvent::FocusIn) {
+            if (input_.text() == QStringLiteral("Customer")) {
+                input_.clear();
+            }
+            input_.selectAll();
+        }
+        if (event->type() == QEvent::FocusOut && input_.text().trimmed().isEmpty()) {
+            input_.setText(QStringLiteral("Customer"));
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QLineEdit& input_;
+};
 
 QLabel* createSectionTitle(const QString& title, QWidget* parent) {
     QLabel* label = new QLabel(title, parent);
@@ -226,6 +255,25 @@ QJsonObject transactionToJson(const mfinlogs::domain::TransactionRow& row) {
     return item;
 }
 
+QString incrementBillNumber(const QString& billNo) {
+    if (billNo.trimmed().isEmpty()) {
+        return QString();
+    }
+
+    int index = billNo.size() - 1;
+    while (index >= 0 && billNo.at(index).isDigit()) {
+        index -= 1;
+    }
+    if (index == billNo.size() - 1) {
+        return billNo;
+    }
+
+    const QString prefix = billNo.left(index + 1);
+    const QString numberText = billNo.mid(index + 1);
+    const QString nextNumber = QString::number(numberText.toLongLong() + 1).rightJustified(numberText.size(), QLatin1Char('0'));
+    return prefix + nextNumber;
+}
+
 int rangeDays(const QDate& start, const QDate& end) {
     return static_cast<int>(std::max<qint64>(1, start.daysTo(end) + 1));
 }
@@ -238,6 +286,22 @@ bool rowContainsText(const QTableWidget& table, int rowIndex, const QString& tex
         }
     }
     return false;
+}
+
+QShortcut* createShortcut(QWidget& owner, const QKeySequence& sequence, const std::function<void()>& action) {
+    QShortcut* shortcut = new QShortcut(sequence, &owner);
+    shortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    QObject::connect(shortcut, &QShortcut::activated, &owner, action);
+    return shortcut;
+}
+
+void focusWidget(QWidget& widget) {
+    widget.setFocus(Qt::ShortcutFocusReason);
+    if (QLineEdit* lineEdit = qobject_cast<QLineEdit*>(&widget)) {
+        lineEdit->selectAll();
+    } else if (QDoubleSpinBox* spinBox = qobject_cast<QDoubleSpinBox*>(&widget)) {
+        spinBox->selectAll();
+    }
 }
 
 } // namespace
@@ -414,18 +478,20 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QLineEdit* bill = new QLineEdit(entryPanel);
     bill->setPlaceholderText(QStringLiteral("Bill No."));
     QLineEdit* party = new QLineEdit(QStringLiteral("Customer"), entryPanel);
+    party->installEventFilter(new DefaultPartyTextFilter(*party));
     try {
         QCompleter* completer = new QCompleter(partyNames(), party);
         completer->setCaseSensitivity(Qt::CaseInsensitive);
         completer->setFilterMode(Qt::MatchContains);
+        completer->setCompletionMode(QCompleter::PopupCompletion);
         party->setCompleter(completer);
     } catch (const std::exception& err) {
         showError(QStringLiteral("Party Suggestions"), err);
     }
     QComboBox* type = new QComboBox(entryPanel);
-    type->addItems({QStringLiteral("Sale"), QStringLiteral("Receipt"), QStringLiteral("Expense"), QStringLiteral("Purchase"), QStringLiteral("Sale Return")});
+    type->addItems({QStringLiteral("Sale"), QStringLiteral("Sale Return"), QStringLiteral("Expense"), QStringLiteral("Receipt"), QStringLiteral("Purchase")});
     QComboBox* mode = new QComboBox(entryPanel);
-    mode->addItems({QStringLiteral("Cash"), QStringLiteral("Credit"), QStringLiteral("UPI"), QStringLiteral("Bank")});
+    mode->addItems({QStringLiteral("Credit"), QStringLiteral("Cash"), QStringLiteral("UPI"), QStringLiteral("Bank")});
     QDoubleSpinBox* amount = new QDoubleSpinBox(entryPanel);
     amount->setMaximum(999999999.0);
     amount->setDecimals(2);
@@ -452,6 +518,34 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(clear, 1, 8);
     layout->addWidget(entryPanel);
 
+    createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusWidget(*bill); });
+    createShortcut(*date, QKeySequence(Qt::Key_Enter), [bill]() { focusWidget(*bill); });
+    createShortcut(*bill, QKeySequence(Qt::Key_Return), [party]() { focusWidget(*party); });
+    createShortcut(*bill, QKeySequence(Qt::Key_Enter), [party]() { focusWidget(*party); });
+    createShortcut(*party, QKeySequence(Qt::Key_Return), [type]() { focusWidget(*type); });
+    createShortcut(*party, QKeySequence(Qt::Key_Enter), [type]() { focusWidget(*type); });
+    createShortcut(*type, QKeySequence(Qt::Key_Return), [mode]() { focusWidget(*mode); });
+    createShortcut(*type, QKeySequence(Qt::Key_Enter), [mode]() { focusWidget(*mode); });
+    createShortcut(*mode, QKeySequence(Qt::Key_Return), [amount]() { focusWidget(*amount); });
+    createShortcut(*mode, QKeySequence(Qt::Key_Enter), [amount]() { focusWidget(*amount); });
+    createShortcut(*amount, QKeySequence(Qt::Key_Return), [save]() { save->click(); });
+    createShortcut(*amount, QKeySequence(Qt::Key_Enter), [save]() { save->click(); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("F1")), [type]() { type->setCurrentText(QStringLiteral("Sale")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("F2")), [type]() { type->setCurrentText(QStringLiteral("Sale Return")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("F3")), [type]() { type->setCurrentText(QStringLiteral("Expense")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("F4")), [type]() { type->setCurrentText(QStringLiteral("Receipt")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("F5")), [type]() { type->setCurrentText(QStringLiteral("Purchase")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("Ctrl+1")), [mode]() { mode->setCurrentText(QStringLiteral("Credit")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("Ctrl+2")), [mode]() { mode->setCurrentText(QStringLiteral("Cash")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("Ctrl+3")), [mode]() { mode->setCurrentText(QStringLiteral("UPI")); });
+    createShortcut(*entryPanel, QKeySequence(QStringLiteral("Ctrl+4")), [mode]() { mode->setCurrentText(QStringLiteral("Bank")); });
+
+    connect(party, &QLineEdit::editingFinished, this, [party]() {
+        if (party->text().trimmed().isEmpty()) {
+            party->setText(QStringLiteral("Customer"));
+        }
+    });
+
     QFrame* tablePanel = createPanel(page);
     QVBoxLayout* tableLayout = new QVBoxLayout(tablePanel);
     QHBoxLayout* tableHeader = new QHBoxLayout();
@@ -473,6 +567,9 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         loadTransactions(*table);
         applyTableSearch(*table, transactionSearch->text());
     });
+    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+S")), [save]() { save->click(); });
+    createShortcut(*page, QKeySequence(QStringLiteral("Alt+N")), [date]() { focusWidget(*date); });
+    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+K")), [transactionSearch]() { focusWidget(*transactionSearch); });
     const std::shared_ptr<int> editingId = std::make_shared<int>(0);
     connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, editingId]() {
         *editingId = 0;
@@ -483,6 +580,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         mode->setCurrentIndex(0);
         amount->setValue(0.0);
         save->setText(QStringLiteral("Save Entry"));
+        focusWidget(*bill);
     });
     connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, date, bill, party, type, mode, amount, save, editingId]() {
         const QList<QTableWidgetItem*> selected = table->selectedItems();
@@ -522,6 +620,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                 throw std::invalid_argument("Amount must be greater than zero");
             }
 
+            const QString currentBill = bill->text().trimmed();
             if (*editingId > 0) {
                 const QString adminUser = QStringLiteral("native-admin");
                 context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("txn_date"), date->date().toString(Qt::ISODate), adminUser});
@@ -541,6 +640,12 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                     amount->value()
                 });
                 statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
+                bill->setText(incrementBillNumber(currentBill));
+                party->setText(QStringLiteral("Customer"));
+                type->setCurrentText(QStringLiteral("Sale"));
+                mode->setCurrentText(QStringLiteral("Credit"));
+                amount->setValue(0.0);
+                focusWidget(*bill);
             }
             loadTransactions(*table);
             applyTableSearch(*table, transactionSearch->text());
@@ -667,6 +772,7 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
         QCompleter* completer = new QCompleter(partyNames(), search);
         completer->setCaseSensitivity(Qt::CaseInsensitive);
         completer->setFilterMode(Qt::MatchContains);
+        completer->setCompletionMode(QCompleter::PopupCompletion);
         search->setCompleter(completer);
     } catch (const std::exception& err) {
         showError(QStringLiteral("Report Party Suggestions"), err);
