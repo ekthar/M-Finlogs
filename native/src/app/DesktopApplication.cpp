@@ -5,12 +5,14 @@
 #include <QAction>
 #include <QApplication>
 #include <QAbstractItemView>
+#include <QCoreApplication>
 #include <QDate>
 #include <QDateEdit>
 #include <QDoubleSpinBox>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QFont>
+#include <QFontDatabase>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -35,6 +37,7 @@
 #include <QVBoxLayout>
 
 #include <exception>
+#include <stdexcept>
 
 namespace {
 
@@ -58,14 +61,25 @@ QFrame* createPanel(QWidget* parent) {
     return panel;
 }
 
-QFrame* createContextBar(QWidget* parent) {
+QString currentCompanyText(mfinlogs::app::AppContext& context) {
+    const mfinlogs::domain::DatabaseConfig config = context.services().config->readDatabaseConfig();
+    return QStringLiteral("Database: %1").arg(config.database);
+}
+
+QString currentFinancialYearText() {
+    const QDate today = QDate::currentDate();
+    const int startYear = today.month() >= 4 ? today.year() : today.year() - 1;
+    return QStringLiteral("FY: %1-%2").arg(startYear).arg(startYear + 1);
+}
+
+QFrame* createContextBar(mfinlogs::app::AppContext& context, QWidget* parent) {
     QFrame* bar = new QFrame(parent);
     bar->setObjectName(QStringLiteral("contextBar"));
     QHBoxLayout* layout = new QHBoxLayout(bar);
     layout->setContentsMargins(12, 8, 12, 8);
     layout->setSpacing(10);
-    QLabel* company = new QLabel(QStringLiteral("Company: default"), bar);
-    QLabel* year = new QLabel(QStringLiteral("FY: current"), bar);
+    QLabel* company = new QLabel(currentCompanyText(context), bar);
+    QLabel* year = new QLabel(currentFinancialYearText(), bar);
     QLabel* mode = new QLabel(QStringLiteral("Runtime: native"), bar);
     company->setObjectName(QStringLiteral("contextChip"));
     year->setObjectName(QStringLiteral("contextChip"));
@@ -134,6 +148,35 @@ QString moneyText(double value) {
     return QStringLiteral("%1").arg(value, 0, 'f', 2);
 }
 
+mfinlogs::domain::TransactionType transactionTypeFromText(const QString& text) {
+    if (text == QStringLiteral("Sale")) {
+        return mfinlogs::domain::TransactionType::Sale;
+    }
+    if (text == QStringLiteral("Sale Return")) {
+        return mfinlogs::domain::TransactionType::SaleReturn;
+    }
+    if (text == QStringLiteral("Purchase")) {
+        return mfinlogs::domain::TransactionType::Purchase;
+    }
+    if (text == QStringLiteral("Expense")) {
+        return mfinlogs::domain::TransactionType::Expense;
+    }
+    return mfinlogs::domain::TransactionType::Receipt;
+}
+
+mfinlogs::domain::PaymentMode paymentModeFromText(const QString& text) {
+    if (text == QStringLiteral("Credit")) {
+        return mfinlogs::domain::PaymentMode::Credit;
+    }
+    if (text == QStringLiteral("UPI")) {
+        return mfinlogs::domain::PaymentMode::Upi;
+    }
+    if (text == QStringLiteral("Bank")) {
+        return mfinlogs::domain::PaymentMode::Bank;
+    }
+    return mfinlogs::domain::PaymentMode::Cash;
+}
+
 QJsonObject transactionToJson(const mfinlogs::domain::TransactionRow& row) {
     QJsonObject item;
     item.insert(QStringLiteral("id"), row.id);
@@ -192,9 +235,12 @@ DesktopApplication::DesktopApplication(AppContext& context)
 }
 
 void DesktopApplication::applyTheme() {
-    qApp->setFont(QFont(QStringLiteral("Cascadia Mono"), 10));
+    const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Regular.ttf"));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Bold.ttf"));
+    qApp->setFont(QFont(QStringLiteral("Space Mono"), 10));
     qApp->setStyleSheet(QStringLiteral(
-        "* { font-family: 'Cascadia Mono', 'Consolas', 'Courier New', monospace; letter-spacing: 0; }"
+        "* { font-family: 'Space Mono', 'Consolas', 'Courier New', monospace; letter-spacing: 0; }"
         "QMainWindow, QWidget#workspace { background: #f4eedf; color: #2d3a33; font-size: 12px; }"
         "QWidget#sidebarWrap { background: #f7efdf; border-right: 1px solid #ddd2bb; }"
         "QListWidget#sidebar { background: transparent; border: 0; color: #536158; padding: 8px 10px 12px 10px; outline: 0; }"
@@ -336,7 +382,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         QStringLiteral("Enter transactions quickly and review the current register."),
         page
     ));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QFrame* entryPanel = createPanel(page);
     QGridLayout* form = new QGridLayout(entryPanel);
@@ -397,8 +443,29 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         mode->setCurrentIndex(0);
         amount->setValue(0.0);
     });
-    connect(save, &QPushButton::clicked, this, [this]() {
-        statusBar()->showMessage(QStringLiteral("Native save form is visual-only until POST transaction wiring is completed."), 7000);
+    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table]() {
+        try {
+            const QString partyName = party->text().trimmed();
+            if (partyName.isEmpty()) {
+                throw std::invalid_argument("Party is required");
+            }
+            if (amount->value() <= 0.0) {
+                throw std::invalid_argument("Amount must be greater than zero");
+            }
+
+            context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                date->date(),
+                bill->text().trimmed(),
+                partyName,
+                transactionTypeFromText(type->currentText()),
+                paymentModeFromText(mode->currentText()),
+                amount->value()
+            });
+            loadTransactions(*table);
+            statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Save Entry"), err);
+        }
     });
     layout->addWidget(tablePanel, 1);
     return page;
@@ -415,7 +482,7 @@ QWidget* DesktopApplication::buildDashboardPage() {
         QStringLiteral("Live accounting overview from the configured SQL Server database."),
         page
     ));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QGridLayout* metrics = new QGridLayout();
     metrics->setSpacing(12);
@@ -438,7 +505,7 @@ QWidget* DesktopApplication::buildPartiesPage() {
     layout->setContentsMargins(22, 18, 22, 22);
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(QStringLiteral("Add Party"), QStringLiteral("Create and review customer, supplier, bank, and expense parties."), page));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QFrame* formPanel = createPanel(page);
     QGridLayout* form = new QGridLayout(formPanel);
@@ -452,13 +519,25 @@ QWidget* DesktopApplication::buildPartiesPage() {
     form->addWidget(new QLabel(QStringLiteral("Type"), formPanel), 0, 1);
     form->addWidget(type, 1, 1);
     form->addWidget(create, 1, 2);
-    connect(create, &QPushButton::clicked, this, [this]() {
-        statusBar()->showMessage(QStringLiteral("Native create-party form is visual-only until POST party wiring is completed."), 7000);
-    });
     layout->addWidget(formPanel);
 
     QTableWidget* table = createDataTable(page);
     loadParties(*table);
+    connect(create, &QPushButton::clicked, this, [this, name, type, table]() {
+        try {
+            const QString partyName = name->text().trimmed();
+            if (partyName.isEmpty()) {
+                throw std::invalid_argument("Party name is required");
+            }
+            const bool creditAllowed = type->currentText() == QStringLiteral("Credit Customer");
+            context_.services().parties->createParty(partyName, type->currentText(), creditAllowed);
+            name->clear();
+            loadParties(*table);
+            statusBar()->showMessage(QStringLiteral("Party created"), 5000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Create Party"), err);
+        }
+    });
     layout->addWidget(table, 1);
     return page;
 }
@@ -470,7 +549,7 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     layout->setSpacing(12);
 
     layout->addWidget(createPageHeader(title, description, page));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QFrame* filters = createPanel(page);
     QHBoxLayout* filterLayout = new QHBoxLayout(filters);
@@ -503,7 +582,7 @@ QWidget* DesktopApplication::buildAuditPage() {
     layout->setContentsMargins(22, 18, 22, 22);
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(QStringLiteral("Audit Logs"), QStringLiteral("Administrative activity and native service events."), page));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QTableWidget* table = createDataTable(page);
     loadAuditLogs(*table);
@@ -517,7 +596,7 @@ QWidget* DesktopApplication::buildSettingsPage() {
     layout->setContentsMargins(22, 18, 22, 22);
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(QStringLiteral("Settings"), QStringLiteral("Database configuration, backup paths, and native runtime controls."), page));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
 
     QFrame* panel = createPanel(page);
     QGridLayout* form = new QGridLayout(panel);
@@ -541,7 +620,7 @@ QWidget* DesktopApplication::buildComingSoonPage(const QString& title, const QSt
     layout->setContentsMargins(22, 18, 22, 22);
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(title, description, page));
-    layout->addWidget(createContextBar(page));
+    layout->addWidget(createContextBar(context_, page));
     QFrame* panel = createPanel(page);
     QVBoxLayout* panelLayout = new QVBoxLayout(panel);
     panelLayout->addWidget(createSectionTitle(QStringLiteral("Native parity pending"), panel));
