@@ -238,6 +238,7 @@ QTableWidget* createInventoryTable(QWidget* parent) {
     table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
     table->horizontalHeader()->setStretchLastSection(false);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    table->horizontalHeader()->setMinimumSectionSize(60);
     table->verticalHeader()->setDefaultSectionSize(36);
     table->installEventFilter(new InventoryTableKeyFilter(*table));
     return table;
@@ -260,7 +261,7 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
 QFrame* createMetricTile(const QString& label, const QString& value, QWidget* parent) {
     QFrame* tile = createPanel(parent);
     QVBoxLayout* layout = new QVBoxLayout(tile);
-    layout->setContentsMargins(16, 12, 16, 12);
+    layout->setContentsMargins(16, 14, 16, 14);
     layout->setSpacing(6);
     QLabel* titleLabel = new QLabel(label, tile);
     QLabel* valueLabel = new QLabel(value, tile);
@@ -282,8 +283,9 @@ QString findExistingPartyName(const QStringList& existingNames, const QString& t
 }
 
 int daysInInventoryMonth(int month) {
-    const QDate today = QDate::currentDate();
-    const int calendarYear = month >= 4 ? today.year() : today.year() + 1;
+    // Use a fixed non-leap year (2023) for consistent day counts across all financial years.
+    // April–December map to 2023; January–March map to 2024 (next calendar year in FY).
+    const int calendarYear = month >= 4 ? 2023 : 2024;
     return QDate(calendarYear, month, 1).daysInMonth();
 }
 
@@ -493,6 +495,190 @@ void focusEntryWidget(QWidget& widget) {
     }
 }
 
+static QString buildModernQss() {
+    return QStringLiteral(
+        // Universal font reset
+        "* { font-family: 'Hanken Grotesk', 'Inter', 'Segoe UI', sans-serif; }"
+
+        // Workspace
+        "QMainWindow, QWidget#workspace { background: #f7f1df; color: #0f2436; font-size: 13px; }"
+
+        // Sidebar container
+        "QWidget#sidebarWrap { background: #082f63; border-right: 1px solid #06264f; }"
+
+        // Sidebar list
+        "QListWidget#sidebar { background: transparent; border: none; color: #dce9f8;"
+        " font-size: 13px; font-weight: 600; outline: none; }"
+        "QListWidget#sidebar::item { padding: 10px 18px; border-radius: 6px; }"
+        "QListWidget#sidebar::item:selected { background: #d7e8ff; color: #082f63; font-weight: 700; }"
+        "QListWidget#sidebar::item:hover:!selected { background: #1a4a8a; color: #ffffff; }"
+
+        // Brand labels
+        "QLabel#brandLabel { color: #ffffff; font-size: 18px; font-weight: 800;"
+        " padding: 20px 18px 2px 18px; }"
+        "QLabel#brandSub { color: #8fb8ea; font-size: 11px; padding: 0 18px 16px 18px; }"
+
+        // Typography labels
+        "QLabel#pageTitle { color: #082f63; font-size: 22px; font-weight: 800; }"
+        "QLabel#pageMeta { color: #58677a; font-size: 12px; }"
+        "QLabel#sectionTitle { color: #082f63; font-size: 15px; font-weight: 700; }"
+        "QLabel#metricLabel { color: #58677a; font-size: 11px; font-weight: 700;"
+        " text-transform: uppercase; }"
+        "QLabel#metricValue { color: #082f63; font-size: 20px; font-weight: 800; }"
+
+        // Panels / cards
+        "QFrame#panel { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 10px; }"
+        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 10px; }"
+        "QFrame#contextBar { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px;"
+        " padding: 6px 12px; }"
+
+        // Tables
+        "QTableWidget#dataTable, QTableWidget#inventoryTable {"
+        " background: #fffaf0; alternate-background-color: #f4ead6;"
+        " border: 1px solid #d7c8a8; border-radius: 8px;"
+        " selection-background-color: #d7e8ff; selection-color: #082f63;"
+        " gridline-color: #e2d4b8; color: #0f2436; }"
+
+        // Header — explicit background-color prevents invisible/transparent headers
+        "QHeaderView::section {"
+        " background-color: #082f63; color: #fffaf0;"
+        " border: none; border-right: 1px solid #1b4c83; border-bottom: 2px solid #1b4c83;"
+        " padding: 8px 10px; font-weight: 700; font-size: 12px; }"
+        "QHeaderView::section:first { border-top-left-radius: 7px; }"
+        "QHeaderView::section:last { border-top-right-radius: 7px; border-right: none; }"
+        // Fills corner widget gap
+        "QHeaderView { background-color: #082f63; }"
+
+        // Table items
+        "QTableWidget::item { padding: 7px 10px; border-bottom: 1px solid #eadcc2; color: #0f2436; }"
+        "QTableWidget#inventoryTable::item { padding: 5px 8px; border-right: 1px solid #eadcc2; }"
+
+        // Buttons
+        "QPushButton { background: #0b5cab; color: #fffaf0; border: 1px solid #073f78;"
+        " border-radius: 7px; min-height: 32px; padding: 7px 16px; font-weight: 700; }"
+        "QPushButton:hover { background: #074c91; }"
+        "QPushButton:pressed { background: #063d76; }"
+        "QPushButton#secondaryButton { background: #edf5ff; color: #082f63;"
+        " border: 1px solid #8fb8ea; }"
+        "QPushButton#secondaryButton:hover { background: #d7e8ff; }"
+
+        // Inputs
+        "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
+        " background: #fffaf0; border: 1px solid #c9b68f; border-radius: 7px;"
+        " min-height: 34px; padding: 0 10px; color: #0f2436; font-size: 13px; }"
+        "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {"
+        " background: #ffffff; border-color: #0b5cab; }"
+        "QComboBox::drop-down { border: none; width: 24px; }"
+
+        // Scrollbars — vertical
+        "QScrollBar:vertical { background: #f0e8d4; width: 8px; border-radius: 4px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: #b8a88a; border-radius: 4px; min-height: 24px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+
+        // Scrollbars — horizontal
+        "QScrollBar:horizontal { background: #f0e8d4; height: 8px; border-radius: 4px; margin: 0; }"
+        "QScrollBar::handle:horizontal { background: #b8a88a; border-radius: 4px; min-width: 24px; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
+
+        // Status bar
+        "QStatusBar { background: #fffaf0; color: #58677a; border-top: 1px solid #d7c8a8;"
+        " font-size: 12px; }"
+
+        // Dialogs
+        "QDialog { background: #f7f1df; }"
+        "QMessageBox { background: #f7f1df; }"
+
+        // Toolbar
+        "QToolBar { background: #fffaf0; border-bottom: 1px solid #d7c8a8; }"
+
+        // ── Welcome / Onboarding ──────────────────────────────────────────────
+
+        // Full-bleed hero panel (navy gradient feel via solid colour)
+        "QFrame#welcomeHero {"
+        " background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+        "   stop:0 #082f63, stop:0.55 #0b5cab, stop:1 #1a6fc4);"
+        " border-radius: 16px; border: none; }"
+
+        // Kicker / eyebrow text
+        "QLabel#welcomeKicker {"
+        " color: #8fb8ea; font-size: 11px; font-weight: 700;"
+        " letter-spacing: 2px; text-transform: uppercase; }"
+
+        // Hero headline
+        "QLabel#welcomeTitle {"
+        " color: #ffffff; font-size: 34px; font-weight: 800; }"
+
+        // Hero sub-headline
+        "QLabel#welcomeSubtitle {"
+        " color: #c8dff5; font-size: 15px; font-weight: 400; }"
+
+        // Stat / badge chips inside hero
+        "QLabel#welcomeStat {"
+        " color: #ffffff; background: rgba(255,255,255,0.12);"
+        " border: 1px solid rgba(255,255,255,0.22);"
+        " border-radius: 20px; padding: 6px 16px;"
+        " font-size: 12px; font-weight: 600; }"
+
+        // Feature cards (off-white cards below hero)
+        "QFrame#featureCard {"
+        " background: #fffaf0; border: 1px solid #d7c8a8;"
+        " border-radius: 12px; }"
+        "QFrame#featureCard:hover {"
+        " background: #ffffff; border-color: #0b5cab; }"
+
+        // Feature card icon label (large emoji / symbol)
+        "QLabel#featureIcon {"
+        " color: #0b5cab; font-size: 28px; }"
+
+        // Feature card title
+        "QLabel#featureTitle {"
+        " color: #082f63; font-size: 14px; font-weight: 700; }"
+
+        // Feature card description
+        "QLabel#featureDesc {"
+        " color: #58677a; font-size: 12px; }"
+
+        // Onboarding step container
+        "QFrame#onboardStep {"
+        " background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 12px; }"
+
+        // Onboarding step number badge
+        "QLabel#stepBadge {"
+        " background: #0b5cab; color: #ffffff;"
+        " border-radius: 14px; font-size: 13px; font-weight: 800;"
+        " min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;"
+        " qproperty-alignment: AlignCenter; }"
+
+        // Onboarding step title
+        "QLabel#stepTitle {"
+        " color: #082f63; font-size: 14px; font-weight: 700; }"
+
+        // Onboarding step description
+        "QLabel#stepDesc {"
+        " color: #58677a; font-size: 12px; }"
+
+        // Divider line
+        "QFrame#divider {"
+        " background: #d7c8a8; border: none; max-height: 1px; }"
+
+        // Hero primary CTA (white button on dark hero)
+        "QPushButton#heroCta {"
+        " background: #ffffff; color: #082f63;"
+        " border: none; border-radius: 8px;"
+        " min-height: 38px; padding: 8px 22px; font-weight: 800; font-size: 14px; }"
+        "QPushButton#heroCta:hover { background: #eaf3ff; }"
+        "QPushButton#heroCta:pressed { background: #d7e8ff; }"
+
+        // Hero ghost button
+        "QPushButton#heroGhost {"
+        " background: rgba(255,255,255,0.10); color: #ffffff;"
+        " border: 1px solid rgba(255,255,255,0.35); border-radius: 8px;"
+        " min-height: 38px; padding: 8px 22px; font-weight: 600; font-size: 13px; }"
+        "QPushButton#heroGhost:hover { background: rgba(255,255,255,0.20); }"
+        "QPushButton#heroGhost:pressed { background: rgba(255,255,255,0.28); }"
+    );
+}
+
 } // namespace
 
 namespace mfinlogs::app {
@@ -511,49 +697,10 @@ DesktopApplication::DesktopApplication(AppContext& context)
 
 void DesktopApplication::applyTheme() {
     const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Regular.ttf"));
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Bold.ttf"));
-    qApp->setFont(QFont(QStringLiteral("Space Mono"), 10));
-    qApp->setStyleSheet(QStringLiteral(
-        "* { font-family: 'Space Mono', 'Consolas', 'Courier New', monospace; letter-spacing: 0; }"
-        "QMainWindow, QWidget#workspace { background: #f7f1df; color: #0f2436; font-size: 12px; }"
-        "QWidget#sidebarWrap { background: #082f63; border-right: 1px solid #06264f; }"
-        "QListWidget#sidebar { background: transparent; border: 0; color: #dce9f8; padding: 10px 10px 14px 10px; outline: 0; }"
-        "QListWidget#sidebar::item { border-radius: 6px; min-height: 32px; padding: 0 12px; margin: 2px 0; }"
-        "QListWidget#sidebar::item:selected { background: #d7e8ff; color: #082f63; border: 1px solid #8fb8ea; }"
-        "QListWidget#sidebar::item:hover:!selected { background: #12477f; color: #ffffff; }"
-        "QListWidget#sidebar::item:disabled { color: #92abc8; font-size: 11px; font-weight: 700; padding-top: 12px; }"
-        "QLabel#brand { color: #ffffff; font-size: 18px; font-weight: 900; padding: 20px 18px 2px 18px; }"
-        "QLabel#brandSub { color: #b8cee7; font-size: 11px; padding: 0 18px 12px 18px; }"
-        "QLabel#welcomeTitle { color: #082f63; font-size: 38px; font-weight: 900; }"
-        "QLabel#welcomeKicker { color: #1767aa; font-size: 12px; font-weight: 900; }"
-        "QLabel#welcomeStat { color: #6f5d38; font-size: 11px; font-weight: 700; }"
-        "QLabel#pageTitle { color: #082f63; font-size: 23px; font-weight: 900; }"
-        "QLabel#pageMeta { color: #58677a; font-size: 11px; }"
-        "QLabel#sectionTitle { color: #082f63; font-size: 15px; font-weight: 900; }"
-        "QLabel#sectionDescription { color: #58677a; line-height: 18px; }"
-        "QLabel#metricLabel { color: #58677a; font-size: 11px; font-weight: 800; }"
-        "QLabel#metricValue { color: #082f63; font-size: 20px; font-weight: 900; }"
-        "QLabel#contextChip { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 6px; color: #24374a; padding: 6px 10px; }"
-        "QFrame#contextBar { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
-        "QFrame#panel { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
-        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 8px; }"
-        "QFrame#welcomeHero { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
-        "QTableWidget#dataTable, QTableWidget#inventoryTable { background: #fffaf0; alternate-background-color: #f4ead6; border: 1px solid #d7c8a8; border-radius: 8px; selection-background-color: #d7e8ff; selection-color: #082f63; gridline-color: #e2d4b8; color: #0f2436; }"
-        "QHeaderView::section { background: #082f63; color: #fffaf0; border: 0; border-right: 1px solid #1b4c83; padding: 8px; font-weight: 900; }"
-        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #eadcc2; color: #0f2436; }"
-        "QTableWidget#inventoryTable::item { padding: 6px; border-right: 1px solid #eadcc2; border-bottom: 1px solid #eadcc2; }"
-        "QTableWidget#inventoryTable::item:selected { background: #d7e8ff; color: #082f63; }"
-        "QPushButton { background: #0b5cab; color: #fffaf0; border: 1px solid #073f78; border-radius: 6px; min-height: 30px; padding: 7px 13px; font-weight: 900; }"
-        "QPushButton:hover { background: #074c91; }"
-        "QPushButton#secondaryButton { background: #edf5ff; color: #082f63; border: 1px solid #8fb8ea; }"
-        "QPushButton#secondaryButton:hover { background: #d7e8ff; }"
-        "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox { background: #fffaf0; border: 1px solid #c9b68f; border-radius: 6px; min-height: 32px; padding: 0 10px; color: #0f2436; }"
-        "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus { background: #ffffff; border-color: #0b5cab; }"
-        "QComboBox QAbstractItemView { background: #fffaf0; color: #0f2436; selection-background-color: #d7e8ff; selection-color: #082f63; border: 1px solid #8fb8ea; }"
-        "QToolBar { background: #fffaf0; border-bottom: 1px solid #d7c8a8; spacing: 8px; padding: 7px; }"
-        "QStatusBar { background: #fffaf0; color: #58677a; border-top: 1px solid #d7c8a8; }"
-    ));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("HankenGrotesk-Regular.ttf"));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("HankenGrotesk-Bold.ttf"));
+    qApp->setFont(QFont(QStringLiteral("Hanken Grotesk"), 13));
+    qApp->setStyleSheet(buildModernQss());
 }
 
 void DesktopApplication::buildNavigation() {
@@ -572,7 +719,7 @@ void DesktopApplication::buildNavigation() {
 
     QLabel* brand = new QLabel(QStringLiteral("M-Finlogs"), sidebar);
     QLabel* brandSub = new QLabel(QStringLiteral("Native accounting workspace"), sidebar);
-    brand->setObjectName(QStringLiteral("brand"));
+    brand->setObjectName(QStringLiteral("brandLabel"));
     brandSub->setObjectName(QStringLiteral("brandSub"));
     sidebarLayout->addWidget(brand);
     sidebarLayout->addWidget(brandSub);
@@ -725,89 +872,199 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
     layout->setContentsMargins(32, 28, 32, 32);
-    layout->setSpacing(18);
+    layout->setSpacing(20);
 
+    // ── Hero panel ────────────────────────────────────────────────────────────
     QFrame* hero = new QFrame(page);
     hero->setObjectName(QStringLiteral("welcomeHero"));
-    hero->setMinimumHeight(230);
-    QGridLayout* heroLayout = new QGridLayout(hero);
-    heroLayout->setContentsMargins(26, 24, 26, 24);
-    heroLayout->setHorizontalSpacing(22);
-    heroLayout->setVerticalSpacing(12);
-    QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS NATIVE WORKSPACE"), hero);
-    kicker->setObjectName(QStringLiteral("welcomeKicker"));
-    QLabel* title = new QLabel(QStringLiteral("Welcome back"), hero);
-    title->setObjectName(QStringLiteral("welcomeTitle"));
-    QLabel* subtitle = new QLabel(currentCompanyText(context_) + QStringLiteral("  |  ") + currentFinancialYearText(), hero);
-    subtitle->setObjectName(QStringLiteral("pageMeta"));
-    QLabel* statOne = new QLabel(QStringLiteral("Keyboard first entry"), hero);
-    QLabel* statTwo = new QLabel(QStringLiteral("SQL backed ledgers"), hero);
-    QLabel* statThree = new QLabel(QStringLiteral("Packaged native runtime"), hero);
-    statOne->setObjectName(QStringLiteral("welcomeStat"));
-    statTwo->setObjectName(QStringLiteral("welcomeStat"));
-    statThree->setObjectName(QStringLiteral("welcomeStat"));
-    heroLayout->addWidget(kicker, 0, 0, 1, 3);
-    heroLayout->addWidget(title, 1, 0, 1, 3);
-    heroLayout->addWidget(subtitle, 2, 0, 1, 3);
-    heroLayout->addWidget(statOne, 0, 3);
-    heroLayout->addWidget(statTwo, 1, 3);
-    heroLayout->addWidget(statThree, 2, 3);
+    hero->setMinimumHeight(260);
+    QVBoxLayout* heroLayout = new QVBoxLayout(hero);
+    heroLayout->setContentsMargins(40, 36, 40, 36);
+    heroLayout->setSpacing(0);
 
-    QWidget* actionRow = new QWidget(hero);
-    QHBoxLayout* actions = new QHBoxLayout(actionRow);
-    actions->setContentsMargins(0, 10, 0, 0);
-    actions->setSpacing(10);
-    QPushButton* entry = new QPushButton(QStringLiteral("Daily Entry"), hero);
-    QPushButton* reports = new QPushButton(QStringLiteral("Reports"), hero);
-    QPushButton* inventory = new QPushButton(QStringLiteral("Inventory"), hero);
-    QPushButton* settings = new QPushButton(QStringLiteral("Settings"), hero);
-    entry->setMinimumWidth(132);
-    reports->setMinimumWidth(120);
-    inventory->setMinimumWidth(132);
-    settings->setMinimumWidth(120);
-    reports->setObjectName(QStringLiteral("secondaryButton"));
-    inventory->setObjectName(QStringLiteral("secondaryButton"));
-    settings->setObjectName(QStringLiteral("secondaryButton"));
-    actions->addWidget(entry);
-    actions->addWidget(reports);
-    actions->addWidget(inventory);
-    actions->addWidget(settings);
-    actions->addStretch(1);
-    heroLayout->addWidget(actionRow, 3, 0, 1, 4);
+    // Kicker
+    QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS  ·  NATIVE ACCOUNTING WORKSPACE"), hero);
+    kicker->setObjectName(QStringLiteral("welcomeKicker"));
+
+    // Headline
+    QLabel* headline = new QLabel(QStringLiteral("Welcome back."), hero);
+    headline->setObjectName(QStringLiteral("welcomeTitle"));
+
+    // Sub-headline
+    QLabel* subline = new QLabel(
+        currentCompanyText(context_) + QStringLiteral("   ·   ") + currentFinancialYearText(),
+        hero
+    );
+    subline->setObjectName(QStringLiteral("welcomeSubtitle"));
+
+    // Stat chips row
+    QWidget* chipsRow = new QWidget(hero);
+    QHBoxLayout* chipsLayout = new QHBoxLayout(chipsRow);
+    chipsLayout->setContentsMargins(0, 18, 0, 0);
+    chipsLayout->setSpacing(10);
+    const QStringList chips = {
+        QStringLiteral("⚡  Keyboard-first entry"),
+        QStringLiteral("🗄  SQL Server backed"),
+        QStringLiteral("📦  Native runtime"),
+        QStringLiteral("📊  Live reports")
+    };
+    for (const QString& chip : chips) {
+        QLabel* c = new QLabel(chip, chipsRow);
+        c->setObjectName(QStringLiteral("welcomeStat"));
+        chipsLayout->addWidget(c);
+    }
+    chipsLayout->addStretch(1);
+
+    // CTA buttons row
+    QWidget* ctaRow = new QWidget(hero);
+    QHBoxLayout* ctaLayout = new QHBoxLayout(ctaRow);
+    ctaLayout->setContentsMargins(0, 22, 0, 0);
+    ctaLayout->setSpacing(12);
+    QPushButton* ctaEntry    = new QPushButton(QStringLiteral("Open Daily Entry"), hero);
+    QPushButton* ctaReports  = new QPushButton(QStringLiteral("View Reports"), hero);
+    QPushButton* ctaInv      = new QPushButton(QStringLiteral("Inventory"), hero);
+    QPushButton* ctaSettings = new QPushButton(QStringLiteral("Settings"), hero);
+    ctaEntry->setObjectName(QStringLiteral("heroCta"));
+    ctaReports->setObjectName(QStringLiteral("heroGhost"));
+    ctaInv->setObjectName(QStringLiteral("heroGhost"));
+    ctaSettings->setObjectName(QStringLiteral("heroGhost"));
+    ctaLayout->addWidget(ctaEntry);
+    ctaLayout->addWidget(ctaReports);
+    ctaLayout->addWidget(ctaInv);
+    ctaLayout->addWidget(ctaSettings);
+    ctaLayout->addStretch(1);
+
+    heroLayout->addWidget(kicker);
+    heroLayout->addSpacing(10);
+    heroLayout->addWidget(headline);
+    heroLayout->addSpacing(6);
+    heroLayout->addWidget(subline);
+    heroLayout->addWidget(chipsRow);
+    heroLayout->addWidget(ctaRow);
     layout->addWidget(hero);
 
-    QGridLayout* metrics = new QGridLayout();
-    metrics->setSpacing(14);
-    loadDashboard(*metrics);
-    layout->addLayout(metrics);
+    // ── Feature cards row ─────────────────────────────────────────────────────
+    QWidget* cardsRow = new QWidget(page);
+    QHBoxLayout* cardsLayout = new QHBoxLayout(cardsRow);
+    cardsLayout->setContentsMargins(0, 0, 0, 0);
+    cardsLayout->setSpacing(14);
 
-    QFrame* flow = createAccentPanel(page);
-    QGridLayout* flowLayout = new QGridLayout(flow);
-    flowLayout->setContentsMargins(18, 18, 18, 18);
-    flowLayout->setSpacing(14);
-    flowLayout->addWidget(createMetricTile(QStringLiteral("Keyboard Entry"), QStringLiteral("Enter flow active"), flow), 0, 0);
-    flowLayout->addWidget(createMetricTile(QStringLiteral("Inventory"), QStringLiteral("SQL snapshots"), flow), 0, 1);
-    flowLayout->addWidget(createMetricTile(QStringLiteral("Backups"), QStringLiteral("Packaged runtime"), flow), 0, 2);
-    layout->addWidget(flow);
+    struct CardDef { QString icon; QString title; QString desc; };
+    const QList<CardDef> cardDefs = {
+        { QStringLiteral("📝"), QStringLiteral("Daily Entry"),
+          QStringLiteral("Fast keyboard-driven transaction entry with auto-complete party names.") },
+        { QStringLiteral("📈"), QStringLiteral("Reports"),
+          QStringLiteral("Party ledger, day book, P&L, trial balance and more — all live from SQL.") },
+        { QStringLiteral("📦"), QStringLiteral("Inventory"),
+          QStringLiteral("Monthly stock grid with daily quantities, purchases and reorder alerts.") },
+        { QStringLiteral("💰"), QStringLiteral("Dashboard"),
+          QStringLiteral("At-a-glance metrics: sales, receipts, outstanding and cash position.") },
+    };
+    for (const CardDef& def : cardDefs) {
+        QFrame* card = new QFrame(cardsRow);
+        card->setObjectName(QStringLiteral("featureCard"));
+        QVBoxLayout* cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(20, 18, 20, 18);
+        cardLayout->setSpacing(6);
+        QLabel* icon  = new QLabel(def.icon, card);
+        QLabel* title = new QLabel(def.title, card);
+        QLabel* desc  = new QLabel(def.desc, card);
+        icon->setObjectName(QStringLiteral("featureIcon"));
+        title->setObjectName(QStringLiteral("featureTitle"));
+        desc->setObjectName(QStringLiteral("featureDesc"));
+        desc->setWordWrap(true);
+        cardLayout->addWidget(icon);
+        cardLayout->addSpacing(4);
+        cardLayout->addWidget(title);
+        cardLayout->addWidget(desc);
+        cardLayout->addStretch(1);
+        cardsLayout->addWidget(card, 1);
+    }
+    layout->addWidget(cardsRow);
+
+    // ── Onboarding / quick-start steps ───────────────────────────────────────
+    QFrame* onboard = createPanel(page);
+    QVBoxLayout* onboardLayout = new QVBoxLayout(onboard);
+    onboardLayout->setContentsMargins(24, 20, 24, 20);
+    onboardLayout->setSpacing(0);
+
+    QLabel* onboardTitle = new QLabel(QStringLiteral("Quick start"), onboard);
+    onboardTitle->setObjectName(QStringLiteral("sectionTitle"));
+    onboardLayout->addWidget(onboardTitle);
+    onboardLayout->addSpacing(14);
+
+    struct StepDef { QString num; QString title; QString desc; };
+    const QList<StepDef> steps = {
+        { QStringLiteral("1"), QStringLiteral("Connect to SQL Server"),
+          QStringLiteral("Go to Settings → enter your server, database, username and password, then click Save.") },
+        { QStringLiteral("2"), QStringLiteral("Add your parties"),
+          QStringLiteral("Open Add Party to create customer and supplier names before entering transactions.") },
+        { QStringLiteral("3"), QStringLiteral("Enter daily transactions"),
+          QStringLiteral("Use Daily Entry for sales, purchases, receipts and expenses. Tab / Enter moves between fields.") },
+        { QStringLiteral("4"), QStringLiteral("Review reports"),
+          QStringLiteral("Party Ledger, Day Book, P&L and Trial Balance update instantly from your entries.") },
+    };
+
+    for (int i = 0; i < steps.size(); ++i) {
+        const StepDef& step = steps[i];
+        QFrame* stepRow = new QFrame(onboard);
+        stepRow->setObjectName(QStringLiteral("onboardStep"));
+        QHBoxLayout* stepLayout = new QHBoxLayout(stepRow);
+        stepLayout->setContentsMargins(16, 14, 16, 14);
+        stepLayout->setSpacing(16);
+
+        QLabel* badge = new QLabel(step.num, stepRow);
+        badge->setObjectName(QStringLiteral("stepBadge"));
+        badge->setFixedSize(28, 28);
+        badge->setAlignment(Qt::AlignCenter);
+
+        QVBoxLayout* textLayout = new QVBoxLayout();
+        textLayout->setSpacing(3);
+        QLabel* stepTitle = new QLabel(step.title, stepRow);
+        QLabel* stepDesc  = new QLabel(step.desc, stepRow);
+        stepTitle->setObjectName(QStringLiteral("stepTitle"));
+        stepDesc->setObjectName(QStringLiteral("stepDesc"));
+        stepDesc->setWordWrap(true);
+        textLayout->addWidget(stepTitle);
+        textLayout->addWidget(stepDesc);
+
+        stepLayout->addWidget(badge);
+        stepLayout->addLayout(textLayout, 1);
+        onboardLayout->addWidget(stepRow);
+
+        // Thin divider between steps (not after last)
+        if (i < steps.size() - 1) {
+            QFrame* div = new QFrame(onboard);
+            div->setObjectName(QStringLiteral("divider"));
+            div->setFrameShape(QFrame::HLine);
+            div->setFixedHeight(1);
+            onboardLayout->addWidget(div);
+        }
+    }
+    layout->addWidget(onboard);
     layout->addStretch(1);
 
-    auto goToPage = [&pages, &nav](int pageIndex) {
-        for (int row = 0; row < nav.count(); row += 1) {
+    // ── Navigation wiring ─────────────────────────────────────────────────────
+    auto goToPage = [&pages, &nav](int targetIndex) {
+        for (int row = 0; row < nav.count(); ++row) {
             QListWidgetItem* item = nav.item(row);
-            if (item && item->data(Qt::UserRole).toInt() == pageIndex) {
+            if (item && item->data(Qt::UserRole).toInt() == targetIndex) {
                 nav.setCurrentRow(row);
                 return;
             }
         }
-        pages.setCurrentIndex(pageIndex);
+        pages.setCurrentIndex(targetIndex);
     };
-    connect(entry, &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
-    connect(reports, &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
-    connect(inventory, &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
-    connect(settings, &QPushButton::clicked, this, [goToPage, &pages]() { goToPage(pages.count() - 1); });
+    connect(ctaEntry,    &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
+    connect(ctaReports,  &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
+    connect(ctaInv,      &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
+    connect(ctaSettings, &QPushButton::clicked, this, [goToPage, &pages]() { goToPage(pages.count() - 1); });
 
-    animatePanel(*hero, 0);
-    animatePanel(*flow, 180);
+    // ── Staggered entrance animations ─────────────────────────────────────────
+    animatePanel(*hero,     0);
+    animatePanel(*cardsRow, 120);
+    animatePanel(*onboard,  240);
+
     return page;
 }
 
@@ -1641,65 +1898,110 @@ void DesktopApplication::loadParties(QTableWidget& table) {
 }
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
+    // Step 1 — Build 66-element header list
     const int visibleDays = daysInInventoryMonth(month);
-    QStringList headers = {QStringLiteral("row_id"), QStringLiteral("Product"), QStringLiteral("Cost"), QStringLiteral("Min Stock")};
-    for (int day = 1; day <= 31; day += 1) {
-        headers.append(QStringLiteral("%1 Qty").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+    QStringList headers;
+    headers.reserve(66);
+    headers << QStringLiteral("row_id") << QStringLiteral("Product") << QStringLiteral("Cost") << QStringLiteral("Min Stock");
+    for (int day = 1; day <= 31; ++day) {
+        headers.append(QString::asprintf("%02d Qty", day));
     }
-    for (int day = 1; day <= 31; day += 1) {
-        headers.append(QStringLiteral("%1 In").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+    for (int day = 1; day <= 31; ++day) {
+        headers.append(QString::asprintf("%02d In", day));
     }
 
+    // Step 2 — Reset table state BEFORE setting headers
     table.clearSpans();
     table.clear();
-    table.setColumnCount(headers.size());
     table.setRowCount(0);
-    table.setHorizontalHeaderLabels(headers);
-    table.setColumnHidden(0, true);
+    table.setColumnCount(66);
 
-    table.setColumnWidth(1, 230);
-    table.setColumnWidth(2, 95);
-    table.setColumnWidth(3, 100);
-    for (int day = 1; day <= 31; day += 1) {
-        const bool visible = day <= visibleDays;
+    // Step 3 — Set headers FIRST (before any hide/width calls)
+    table.setHorizontalHeaderLabels(headers);
+
+    // Step 4 — Configure column visibility and widths
+    table.setColumnHidden(0, true);   // hide row_id
+    table.setColumnWidth(1, 230);     // Product
+    table.setColumnWidth(2, 95);      // Cost
+    table.setColumnWidth(3, 100);     // Min Stock
+    for (int day = 1; day <= 31; ++day) {
+        const bool visible = (day <= visibleDays);
         table.setColumnHidden(3 + day, !visible);
         table.setColumnHidden(34 + day, !visible);
-        table.setColumnWidth(3 + day, 78);
-        table.setColumnWidth(34 + day, 72);
+        if (visible) {
+            table.setColumnWidth(3 + day, 78);
+            table.setColumnWidth(34 + day, 72);
+        }
     }
+
+    // Step 5 — Load data from service (wrapped in try/catch)
+    QJsonArray rows;
     try {
-        const QJsonArray rows = context_.services().inventory->loadSnapshot(financialYear, month);
-        const int rowCount = rows.isEmpty() ? 1 : rows.size();
-        table.setRowCount(rowCount);
-
-        if (rows.isEmpty()) {
-            QTableWidgetItem* empty = createTableItem(QStringLiteral("No inventory rows yet. Type a product name above and press Enter."), Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-            table.setItem(0, 1, empty);
-            for (int columnIndex = 2; columnIndex < headers.size(); columnIndex += 1) {
-                table.setItem(0, columnIndex, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
-            }
-            table.setSpan(0, 1, 1, headers.size() - 1);
-            return;
-        }
-
-        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex += 1) {
-            const QJsonObject row = rows.at(rowIndex).toObject();
-            table.setItem(rowIndex, 0, createTableItem(row.value(QStringLiteral("row_id")).toVariant().toString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
-            table.setItem(rowIndex, 1, createTableItem(row.value(QStringLiteral("name")).toString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
-            table.setItem(rowIndex, 2, createNumberTableItem(moneyText(row.value(QStringLiteral("cost")).toDouble()), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
-            table.setItem(rowIndex, 3, createNumberTableItem(moneyText(row.value(QStringLiteral("min_stock")).toDouble()), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
-            for (int day = 1; day <= 31; day += 1) {
-                const QString qtyKey = QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
-                const QString purchaseKey = QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
-                const double qty = row.value(qtyKey).toDouble();
-                const double purchase = row.value(purchaseKey).toDouble();
-                table.setItem(rowIndex, 3 + day, createNumberTableItem(qty == 0.0 ? QString() : moneyText(qty), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
-                table.setItem(rowIndex, 34 + day, createNumberTableItem(purchase == 0.0 ? QString() : moneyText(purchase), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
-            }
-        }
-    } catch (const std::exception& err) {
-        showError(QStringLiteral("Inventory"), err);
+        rows = context_.services().inventory->loadSnapshot(financialYear, month);
+    } catch (const std::exception& e) {
+        showError(tr("Failed to load inventory: %1").arg(e.what()), e);
+        table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
+        return;
     }
+
+    // Step 6 — Handle empty result
+    if (rows.isEmpty()) {
+        table.setRowCount(1);
+        auto* placeholder = new QTableWidgetItem(tr("No inventory rows yet..."));
+        placeholder->setFlags(Qt::ItemIsEnabled);
+        placeholder->setForeground(QColor(QStringLiteral("#58677a")));
+        table.setItem(0, 1, placeholder);
+        table.setSpan(0, 1, 1, 64);
+        table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
+        return;
+    }
+
+    // Step 7 — Populate rows
+    table.setRowCount(rows.size());
+    for (int r = 0; r < rows.size(); ++r) {
+        const QJsonObject row = rows[r].toObject();
+        // col 0: row_id (read-only, hidden)
+        auto* idItem = new QTableWidgetItem(row[QStringLiteral("row_id")].toVariant().toString());
+        idItem->setFlags(Qt::ItemIsEnabled);
+        table.setItem(r, 0, idItem);
+        // col 1: Product name (editable)
+        auto* nameItem = new QTableWidgetItem(row[QStringLiteral("name")].toString());
+        nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+        table.setItem(r, 1, nameItem);
+        // col 2: Cost (editable, right-aligned)
+        auto* costItem = new QTableWidgetItem(row[QStringLiteral("cost")].toVariant().toString());
+        costItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+        costItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table.setItem(r, 2, costItem);
+        // col 3: Min Stock (editable, right-aligned)
+        auto* minItem = new QTableWidgetItem(row[QStringLiteral("min_stock")].toVariant().toString());
+        minItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+        minItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table.setItem(r, 3, minItem);
+        // cols 4..34: Qty per day
+        for (int day = 1; day <= 31; ++day) {
+            const QString key = QString::asprintf("qty_%02d", day);
+            const double qty = row[key].toDouble();
+            const QString text = (qty == 0.0) ? QString{} : QString::number(qty, 'f', 2);
+            auto* item = new QTableWidgetItem(text);
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table.setItem(r, 3 + day, item);
+        }
+        // cols 35..65: Purchase/In per day
+        for (int day = 1; day <= 31; ++day) {
+            const QString key = QString::asprintf("purchase_%02d", day);
+            const double purchase = row[key].toDouble();
+            const QString text = (purchase == 0.0) ? QString{} : QString::number(purchase, 'f', 2);
+            auto* item = new QTableWidgetItem(text);
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table.setItem(r, 34 + day, item);
+        }
+    }
+
+    // Step 8 — Force header repaint AFTER all rows populated
+    table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
 }
 
 void DesktopApplication::loadInventoryValue(QTableWidget& table, const QString& financialYear, int month) {
