@@ -1,0 +1,42 @@
+version: 1.0.{build}
+
+image: Visual Studio 2022
+
+branches:
+  only:
+    - C
+
+environment:
+  QT_ROOT: C:\Qt\6.7.3\msvc2019_64
+  PACKAGE_DIR: native\build\package
+
+clone_depth: 1
+
+install:
+  - ps: python -m pip install --upgrade pip
+  - ps: python -m pip install aqtinstall
+  - ps: python -m aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 -O C:\Qt --modules qtcharts qthttpserver qtwebsockets
+
+build_script:
+  - cmd: |
+      call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+      set PATH=%QT_ROOT%\bin;%PATH%
+      cmake -S native -B native\build -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%QT_ROOT%"
+      if errorlevel 1 exit /b 1
+      cmake --build native\build --config Release --target mfinlogs-native
+      if errorlevel 1 exit /b 1
+
+after_build:
+  - cmd: |
+      set PATH=%QT_ROOT%\bin;%PATH%
+      mkdir "%PACKAGE_DIR%"
+      mkdir "%PACKAGE_DIR%\fonts"
+      copy native\build\Release\mfinlogs-native.exe "%PACKAGE_DIR%\"
+      copy db_config.json "%PACKAGE_DIR%\"
+      copy fonts\SpaceMono-*.ttf "%PACKAGE_DIR%\fonts\"
+      windeployqt --release --compiler-runtime "%PACKAGE_DIR%\mfinlogs-native.exe"
+
+artifacts:
+  - path: native\build\package
+    name: mfinlogs-native-windows
+    type: zip
