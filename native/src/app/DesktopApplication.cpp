@@ -5,10 +5,12 @@
 #include <QAction>
 #include <QApplication>
 #include <QAbstractItemView>
+#include <QCompleter>
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateEdit>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
 #include <QComboBox>
 #include <QFormLayout>
 #include <QFont>
@@ -38,6 +40,7 @@
 #include <QVBoxLayout>
 
 #include <exception>
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 
@@ -223,6 +226,20 @@ QJsonObject transactionToJson(const mfinlogs::domain::TransactionRow& row) {
     return item;
 }
 
+int rangeDays(const QDate& start, const QDate& end) {
+    return std::max(1, start.daysTo(end) + 1);
+}
+
+bool rowContainsText(const QTableWidget& table, int rowIndex, const QString& text) {
+    for (int columnIndex = 0; columnIndex < table.columnCount(); columnIndex += 1) {
+        const QTableWidgetItem* item = table.item(rowIndex, columnIndex);
+        if (item && item->text().contains(text, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 namespace mfinlogs::app {
@@ -397,6 +414,14 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QLineEdit* bill = new QLineEdit(entryPanel);
     bill->setPlaceholderText(QStringLiteral("Bill No."));
     QLineEdit* party = new QLineEdit(QStringLiteral("Customer"), entryPanel);
+    try {
+        QCompleter* completer = new QCompleter(partyNames(), party);
+        completer->setCaseSensitivity(Qt::CaseInsensitive);
+        completer->setFilterMode(Qt::MatchContains);
+        party->setCompleter(completer);
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Party Suggestions"), err);
+    }
     QComboBox* type = new QComboBox(entryPanel);
     type->addItems({QStringLiteral("Sale"), QStringLiteral("Receipt"), QStringLiteral("Expense"), QStringLiteral("Purchase"), QStringLiteral("Sale Return")});
     QComboBox* mode = new QComboBox(entryPanel);
@@ -432,14 +457,22 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QHBoxLayout* tableHeader = new QHBoxLayout();
     tableHeader->addWidget(createSectionTitle(QStringLiteral("Recent Entries"), tablePanel));
     tableHeader->addStretch(1);
+    QLineEdit* transactionSearch = new QLineEdit(tablePanel);
+    transactionSearch->setPlaceholderText(QStringLiteral("Search transactions..."));
+    transactionSearch->setFixedWidth(280);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), tablePanel);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
+    tableHeader->addWidget(transactionSearch);
     tableHeader->addWidget(refresh);
     tableLayout->addLayout(tableHeader);
     QTableWidget* table = createDataTable(tablePanel);
     loadTransactions(*table);
     tableLayout->addWidget(table);
-    connect(refresh, &QPushButton::clicked, this, [this, table]() { loadTransactions(*table); });
+    connect(transactionSearch, &QLineEdit::textChanged, this, [this, table](const QString& query) { applyTableSearch(*table, query); });
+    connect(refresh, &QPushButton::clicked, this, [this, table, transactionSearch]() {
+        loadTransactions(*table);
+        applyTableSearch(*table, transactionSearch->text());
+    });
     const std::shared_ptr<int> editingId = std::make_shared<int>(0);
     connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, editingId]() {
         *editingId = 0;
@@ -479,7 +512,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             showError(QStringLiteral("Load Entry"), err);
         }
     });
-    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save]() {
+    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save, transactionSearch]() {
         try {
             const QString partyName = party->text().trimmed();
             if (partyName.isEmpty()) {
@@ -510,13 +543,14 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                 statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
             }
             loadTransactions(*table);
+            applyTableSearch(*table, transactionSearch->text());
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
         } catch (const std::exception& err) {
             showError(QStringLiteral("Save Entry"), err);
         }
     });
-    connect(deleteButton, &QPushButton::clicked, this, [this, table, editingId, save]() {
+    connect(deleteButton, &QPushButton::clicked, this, [this, table, editingId, save, transactionSearch]() {
         if (*editingId <= 0) {
             statusBar()->showMessage(QStringLiteral("Select a transaction to delete"), 5000);
             return;
@@ -535,6 +569,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
             loadTransactions(*table);
+            applyTableSearch(*table, transactionSearch->text());
             statusBar()->showMessage(QStringLiteral("Transaction deleted"), 5000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Delete Entry"), err);
@@ -627,7 +662,15 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     QFrame* filters = createPanel(page);
     QHBoxLayout* filterLayout = new QHBoxLayout(filters);
     QLineEdit* search = new QLineEdit(filters);
-    search->setPlaceholderText(QStringLiteral("Search party, bill, amount..."));
+    search->setPlaceholderText(QStringLiteral("Party or table search..."));
+    try {
+        QCompleter* completer = new QCompleter(partyNames(), search);
+        completer->setCaseSensitivity(Qt::CaseInsensitive);
+        completer->setFilterMode(Qt::MatchContains);
+        search->setCompleter(completer);
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Report Party Suggestions"), err);
+    }
     QDateEdit* start = new QDateEdit(QDate::currentDate().addDays(-30), filters);
     start->setCalendarPopup(true);
     QDateEdit* end = new QDateEdit(QDate::currentDate(), filters);
@@ -643,8 +686,21 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     layout->addWidget(filters);
 
     QTableWidget* table = createDataTable(page);
-    loadReportTable(*table, title);
-    connect(refresh, &QPushButton::clicked, this, [this, table, title]() { loadReportTable(*table, title); });
+    const domain::ReportRange initialRange{start->date(), end->date(), rangeDays(start->date(), end->date())};
+    loadReportTable(*table, title, search->text().trimmed(), initialRange);
+    connect(search, &QLineEdit::textChanged, this, [this, table, title](const QString& query) {
+        if (title == QStringLiteral("Party Ledger")) {
+            return;
+        }
+        applyTableSearch(*table, query);
+    });
+    connect(refresh, &QPushButton::clicked, this, [this, table, title, search, start, end]() {
+        const domain::ReportRange range{start->date(), end->date(), rangeDays(start->date(), end->date())};
+        loadReportTable(*table, title, search->text().trimmed(), range);
+        if (title != QStringLiteral("Party Ledger")) {
+            applyTableSearch(*table, search->text());
+        }
+    });
     layout->addWidget(table, 1);
     return page;
 }
@@ -686,6 +742,10 @@ QWidget* DesktopApplication::buildSettingsPage() {
     QLineEdit* apiBase = new QLineEdit(config.apiBaseUrl, panel);
     QPushButton* test = new QPushButton(QStringLiteral("Test Connection"), panel);
     test->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* backup = new QPushButton(QStringLiteral("Backup Now"), panel);
+    backup->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* restore = new QPushButton(QStringLiteral("Restore Backup"), panel);
+    restore->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Config"), panel);
 
     form->addWidget(new QLabel(QStringLiteral("SQL Server Instance"), panel), 0, 0);
@@ -704,6 +764,8 @@ QWidget* DesktopApplication::buildSettingsPage() {
     form->addWidget(backupDir, 5, 0, 1, 2);
     form->addWidget(test, 5, 2);
     form->addWidget(save, 5, 3);
+    form->addWidget(backup, 6, 0);
+    form->addWidget(restore, 6, 1);
 
     auto buildConfig = [server, database, authType, username, password, backupDir, apiBase, config]() {
         return domain::DatabaseConfig{
@@ -734,6 +796,35 @@ QWidget* DesktopApplication::buildSettingsPage() {
             statusBar()->showMessage(QStringLiteral("Database configuration saved. Restart native app to reload all screens."), 9000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Save Database Config"), err);
+        }
+    });
+    connect(backup, &QPushButton::clicked, this, [this, backupDir]() {
+        try {
+            const domain::BackupResult result = context_.services().backups->backup(backupDir->text().trimmed());
+            QMessageBox::information(this, QStringLiteral("Backup"), result.status + QStringLiteral("\n") + result.path);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Backup"), err);
+        }
+    });
+    connect(restore, &QPushButton::clicked, this, [this, backupDir]() {
+        try {
+            const QString backupPath = QFileDialog::getOpenFileName(this, QStringLiteral("Choose SQL Backup"), backupDir->text().trimmed(), QStringLiteral("SQL Backup (*.bak)"));
+            if (backupPath.trimmed().isEmpty()) {
+                return;
+            }
+            const QMessageBox::StandardButton result = QMessageBox::question(
+                this,
+                QStringLiteral("Restore Backup"),
+                QStringLiteral("Restore selected backup and replace the configured database?"),
+                QMessageBox::Yes | QMessageBox::No
+            );
+            if (result != QMessageBox::Yes) {
+                return;
+            }
+            context_.services().backups->restore(backupPath);
+            statusBar()->showMessage(QStringLiteral("Backup restored. Restart native app to reload all screens."), 9000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Restore Backup"), err);
         }
     });
     layout->addWidget(panel);
@@ -800,32 +891,48 @@ void DesktopApplication::loadAuditLogs(QTableWidget& table) {
     }
 }
 
-void DesktopApplication::loadReportTable(QTableWidget& table, const QString& reportName) {
+void DesktopApplication::loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range) {
     try {
+        if (range.start > range.end) {
+            throw std::invalid_argument("Report start date must be before end date");
+        }
         if (reportName == QStringLiteral("Party Ledger")) {
-            QJsonArray rows;
-            QJsonObject placeholder;
-            placeholder.insert(QStringLiteral("date"), QStringLiteral("--"));
-            placeholder.insert(QStringLiteral("bill_no"), QStringLiteral("--"));
-            placeholder.insert(QStringLiteral("type"), QStringLiteral("Select party in native service wiring"));
-            placeholder.insert(QStringLiteral("mode"), QStringLiteral("--"));
-            placeholder.insert(QStringLiteral("amount"), 0.0);
-            placeholder.insert(QStringLiteral("balance"), 0.0);
-            rows.append(placeholder);
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, rows);
+            if (partyName.trimmed().isEmpty()) {
+                QJsonArray rows;
+                QJsonObject placeholder;
+                placeholder.insert(QStringLiteral("date"), QStringLiteral("--"));
+                placeholder.insert(QStringLiteral("bill_no"), QStringLiteral("--"));
+                placeholder.insert(QStringLiteral("type"), QStringLiteral("Enter a party name and refresh"));
+                placeholder.insert(QStringLiteral("mode"), QStringLiteral("--"));
+                placeholder.insert(QStringLiteral("amount"), 0.0);
+                placeholder.insert(QStringLiteral("balance"), 0.0);
+                rows.append(placeholder);
+                setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, rows);
+                return;
+            }
+            const QJsonObject report = context_.services().reports->ledger(partyName, range);
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")}, report.value(QStringLiteral("data")).toArray());
             return;
         }
         if (reportName == QStringLiteral("Day Book")) {
-            const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 100, 1);
-            QJsonArray data;
-            for (const domain::TransactionRow& row : rows) {
-                data.append(transactionToJson(row));
-            }
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, data);
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, context_.services().reports->dayBook(range.end));
             return;
         }
         if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
-            setTableRows(table, {QStringLiteral("date"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, QJsonArray());
+            const QString targetType = reportName == QStringLiteral("Purchase Report") ? QStringLiteral("Purchase") : QStringLiteral("Expense");
+            const int days = std::max(1, range.start.daysTo(QDate::currentDate()) + 1);
+            const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 1000, days);
+            QJsonArray data;
+            for (const domain::TransactionRow& row : rows) {
+                if (row.date < range.start || row.date > range.end) {
+                    continue;
+                }
+                if (transactionTypeText(row.type) != targetType) {
+                    continue;
+                }
+                data.append(transactionToJson(row));
+            }
+            setTableRows(table, {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")}, data);
             return;
         }
         if (reportName == QStringLiteral("Outstanding")) {
@@ -856,7 +963,6 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
             return;
         }
 
-        const domain::ReportRange range{QDate::currentDate().addDays(-30), QDate::currentDate(), 30};
         if (reportName == QStringLiteral("Daily Summary")) {
             setTableRows(table, {QStringLiteral("date"), QStringLiteral("sales"), QStringLiteral("sale_returns"), QStringLiteral("receipts"), QStringLiteral("expenses"), QStringLiteral("net_sales")}, context_.services().reports->dailySummary(range));
             return;
@@ -867,6 +973,27 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
     } catch (const std::exception& err) {
         showError(reportName, err);
     }
+}
+
+void DesktopApplication::applyTableSearch(QTableWidget& table, const QString& query) {
+    const QString text = query.trimmed();
+    for (int rowIndex = 0; rowIndex < table.rowCount(); rowIndex += 1) {
+        table.setRowHidden(rowIndex, !text.isEmpty() && !rowContainsText(table, rowIndex, text));
+    }
+}
+
+QStringList DesktopApplication::partyNames() {
+    QStringList names;
+    const QJsonArray rows = context_.services().parties->listParties();
+    for (const QJsonValue& value : rows) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString().trimmed();
+        if (!name.isEmpty()) {
+            names.append(name);
+        }
+    }
+    names.removeDuplicates();
+    names.sort(Qt::CaseInsensitive);
+    return names;
 }
 
 void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows) {
