@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || github.ref }}
+          ref: ${{ (github.event_name == 'workflow_dispatch') && inputs.target_ref || github.ref }}
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
