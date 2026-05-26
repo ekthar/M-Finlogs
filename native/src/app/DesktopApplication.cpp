@@ -227,7 +227,7 @@ QJsonObject transactionToJson(const mfinlogs::domain::TransactionRow& row) {
 }
 
 int rangeDays(const QDate& start, const QDate& end) {
-    return std::max(1, start.daysTo(end) + 1);
+    return static_cast<int>(std::max<qint64>(1, start.daysTo(end) + 1));
 }
 
 bool rowContainsText(const QTableWidget& table, int rowIndex, const QString& text) {
@@ -920,7 +920,7 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
         }
         if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
             const QString targetType = reportName == QStringLiteral("Purchase Report") ? QStringLiteral("Purchase") : QStringLiteral("Expense");
-            const int days = std::max(1, range.start.daysTo(QDate::currentDate()) + 1);
+            const int days = static_cast<int>(std::max<qint64>(1, range.start.daysTo(QDate::currentDate()) + 1));
             const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 1000, days);
             QJsonArray data;
             for (const domain::TransactionRow& row : rows) {
