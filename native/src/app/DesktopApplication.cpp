@@ -23,6 +23,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -38,6 +39,7 @@
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSignalBlocker>
+#include <QScrollBar>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringList>
@@ -79,6 +81,54 @@ protected:
 
 private:
     QLineEdit& input_;
+};
+
+class InventoryTableKeyFilter final : public QObject {
+public:
+    explicit InventoryTableKeyFilter(QTableWidget& table)
+        : QObject(&table), table_(table) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched != &table_ || event->type() != QEvent::KeyPress) {
+            return QObject::eventFilter(watched, event);
+        }
+
+        const QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Return || keyEvent->key() == Qt::Key_Enter) {
+            moveToNextEditableCell();
+            return true;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    void moveToNextEditableCell() {
+        int row = table_.currentRow();
+        int column = table_.currentColumn();
+        if (row < 0 || column < 0) {
+            table_.setCurrentCell(0, 1);
+            return;
+        }
+
+        for (int step = 0; step < table_.rowCount() * table_.columnCount(); step += 1) {
+            column += 1;
+            if (column >= table_.columnCount()) {
+                column = 1;
+                row += 1;
+            }
+            if (row >= table_.rowCount()) {
+                row = 0;
+            }
+            if (!table_.isColumnHidden(column) && table_.item(row, column) && table_.item(row, column)->flags().testFlag(Qt::ItemIsEditable)) {
+                table_.setCurrentCell(row, column);
+                table_.editItem(table_.item(row, column));
+                return;
+            }
+        }
+    }
+
+    QTableWidget& table_;
 };
 
 QLabel* createSectionTitle(const QString& title, QWidget* parent) {
@@ -165,9 +215,31 @@ QTableWidget* createDataTable(QWidget* parent) {
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
     table->verticalHeader()->setVisible(false);
+    table->verticalHeader()->setDefaultSectionSize(34);
+    table->horizontalHeader()->setMinimumHeight(38);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    table->setShowGrid(false);
+    table->setShowGrid(true);
+    table->setGridStyle(Qt::SolidLine);
+    table->setWordWrap(false);
+    table->setCornerButtonEnabled(false);
+    table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    table->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    return table;
+}
+
+QTableWidget* createInventoryTable(QWidget* parent) {
+    QTableWidget* table = createDataTable(parent);
+    table->setObjectName(QStringLiteral("inventoryTable"));
+    table->setAlternatingRowColors(true);
+    table->setSelectionBehavior(QAbstractItemView::SelectItems);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
+    table->horizontalHeader()->setStretchLastSection(false);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    table->verticalHeader()->setDefaultSectionSize(36);
+    table->installEventFilter(new InventoryTableKeyFilter(*table));
     return table;
 }
 
@@ -207,6 +279,36 @@ QString findExistingPartyName(const QStringList& existingNames, const QString& t
         }
     }
     return QString();
+}
+
+int daysInInventoryMonth(int month) {
+    const QDate today = QDate::currentDate();
+    const int calendarYear = month >= 4 ? today.year() : today.year() + 1;
+    return QDate(calendarYear, month, 1).daysInMonth();
+}
+
+QString inventoryDateRangeText(const QString& financialYear, int month) {
+    const QStringList yearParts = financialYear.split(QLatin1Char('-'));
+    const int startYear = yearParts.isEmpty() ? QDate::currentDate().year() : yearParts.first().toInt();
+    const int calendarYear = month >= 4 ? startYear : startYear + 1;
+    const QDate start(calendarYear, month, 1);
+    return QStringLiteral("%1 to %2").arg(
+        start.toString(QStringLiteral("dd-MM-yyyy")),
+        QDate(calendarYear, month, start.daysInMonth()).toString(QStringLiteral("dd-MM-yyyy"))
+    );
+}
+
+QTableWidgetItem* createTableItem(const QString& text, Qt::ItemFlags flags) {
+    QTableWidgetItem* item = new QTableWidgetItem(text);
+    item->setFlags(flags);
+    item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    return item;
+}
+
+QTableWidgetItem* createNumberTableItem(const QString& text, Qt::ItemFlags flags) {
+    QTableWidgetItem* item = createTableItem(text, flags);
+    item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    return item;
 }
 
 void animatePanel(QWidget& widget, int delayMs) {
@@ -395,9 +497,11 @@ void DesktopApplication::applyTheme() {
         "QFrame#panel { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
         "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 8px; }"
         "QFrame#welcomeHero { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
-        "QTableWidget#dataTable { background: #fffaf0; alternate-background-color: #f4ead6; border: 1px solid #d7c8a8; border-radius: 8px; selection-background-color: #d7e8ff; selection-color: #082f63; gridline-color: #e2d4b8; }"
+        "QTableWidget#dataTable, QTableWidget#inventoryTable { background: #fffaf0; alternate-background-color: #f4ead6; border: 1px solid #d7c8a8; border-radius: 8px; selection-background-color: #d7e8ff; selection-color: #082f63; gridline-color: #e2d4b8; color: #0f2436; }"
         "QHeaderView::section { background: #082f63; color: #fffaf0; border: 0; border-right: 1px solid #1b4c83; padding: 8px; font-weight: 900; }"
-        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #eadcc2; }"
+        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #eadcc2; color: #0f2436; }"
+        "QTableWidget#inventoryTable::item { padding: 6px; border-right: 1px solid #eadcc2; border-bottom: 1px solid #eadcc2; }"
+        "QTableWidget#inventoryTable::item:selected { background: #d7e8ff; color: #082f63; }"
         "QPushButton { background: #0b5cab; color: #fffaf0; border: 1px solid #073f78; border-radius: 6px; min-height: 30px; padding: 7px 13px; font-weight: 900; }"
         "QPushButton:hover { background: #074c91; }"
         "QPushButton#secondaryButton { background: #edf5ff; color: #082f63; border: 1px solid #8fb8ea; }"
@@ -1195,14 +1299,18 @@ QWidget* DesktopApplication::buildSettingsPage() {
 QWidget* DesktopApplication::buildInventoryPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setContentsMargins(24, 18, 24, 22);
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities, purchases, cost, and reorder levels."), page));
     layout->addWidget(createContextBar(context_, page));
 
     const QString financialYear = currentFinancialYearValue();
     QFrame* toolbar = createPanel(page);
-    QHBoxLayout* toolbarLayout = new QHBoxLayout(toolbar);
+    QVBoxLayout* toolbarOuter = new QVBoxLayout(toolbar);
+    toolbarOuter->setContentsMargins(14, 12, 14, 12);
+    toolbarOuter->setSpacing(10);
+    QHBoxLayout* toolbarLayout = new QHBoxLayout();
+    toolbarLayout->setSpacing(8);
     QComboBox* month = new QComboBox(toolbar);
     month->addItems({
         QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
@@ -1222,6 +1330,10 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QPushButton* mail = new QPushButton(QStringLiteral("Send PDF"), toolbar);
     mail->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Inventory"), toolbar);
+    QLabel* periodChip = new QLabel(inventoryDateRangeText(financialYear, month->currentIndex() + 1), toolbar);
+    QLabel* tableSummary = new QLabel(QStringLiteral("No inventory loaded"), toolbar);
+    periodChip->setObjectName(QStringLiteral("contextChip"));
+    tableSummary->setObjectName(QStringLiteral("pageMeta"));
     toolbarLayout->addWidget(new QLabel(QStringLiteral("Month"), toolbar));
     toolbarLayout->addWidget(month);
     toolbarLayout->addWidget(product, 1);
@@ -1230,41 +1342,73 @@ QWidget* DesktopApplication::buildInventoryPage() {
     toolbarLayout->addWidget(preview);
     toolbarLayout->addWidget(mail);
     toolbarLayout->addWidget(save);
+    QHBoxLayout* toolbarMeta = new QHBoxLayout();
+    toolbarMeta->setSpacing(10);
+    toolbarMeta->addWidget(periodChip);
+    toolbarMeta->addWidget(tableSummary, 1);
+    toolbarOuter->addLayout(toolbarLayout);
+    toolbarOuter->addLayout(toolbarMeta);
     layout->addWidget(toolbar);
 
-    QTableWidget* table = createDataTable(page);
-    table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
+    QTableWidget* table = createInventoryTable(page);
     loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
     layout->addWidget(table, 1);
+
+    auto refreshSummary = [table, tableSummary, periodChip, financialYear, month]() {
+        int productCount = 0;
+        for (int rowIndex = 0; rowIndex < table->rowCount(); rowIndex += 1) {
+            const QTableWidgetItem* item = table->item(rowIndex, 1);
+            if (item && !item->text().trimmed().isEmpty() && !item->text().startsWith(QStringLiteral("No inventory rows yet"))) {
+                productCount += 1;
+            }
+        }
+        tableSummary->setText(QStringLiteral("%1 products | Edit quantities directly | Enter moves to next cell").arg(productCount));
+        periodChip->setText(inventoryDateRangeText(financialYear, month->currentIndex() + 1));
+    };
+    refreshSummary();
 
     connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month](int) {
         loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
     });
-    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month]() {
-        loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+    connect(month, &QComboBox::currentIndexChanged, this, [refreshSummary](int) {
+        refreshSummary();
     });
-    connect(add, &QPushButton::clicked, this, [table, product]() {
+    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary]() {
+        loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+        refreshSummary();
+    });
+    connect(add, &QPushButton::clicked, this, [table, product, refreshSummary]() {
         const QString name = product->text().trimmed();
         if (name.isEmpty()) {
             return;
         }
+        const bool hasOnlyEmptyState = table->rowCount() == 1
+            && table->item(0, 1)
+            && table->item(0, 1)->text().startsWith(QStringLiteral("No inventory rows yet"));
+        if (hasOnlyEmptyState) {
+            table->clearSpans();
+            table->setRowCount(0);
+        }
         const int row = table->rowCount();
         table->insertRow(row);
-        table->setItem(row, 0, new QTableWidgetItem(QString()));
-        table->setItem(row, 1, new QTableWidgetItem(name));
-        table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("0.00")));
-        table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("0.00")));
+        table->setItem(row, 0, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+        table->setItem(row, 1, createTableItem(name, Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        table->setItem(row, 2, createNumberTableItem(QStringLiteral("0.00"), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        table->setItem(row, 3, createNumberTableItem(QStringLiteral("0.00"), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
         for (int column = 4; column < table->columnCount(); column += 1) {
-            table->setItem(row, column, new QTableWidgetItem(QString()));
+            table->setItem(row, column, createNumberTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
         }
         product->clear();
         table->setCurrentCell(row, 1);
+        table->editItem(table->item(row, 1));
+        refreshSummary();
     });
     connect(product, &QLineEdit::returnPressed, add, &QPushButton::click);
-    connect(save, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+    connect(save, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary]() {
         try {
             context_.services().inventory->saveSnapshot(financialYear, month->currentIndex() + 1, inventoryRowsFromTable(*table));
             loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+            refreshSummary();
             statusBar()->showMessage(QStringLiteral("Inventory saved"), 7000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Save Inventory"), err);
@@ -1450,30 +1594,60 @@ void DesktopApplication::loadParties(QTableWidget& table) {
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
     try {
-        QStringList headers = {QStringLiteral("row_id"), QStringLiteral("name"), QStringLiteral("cost"), QStringLiteral("min_stock")};
+        const int visibleDays = daysInInventoryMonth(month);
+        QStringList headers = {QStringLiteral("row_id"), QStringLiteral("Product"), QStringLiteral("Cost"), QStringLiteral("Min Stock")};
         for (int day = 1; day <= 31; day += 1) {
-            headers.append(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+            headers.append(QStringLiteral("%1 Qty").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
         }
         for (int day = 1; day <= 31; day += 1) {
-            headers.append(QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+            headers.append(QStringLiteral("%1 In").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
         }
 
         const QJsonArray rows = context_.services().inventory->loadSnapshot(financialYear, month);
+        const int rowCount = rows.isEmpty() ? 1 : rows.size();
+        table.clearSpans();
         table.clear();
         table.setColumnCount(headers.size());
-        table.setRowCount(rows.size());
+        table.setRowCount(rowCount);
         table.setHorizontalHeaderLabels(headers);
         table.setColumnHidden(0, true);
+
+        table.setColumnWidth(1, 230);
+        table.setColumnWidth(2, 95);
+        table.setColumnWidth(3, 100);
+        for (int day = 1; day <= 31; day += 1) {
+            const bool visible = day <= visibleDays;
+            table.setColumnHidden(3 + day, !visible);
+            table.setColumnHidden(34 + day, !visible);
+            table.setColumnWidth(3 + day, 78);
+            table.setColumnWidth(34 + day, 72);
+        }
+
+        if (rows.isEmpty()) {
+            QTableWidgetItem* empty = createTableItem(QStringLiteral("No inventory rows yet. Type a product name above and press Enter."), Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+            table.setItem(0, 1, empty);
+            for (int columnIndex = 2; columnIndex < headers.size(); columnIndex += 1) {
+                table.setItem(0, columnIndex, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+            }
+            table.setSpan(0, 1, 1, 6);
+            return;
+        }
+
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex += 1) {
             const QJsonObject row = rows.at(rowIndex).toObject();
-            for (int columnIndex = 0; columnIndex < headers.size(); columnIndex += 1) {
-                const QString key = headers.at(columnIndex);
-                const QJsonValue value = row.value(key);
-                const QString text = value.isDouble() ? moneyText(value.toDouble()) : value.toVariant().toString();
-                table.setItem(rowIndex, columnIndex, new QTableWidgetItem(text));
+            table.setItem(rowIndex, 0, createTableItem(row.value(QStringLiteral("row_id")).toVariant().toString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+            table.setItem(rowIndex, 1, createTableItem(row.value(QStringLiteral("name")).toString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+            table.setItem(rowIndex, 2, createNumberTableItem(moneyText(row.value(QStringLiteral("cost")).toDouble()), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+            table.setItem(rowIndex, 3, createNumberTableItem(moneyText(row.value(QStringLiteral("min_stock")).toDouble()), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+            for (int day = 1; day <= 31; day += 1) {
+                const QString qtyKey = QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
+                const QString purchaseKey = QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
+                const double qty = row.value(qtyKey).toDouble();
+                const double purchase = row.value(purchaseKey).toDouble();
+                table.setItem(rowIndex, 3 + day, createNumberTableItem(qty == 0.0 ? QString() : moneyText(qty), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+                table.setItem(rowIndex, 34 + day, createNumberTableItem(purchase == 0.0 ? QString() : moneyText(purchase), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
             }
         }
-        table.resizeColumnsToContents();
     } catch (const std::exception& err) {
         showError(QStringLiteral("Inventory"), err);
     }
@@ -1605,7 +1779,7 @@ QJsonArray DesktopApplication::inventoryRowsFromTable(QTableWidget& table) {
     for (int rowIndex = 0; rowIndex < table.rowCount(); rowIndex += 1) {
         const QTableWidgetItem* nameItem = table.item(rowIndex, 1);
         const QString name = nameItem ? nameItem->text().trimmed() : QString();
-        if (name.isEmpty()) {
+        if (name.isEmpty() || name.startsWith(QStringLiteral("No inventory rows yet"))) {
             continue;
         }
 
@@ -1631,8 +1805,25 @@ QJsonArray DesktopApplication::inventoryRowsFromTable(QTableWidget& table) {
 void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows) {
     table.clear();
     table.setColumnCount(headers.size());
-    table.setRowCount(rows.size());
     table.setHorizontalHeaderLabels(headers);
+    table.clearSpans();
+    table.horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    table.horizontalHeader()->setStretchLastSection(true);
+
+    if (rows.isEmpty()) {
+        table.setRowCount(1);
+        QTableWidgetItem* empty = createTableItem(QStringLiteral("No data"), Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table.setItem(0, 0, empty);
+        for (int columnIndex = 1; columnIndex < headers.size(); columnIndex += 1) {
+            table.setItem(0, columnIndex, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+        }
+        if (headers.size() > 1) {
+            table.setSpan(0, 0, 1, headers.size());
+        }
+        return;
+    }
+
+    table.setRowCount(rows.size());
 
     for (int rowIndex = 0; rowIndex < rows.size(); rowIndex += 1) {
         const QJsonObject row = rows.at(rowIndex).toObject();
@@ -1645,7 +1836,9 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
             } else {
                 text = value.toVariant().toString();
             }
-            QTableWidgetItem* item = new QTableWidgetItem(text);
+            QTableWidgetItem* item = value.isDouble()
+                ? createNumberTableItem(text, Qt::ItemIsEnabled | Qt::ItemIsSelectable)
+                : createTableItem(text, Qt::ItemIsEnabled | Qt::ItemIsSelectable);
             if (columnIndex == 0 && row.contains(QStringLiteral("id"))) {
                 item->setData(Qt::UserRole, row.value(QStringLiteral("id")).toInt());
             }
@@ -1653,6 +1846,7 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
         }
     }
     table.resizeColumnsToContents();
+    table.horizontalHeader()->setStretchLastSection(true);
 }
 
 void DesktopApplication::showError(const QString& title, const std::exception& err) {
