@@ -101,6 +101,13 @@ QFrame* createPanel(QWidget* parent) {
     return panel;
 }
 
+QFrame* createAccentPanel(QWidget* parent) {
+    QFrame* panel = new QFrame(parent);
+    panel->setObjectName(QStringLiteral("accentPanel"));
+    panel->setFrameShape(QFrame::NoFrame);
+    return panel;
+}
+
 QString currentCompanyText(mfinlogs::app::AppContext& context) {
     const mfinlogs::domain::DatabaseConfig config = context.services().config->readDatabaseConfig();
     return QStringLiteral("Database: %1").arg(config.database);
@@ -181,6 +188,8 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
 QFrame* createMetricTile(const QString& label, const QString& value, QWidget* parent) {
     QFrame* tile = createPanel(parent);
     QVBoxLayout* layout = new QVBoxLayout(tile);
+    layout->setContentsMargins(16, 12, 16, 12);
+    layout->setSpacing(6);
     QLabel* titleLabel = new QLabel(label, tile);
     QLabel* valueLabel = new QLabel(value, tile);
     titleLabel->setObjectName(QStringLiteral("metricLabel"));
@@ -188,6 +197,16 @@ QFrame* createMetricTile(const QString& label, const QString& value, QWidget* pa
     layout->addWidget(titleLabel);
     layout->addWidget(valueLabel);
     return tile;
+}
+
+QString findExistingPartyName(const QStringList& existingNames, const QString& typedName) {
+    const QString normalizedTypedName = typedName.trimmed();
+    for (const QString& existingName : existingNames) {
+        if (existingName.compare(normalizedTypedName, Qt::CaseInsensitive) == 0) {
+            return existingName;
+        }
+    }
+    return QString();
 }
 
 void animatePanel(QWidget& widget, int delayMs) {
@@ -325,6 +344,8 @@ void focusEntryWidget(QWidget& widget) {
         lineEdit->selectAll();
     } else if (QDoubleSpinBox* spinBox = qobject_cast<QDoubleSpinBox*>(&widget)) {
         spinBox->selectAll();
+    } else if (QComboBox* comboBox = qobject_cast<QComboBox*>(&widget)) {
+        comboBox->showPopup();
     }
 }
 
@@ -351,38 +372,41 @@ void DesktopApplication::applyTheme() {
     qApp->setFont(QFont(QStringLiteral("Space Mono"), 10));
     qApp->setStyleSheet(QStringLiteral(
         "* { font-family: 'Space Mono', 'Consolas', 'Courier New', monospace; letter-spacing: 0; }"
-        "QMainWindow, QWidget#workspace { background: #f4eedf; color: #2d3a33; font-size: 12px; }"
-        "QWidget#sidebarWrap { background: #f7efdf; border-right: 1px solid #ddd2bb; }"
-        "QListWidget#sidebar { background: transparent; border: 0; color: #536158; padding: 8px 10px 12px 10px; outline: 0; }"
-        "QListWidget#sidebar::item { border-radius: 8px; min-height: 32px; padding: 0 10px; margin: 1px 0; }"
-        "QListWidget#sidebar::item:selected { background: #e3f0ea; color: #2f7a65; border: 1px solid #b7cec2; }"
-        "QListWidget#sidebar::item:hover:!selected { background: #eee5d3; color: #2d3a33; }"
-        "QListWidget#sidebar::item:disabled { color: #8a948c; font-size: 11px; font-weight: 700; padding-top: 12px; }"
-        "QLabel#brand { color: #2d3a33; font-size: 18px; font-weight: 800; padding: 18px 16px 2px 16px; }"
-        "QLabel#brandSub { color: #667268; font-size: 11px; padding: 0 16px 10px 16px; }"
-        "QLabel#welcomeTitle { color: #26342e; font-size: 34px; font-weight: 900; }"
-        "QLabel#welcomeKicker { color: #2f7a65; font-size: 12px; font-weight: 900; }"
-        "QLabel#pageTitle { color: #2d3a33; font-size: 22px; font-weight: 800; }"
-        "QLabel#pageMeta { color: #667268; font-size: 11px; }"
-        "QLabel#sectionTitle { color: #2d3a33; font-size: 15px; font-weight: 800; }"
-        "QLabel#sectionDescription { color: #667268; line-height: 18px; }"
-        "QLabel#metricLabel { color: #667268; font-size: 11px; font-weight: 700; }"
-        "QLabel#metricValue { color: #2d3a33; font-size: 20px; font-weight: 800; }"
-        "QLabel#contextChip { background: #fff9ef; border: 1px solid #cfc1a5; border-radius: 8px; color: #47574f; padding: 5px 9px; }"
-        "QFrame#contextBar { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 10px; }"
-        "QFrame#panel { background: #fbf5e8; border: 1px solid #ddd2bb; border-radius: 8px; }"
-        "QFrame#welcomeHero { background: #fff9ef; border: 1px solid #d8cdb8; border-radius: 8px; }"
-        "QTableWidget#dataTable { background: #fbf5e8; alternate-background-color: #f7f1e4; border: 1px solid #ddd2bb; border-radius: 8px; selection-background-color: #e3f0ea; selection-color: #2d3a33; gridline-color: #ddd2bb; }"
-        "QHeaderView::section { background: #6b756f; color: #f8f4e8; border: 0; border-right: 1px solid #7b857f; padding: 8px; font-weight: 800; }"
-        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #e6dcc8; }"
-        "QPushButton { background: #6fae9d; color: #fffaf0; border: 1px solid #4f8f7f; border-radius: 8px; padding: 8px 12px; font-weight: 800; }"
-        "QPushButton:hover { background: #4f8f7f; }"
-        "QPushButton#secondaryButton { background: #e8f1ed; color: #2f5f4f; border: 1px solid #b7cec2; }"
-        "QPushButton#secondaryButton:hover { background: #dcebe4; }"
-        "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox { background: #f7f1e4; border: 1px solid #cfc1a5; border-radius: 8px; min-height: 32px; padding: 0 9px; color: #2d3a33; }"
-        "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus { background: #fff9ef; border-color: #8ea894; }"
-        "QToolBar { background: #fbf5e8; border-bottom: 1px solid #ddd2bb; spacing: 8px; padding: 6px; }"
-        "QStatusBar { background: #fbf5e8; color: #667268; border-top: 1px solid #ddd2bb; }"
+        "QMainWindow, QWidget#workspace { background: #f7f1df; color: #0f2436; font-size: 12px; }"
+        "QWidget#sidebarWrap { background: #082f63; border-right: 1px solid #06264f; }"
+        "QListWidget#sidebar { background: transparent; border: 0; color: #dce9f8; padding: 10px 10px 14px 10px; outline: 0; }"
+        "QListWidget#sidebar::item { border-radius: 6px; min-height: 32px; padding: 0 12px; margin: 2px 0; }"
+        "QListWidget#sidebar::item:selected { background: #d7e8ff; color: #082f63; border: 1px solid #8fb8ea; }"
+        "QListWidget#sidebar::item:hover:!selected { background: #12477f; color: #ffffff; }"
+        "QListWidget#sidebar::item:disabled { color: #92abc8; font-size: 11px; font-weight: 700; padding-top: 12px; }"
+        "QLabel#brand { color: #ffffff; font-size: 18px; font-weight: 900; padding: 20px 18px 2px 18px; }"
+        "QLabel#brandSub { color: #b8cee7; font-size: 11px; padding: 0 18px 12px 18px; }"
+        "QLabel#welcomeTitle { color: #082f63; font-size: 38px; font-weight: 900; }"
+        "QLabel#welcomeKicker { color: #1767aa; font-size: 12px; font-weight: 900; }"
+        "QLabel#welcomeStat { color: #6f5d38; font-size: 11px; font-weight: 700; }"
+        "QLabel#pageTitle { color: #082f63; font-size: 23px; font-weight: 900; }"
+        "QLabel#pageMeta { color: #58677a; font-size: 11px; }"
+        "QLabel#sectionTitle { color: #082f63; font-size: 15px; font-weight: 900; }"
+        "QLabel#sectionDescription { color: #58677a; line-height: 18px; }"
+        "QLabel#metricLabel { color: #58677a; font-size: 11px; font-weight: 800; }"
+        "QLabel#metricValue { color: #082f63; font-size: 20px; font-weight: 900; }"
+        "QLabel#contextChip { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 6px; color: #24374a; padding: 6px 10px; }"
+        "QFrame#contextBar { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
+        "QFrame#panel { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
+        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 8px; }"
+        "QFrame#welcomeHero { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px; }"
+        "QTableWidget#dataTable { background: #fffaf0; alternate-background-color: #f4ead6; border: 1px solid #d7c8a8; border-radius: 8px; selection-background-color: #d7e8ff; selection-color: #082f63; gridline-color: #e2d4b8; }"
+        "QHeaderView::section { background: #082f63; color: #fffaf0; border: 0; border-right: 1px solid #1b4c83; padding: 8px; font-weight: 900; }"
+        "QTableWidget::item { padding: 8px; border-bottom: 1px solid #eadcc2; }"
+        "QPushButton { background: #0b5cab; color: #fffaf0; border: 1px solid #073f78; border-radius: 6px; min-height: 30px; padding: 7px 13px; font-weight: 900; }"
+        "QPushButton:hover { background: #074c91; }"
+        "QPushButton#secondaryButton { background: #edf5ff; color: #082f63; border: 1px solid #8fb8ea; }"
+        "QPushButton#secondaryButton:hover { background: #d7e8ff; }"
+        "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox { background: #fffaf0; border: 1px solid #c9b68f; border-radius: 6px; min-height: 32px; padding: 0 10px; color: #0f2436; }"
+        "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus { background: #ffffff; border-color: #0b5cab; }"
+        "QComboBox QAbstractItemView { background: #fffaf0; color: #0f2436; selection-background-color: #d7e8ff; selection-color: #082f63; border: 1px solid #8fb8ea; }"
+        "QToolBar { background: #fffaf0; border-bottom: 1px solid #d7c8a8; spacing: 8px; padding: 7px; }"
+        "QStatusBar { background: #fffaf0; color: #58677a; border-top: 1px solid #d7c8a8; }"
     ));
 }
 
@@ -554,29 +578,47 @@ bool DesktopApplication::showAuthDialog() {
 QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(16);
+    layout->setContentsMargins(32, 28, 32, 32);
+    layout->setSpacing(18);
 
     QFrame* hero = new QFrame(page);
     hero->setObjectName(QStringLiteral("welcomeHero"));
-    QVBoxLayout* heroLayout = new QVBoxLayout(hero);
-    heroLayout->setContentsMargins(24, 22, 24, 22);
-    heroLayout->setSpacing(10);
+    hero->setMinimumHeight(230);
+    QGridLayout* heroLayout = new QGridLayout(hero);
+    heroLayout->setContentsMargins(26, 24, 26, 24);
+    heroLayout->setHorizontalSpacing(22);
+    heroLayout->setVerticalSpacing(12);
     QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS NATIVE WORKSPACE"), hero);
     kicker->setObjectName(QStringLiteral("welcomeKicker"));
     QLabel* title = new QLabel(QStringLiteral("Welcome back"), hero);
     title->setObjectName(QStringLiteral("welcomeTitle"));
     QLabel* subtitle = new QLabel(currentCompanyText(context_) + QStringLiteral("  |  ") + currentFinancialYearText(), hero);
     subtitle->setObjectName(QStringLiteral("pageMeta"));
-    heroLayout->addWidget(kicker);
-    heroLayout->addWidget(title);
-    heroLayout->addWidget(subtitle);
+    QLabel* statOne = new QLabel(QStringLiteral("Keyboard first entry"), hero);
+    QLabel* statTwo = new QLabel(QStringLiteral("SQL backed ledgers"), hero);
+    QLabel* statThree = new QLabel(QStringLiteral("Packaged native runtime"), hero);
+    statOne->setObjectName(QStringLiteral("welcomeStat"));
+    statTwo->setObjectName(QStringLiteral("welcomeStat"));
+    statThree->setObjectName(QStringLiteral("welcomeStat"));
+    heroLayout->addWidget(kicker, 0, 0, 1, 3);
+    heroLayout->addWidget(title, 1, 0, 1, 3);
+    heroLayout->addWidget(subtitle, 2, 0, 1, 3);
+    heroLayout->addWidget(statOne, 0, 3);
+    heroLayout->addWidget(statTwo, 1, 3);
+    heroLayout->addWidget(statThree, 2, 3);
 
-    QHBoxLayout* actions = new QHBoxLayout();
+    QWidget* actionRow = new QWidget(hero);
+    QHBoxLayout* actions = new QHBoxLayout(actionRow);
+    actions->setContentsMargins(0, 10, 0, 0);
+    actions->setSpacing(10);
     QPushButton* entry = new QPushButton(QStringLiteral("Daily Entry"), hero);
     QPushButton* reports = new QPushButton(QStringLiteral("Reports"), hero);
     QPushButton* inventory = new QPushButton(QStringLiteral("Inventory"), hero);
     QPushButton* settings = new QPushButton(QStringLiteral("Settings"), hero);
+    entry->setMinimumWidth(132);
+    reports->setMinimumWidth(120);
+    inventory->setMinimumWidth(132);
+    settings->setMinimumWidth(120);
     reports->setObjectName(QStringLiteral("secondaryButton"));
     inventory->setObjectName(QStringLiteral("secondaryButton"));
     settings->setObjectName(QStringLiteral("secondaryButton"));
@@ -585,18 +627,18 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     actions->addWidget(inventory);
     actions->addWidget(settings);
     actions->addStretch(1);
-    heroLayout->addLayout(actions);
+    heroLayout->addWidget(actionRow, 3, 0, 1, 4);
     layout->addWidget(hero);
 
     QGridLayout* metrics = new QGridLayout();
-    metrics->setSpacing(12);
+    metrics->setSpacing(14);
     loadDashboard(*metrics);
     layout->addLayout(metrics);
 
-    QFrame* flow = createPanel(page);
+    QFrame* flow = createAccentPanel(page);
     QGridLayout* flowLayout = new QGridLayout(flow);
-    flowLayout->setContentsMargins(18, 16, 18, 16);
-    flowLayout->setSpacing(12);
+    flowLayout->setContentsMargins(18, 18, 18, 18);
+    flowLayout->setSpacing(14);
     flowLayout->addWidget(createMetricTile(QStringLiteral("Keyboard Entry"), QStringLiteral("Enter flow active"), flow), 0, 0);
     flowLayout->addWidget(createMetricTile(QStringLiteral("Inventory"), QStringLiteral("SQL snapshots"), flow), 0, 1);
     flowLayout->addWidget(createMetricTile(QStringLiteral("Backups"), QStringLiteral("Packaged runtime"), flow), 0, 2);
@@ -638,15 +680,17 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
 
     QFrame* entryPanel = createPanel(page);
     QGridLayout* form = new QGridLayout(entryPanel);
-    form->setContentsMargins(14, 14, 14, 14);
-    form->setHorizontalSpacing(10);
-    form->setVerticalSpacing(10);
+    form->setContentsMargins(16, 16, 16, 16);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(12);
 
     QDateEdit* date = new QDateEdit(QDate::currentDate(), entryPanel);
     date->setCalendarPopup(true);
     QLineEdit* bill = new QLineEdit(entryPanel);
     bill->setPlaceholderText(QStringLiteral("Bill No."));
     QLineEdit* party = new QLineEdit(QStringLiteral("Customer"), entryPanel);
+    QLabel* partyHint = new QLabel(QStringLiteral("Select an existing party. Create new names from Add Party."), entryPanel);
+    partyHint->setObjectName(QStringLiteral("pageMeta"));
     party->installEventFilter(new DefaultPartyTextFilter(*party));
     try {
         QCompleter* completer = new QCompleter(partyNames(), party);
@@ -675,16 +719,23 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Bill No."), entryPanel), 0, 1);
     form->addWidget(bill, 1, 1);
     form->addWidget(new QLabel(QStringLiteral("Party"), entryPanel), 0, 2);
-    form->addWidget(party, 1, 2);
-    form->addWidget(new QLabel(QStringLiteral("Type"), entryPanel), 0, 3);
-    form->addWidget(type, 1, 3);
-    form->addWidget(new QLabel(QStringLiteral("Mode"), entryPanel), 0, 4);
-    form->addWidget(mode, 1, 4);
-    form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 0, 5);
-    form->addWidget(amount, 1, 5);
-    form->addWidget(save, 1, 6);
-    form->addWidget(deleteButton, 1, 7);
-    form->addWidget(clear, 1, 8);
+    form->addWidget(party, 1, 2, 1, 2);
+    form->addWidget(partyHint, 2, 2, 1, 2);
+    form->addWidget(new QLabel(QStringLiteral("Type"), entryPanel), 3, 0);
+    form->addWidget(type, 4, 0);
+    form->addWidget(new QLabel(QStringLiteral("Mode"), entryPanel), 3, 1);
+    form->addWidget(mode, 4, 1);
+    form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 3, 2);
+    form->addWidget(amount, 4, 2);
+    form->addWidget(save, 4, 3);
+    form->addWidget(deleteButton, 4, 4);
+    form->addWidget(clear, 4, 5);
+    form->setColumnStretch(0, 1);
+    form->setColumnStretch(1, 2);
+    form->setColumnStretch(2, 2);
+    form->setColumnStretch(3, 1);
+    form->setColumnStretch(4, 1);
+    form->setColumnStretch(5, 1);
     layout->addWidget(entryPanel);
 
     createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusEntryWidget(*bill); });
@@ -781,13 +832,19 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     });
     connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save, transactionSearch]() {
         try {
-            const QString partyName = party->text().trimmed();
+            const QString typedPartyName = party->text().trimmed();
+            if (typedPartyName.isEmpty() || typedPartyName == QStringLiteral("Customer")) {
+                throw std::invalid_argument("Select an existing party");
+            }
+
+            const QString partyName = findExistingPartyName(partyNames(), typedPartyName);
             if (partyName.isEmpty()) {
-                throw std::invalid_argument("Party is required");
+                throw std::invalid_argument("Party does not exist. Create it from Add Party before saving a transaction.");
             }
             if (amount->value() <= 0.0) {
                 throw std::invalid_argument("Amount must be greater than zero");
             }
+            party->setText(partyName);
 
             const QString currentBill = bill->text().trimmed();
             if (*editingId > 0) {

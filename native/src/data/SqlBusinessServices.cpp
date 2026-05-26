@@ -224,6 +224,22 @@ protected:
         return idQuery.value(0).toInt();
     }
 
+    int getExistingPartyId(QSqlDatabase database, const QString& name) const {
+        const QString normalized = normalizeKey(name);
+        if (normalized.isEmpty()) {
+            throw domain::DomainError("Party name is required");
+        }
+
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral("SELECT party_id FROM parties WHERE normalized_name=?"));
+        query.addBindValue(normalized);
+        executePrepared(query, QStringLiteral("Read existing party"));
+        if (!query.next()) {
+            throw domain::DomainError(QStringLiteral("Party not found: %1. Create it from Add Party before saving a transaction.").arg(name).toStdString());
+        }
+        return query.value(0).toInt();
+    }
+
     void writeAudit(QSqlDatabase database, const QString& username, const QString& action, const QString& details) const {
         QString company = QStringLiteral("default");
         QSqlQuery companyQuery(database);
@@ -609,7 +625,7 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        const int partyId = getOrCreatePartyId(database.handle(), request.party, QStringLiteral("Customer"), true);
+        const int partyId = getExistingPartyId(database.handle(), request.party);
         QSqlQuery query(database.handle());
         query.prepare(QStringLiteral(
             "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) "
@@ -729,7 +745,7 @@ public:
             query.addBindValue(request.transactionId);
             executePrepared(query, QStringLiteral("Edit transaction date"));
         } else if (field == QStringLiteral("party")) {
-            const int partyId = getOrCreatePartyId(database.handle(), request.newValue, QStringLiteral("Customer"), true);
+            const int partyId = getExistingPartyId(database.handle(), request.newValue);
             QSqlQuery query(database.handle());
             query.prepare(QStringLiteral("UPDATE transactions SET party_id=? WHERE txn_id=?"));
             query.addBindValue(partyId);
