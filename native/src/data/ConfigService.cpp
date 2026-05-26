@@ -3,10 +3,12 @@
 #include "data/SqlDatabase.h"
 #include "domain/DomainErrors.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSqlError>
 
 namespace mfinlogs::data {
 
@@ -17,12 +19,36 @@ QString JsonConfigService::configPath() const {
     return QDir(appDataDir_).filePath(QStringLiteral("db_config.json"));
 }
 
+QString packagedConfigPath() {
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("db_config.json"));
+}
+
+QString workingDirectoryConfigPath() {
+    return QDir(QDir::currentPath()).filePath(QStringLiteral("db_config.json"));
+}
+
+QString readableConfigPath(const QString& appDataPath) {
+    if (QFile::exists(appDataPath)) {
+        return appDataPath;
+    }
+    const QString packagedPath = packagedConfigPath();
+    if (QFile::exists(packagedPath)) {
+        return packagedPath;
+    }
+    const QString workingPath = workingDirectoryConfigPath();
+    if (QFile::exists(workingPath)) {
+        return workingPath;
+    }
+    return appDataPath;
+}
+
 domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
-    QFile file(configPath());
+    const QString path = readableConfigPath(configPath());
+    QFile file(path);
     if (!file.exists()) {
         return domain::DatabaseConfig{
             QStringLiteral("localhost"),
-            QStringLiteral("finlogs"),
+            QStringLiteral("Finlogs"),
             QString(),
             QString(),
             QStringLiteral("{ODBC Driver 17 for SQL Server}"),
@@ -33,7 +59,7 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
     }
 
     if (!file.open(QIODevice::ReadOnly)) {
-        throw domain::DomainError(QStringLiteral("Could not read database config: %1").arg(file.errorString()).toStdString());
+        throw domain::DomainError(QStringLiteral("Could not read database config at %1: %2").arg(path, file.errorString()).toStdString());
     }
 
     const QJsonObject payload = QJsonDocument::fromJson(file.readAll()).object();
@@ -44,7 +70,7 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
 
     return domain::DatabaseConfig{
         payload.value(QStringLiteral("server")).toString(QStringLiteral("localhost")),
-        payload.value(QStringLiteral("database")).toString(QStringLiteral("finlogs")),
+        payload.value(QStringLiteral("database")).toString(QStringLiteral("Finlogs")),
         payload.value(QStringLiteral("username")).toString(),
         payload.value(QStringLiteral("password")).toString(),
         payload.value(QStringLiteral("driver")).toString(QStringLiteral("{ODBC Driver 17 for SQL Server}")),
@@ -75,7 +101,13 @@ void JsonConfigService::writeDatabaseConfig(const domain::DatabaseConfig& config
 
 bool JsonConfigService::testDatabaseConfig(const domain::DatabaseConfig& config) {
     SqlDatabase database(config);
-    return database.open();
+    if (database.open()) {
+        return true;
+    }
+    const QString detail = database.handle().lastError().text();
+    throw domain::DomainError(QStringLiteral("SQL connection failed. server=%1 database=%2 auth=%3 error=%4")
+        .arg(config.server, config.database, config.useWindowsAuth ? QStringLiteral("windows") : QStringLiteral("sql"), detail)
+        .toStdString());
 }
 
 } // namespace mfinlogs::data
