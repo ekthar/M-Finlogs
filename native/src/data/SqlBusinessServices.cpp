@@ -15,6 +15,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
+#include <QUuid>
 #include <QVariant>
 
 #include <algorithm>
@@ -962,6 +963,34 @@ public:
         return rows;
     }
 
+    void saveCashInHand(const QDate& date, double amount) override {
+        if (!date.isValid()) {
+            throw domain::DomainError("Cash date is required");
+        }
+        if (amount < 0.0) {
+            throw domain::DomainError("Cash in hand cannot be negative");
+        }
+
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while saving cash in hand");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+
+        QSqlQuery query(database.handle());
+        query.prepare(QStringLiteral(
+            "IF EXISTS (SELECT 1 FROM daily_cash WHERE cash_date=?) "
+            "UPDATE daily_cash SET cash_in_hand=?, updated_at=GETDATE() WHERE cash_date=? "
+            "ELSE INSERT INTO daily_cash (cash_date, cash_in_hand) VALUES (?, ?)"
+        ));
+        query.addBindValue(date);
+        query.addBindValue(amount);
+        query.addBindValue(date);
+        query.addBindValue(date);
+        query.addBindValue(amount);
+        executePrepared(query, QStringLiteral("Save cash in hand"));
+    }
+
     QJsonObject outstanding() override {
         SqlDatabase database(readConfig());
         if (!database.open()) {
@@ -1010,26 +1039,90 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        QSqlQuery query(database.handle());
-        query.prepare(QStringLiteral(
-            "SELECT p.name, "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE','EXPENSE','PURCHASE') THEN t.amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) "
-            "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id GROUP BY p.name ORDER BY p.name"
-        ));
-        executePrepared(query, QStringLiteral("Read trial balance"));
+        const QPair<QDate, QDate> bounds = financialYearBounds(selectedFinancialYear(database.handle()));
 
-        QJsonArray rows;
-        while (query.next()) {
+        QSqlQuery modeQuery(database.handle());
+        modeQuery.prepare(QStringLiteral(
+            "SELECT payment_mode, txn_type, SUM(amount) "
+            "FROM transactions WHERE txn_date >= ? AND txn_date <= ? GROUP BY payment_mode, txn_type"
+        ));
+        modeQuery.addBindValue(bounds.first);
+        modeQuery.addBindValue(bounds.second);
+        executePrepared(modeQuery, QStringLiteral("Read trial balance mode totals"));
+
+        double cashIn = 0.0;
+        double cashOut = 0.0;
+        double bankIn = 0.0;
+        double bankOut = 0.0;
+        double upiIn = 0.0;
+        double upiOut = 0.0;
+        while (modeQuery.next()) {
+            const QString mode = modeQuery.value(0).toString().trimmed().toLower();
+            const QString type = modeQuery.value(1).toString().trimmed().toLower();
+            const double amount = modeQuery.value(2).toDouble();
+            double* inBucket = &cashIn;
+            double* outBucket = &cashOut;
+            if (mode == QStringLiteral("bank") || mode == QStringLiteral("gpay") || mode == QStringLiteral("google pay") || mode == QStringLiteral("googlepay")) {
+                inBucket = &bankIn;
+                outBucket = &bankOut;
+            } else if (mode == QStringLiteral("upi")) {
+                inBucket = &upiIn;
+                outBucket = &upiOut;
+            }
+            if (type == QStringLiteral("sale") || type == QStringLiteral("receipt") || type == QStringLiteral("reciept")) {
+                *inBucket += amount;
+            } else if (type == QStringLiteral("expense") || type == QStringLiteral("sale return") || type == QStringLiteral("sales return") || type == QStringLiteral("return")) {
+                *outBucket += amount;
+            }
+        }
+
+        QSqlQuery debtorQuery(database.handle());
+        debtorQuery.prepare(QStringLiteral(
+            "SELECT "
+            "SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END), "
+            "SUM(CASE WHEN t.txn_type IN ('Receipt','Reciept','Sale Return','Sales Return','Return') THEN t.amount ELSE 0 END) "
+            "FROM transactions t JOIN parties p ON t.party_id=p.party_id "
+            "WHERE p.type='Credit Customer' AND t.txn_date >= ? AND t.txn_date <= ?"
+        ));
+        debtorQuery.addBindValue(bounds.first);
+        debtorQuery.addBindValue(bounds.second);
+        executePrepared(debtorQuery, QStringLiteral("Read trial balance debtors"));
+        debtorQuery.next();
+        const double debtors = debtorQuery.value(0).toDouble() - debtorQuery.value(1).toDouble();
+
+        QSqlQuery profitQuery(database.handle());
+        profitQuery.prepare(QStringLiteral(
+            "SELECT "
+            "SUM(CASE WHEN txn_type='Sale' THEN amount WHEN txn_type IN ('Sale Return','Sales Return','Return') THEN -amount ELSE 0 END), "
+            "SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) "
+            "FROM transactions WHERE txn_date >= ? AND txn_date <= ?"
+        ));
+        profitQuery.addBindValue(bounds.first);
+        profitQuery.addBindValue(bounds.second);
+        executePrepared(profitQuery, QStringLiteral("Read trial balance profit totals"));
+        profitQuery.next();
+        const double sales = profitQuery.value(0).toDouble();
+        const double expenses = profitQuery.value(1).toDouble();
+
+        auto accountRow = [](const QString& account, double debit, double credit) {
             QJsonObject item;
-            const double debit = query.value(1).toDouble();
-            const double credit = query.value(2).toDouble();
-            item.insert(QStringLiteral("account"), query.value(0).toString());
+            item.insert(QStringLiteral("account"), account);
             item.insert(QStringLiteral("debit"), debit);
             item.insert(QStringLiteral("credit"), credit);
             item.insert(QStringLiteral("balance"), debit - credit);
-            rows.append(item);
-        }
+            return item;
+        };
+        QJsonArray rows;
+        const double cashBalance = cashIn - cashOut;
+        const double bankBalance = bankIn - bankOut;
+        const double upiBalance = upiIn - upiOut;
+        rows.append(accountRow(QStringLiteral("Cash Account"), cashBalance > 0.0 ? cashBalance : 0.0, cashBalance < 0.0 ? -cashBalance : 0.0));
+        rows.append(accountRow(QStringLiteral("Bank Account"), bankBalance > 0.0 ? bankBalance : 0.0, bankBalance < 0.0 ? -bankBalance : 0.0));
+        rows.append(accountRow(QStringLiteral("UPI Account"), upiBalance > 0.0 ? upiBalance : 0.0, upiBalance < 0.0 ? -upiBalance : 0.0));
+        rows.append(accountRow(QStringLiteral("Sundry Debtors"), debtors > 0.0 ? debtors : 0.0, debtors < 0.0 ? -debtors : 0.0));
+        rows.append(accountRow(QStringLiteral("Sundry Creditors"), 0.0, 0.0));
+        rows.append(accountRow(QStringLiteral("Sales Account"), 0.0, sales));
+        rows.append(accountRow(QStringLiteral("Expense Account"), expenses, 0.0));
         return rows;
     }
 
@@ -1044,9 +1137,8 @@ public:
         QSqlQuery query(database.handle());
         query.prepare(QStringLiteral(
             "SELECT "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type)))='SALE' THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','PURCHASE') THEN amount ELSE 0 END) "
+            "SUM(CASE WHEN txn_type='Sale' THEN amount WHEN txn_type IN ('Sale Return','Sales Return','Return') THEN -amount ELSE 0 END), "
+            "SUM(CASE WHEN txn_type='Expense' THEN amount ELSE 0 END) "
             "FROM transactions WHERE txn_date >= ? AND txn_date <= ?"
         ));
         query.addBindValue(bounds.first);
@@ -1054,8 +1146,8 @@ public:
         executePrepared(query, QStringLiteral("Read profit and loss"));
         query.next();
 
-        const double sales = query.value(0).toDouble() - query.value(1).toDouble();
-        const double expenses = query.value(2).toDouble();
+        const double sales = query.value(0).toDouble();
+        const double expenses = query.value(1).toDouble();
         QJsonObject result;
         result.insert(QStringLiteral("sales"), sales);
         result.insert(QStringLiteral("expenses"), expenses);
@@ -1097,8 +1189,90 @@ private:
     }
 };
 
-class NativeInventoryService final : public domain::InventoryService {
+class NativeInventoryService final : public domain::InventoryService, private SqlServiceBase {
 public:
+    explicit NativeInventoryService(const std::shared_ptr<domain::ConfigService>& configService)
+        : SqlServiceBase(configService) {}
+
+    QJsonArray loadSnapshot(const QString& financialYear, int month) override {
+        validateInventoryPeriod(financialYear, month);
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while loading inventory");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+
+        const QString company = companyScope(database.handle());
+        QSqlQuery itemQuery(database.handle());
+        itemQuery.prepare(QStringLiteral(
+            "SELECT id, client_row_id, name, cost, min_stock FROM inventory_items WHERE company=? ORDER BY id"
+        ));
+        itemQuery.addBindValue(company);
+        executePrepared(itemQuery, QStringLiteral("Load inventory items"));
+
+        QJsonArray rows;
+        while (itemQuery.next()) {
+            const int itemId = itemQuery.value(0).toInt();
+            QJsonObject item;
+            item.insert(QStringLiteral("id"), itemId);
+            item.insert(QStringLiteral("row_id"), itemQuery.value(1).toString());
+            item.insert(QStringLiteral("name"), itemQuery.value(2).toString());
+            item.insert(QStringLiteral("cost"), itemQuery.value(3).toDouble());
+            item.insert(QStringLiteral("min_stock"), itemQuery.value(4).toDouble());
+            applyDayValues(database.handle(), QStringLiteral("inventory_quantities"), itemId, company, financialYear, month, QStringLiteral("qty_"), item);
+            applyDayValues(database.handle(), QStringLiteral("inventory_purchases"), itemId, company, financialYear, month, QStringLiteral("purchase_"), item);
+            rows.append(item);
+        }
+        return rows;
+    }
+
+    void saveSnapshot(const QString& financialYear, int month, const QJsonArray& rows) override {
+        validateInventoryPeriod(financialYear, month);
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while saving inventory");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+
+        const QString company = companyScope(database.handle());
+        for (const QJsonValue& value : rows) {
+            const QJsonObject row = value.toObject();
+            const QString name = row.value(QStringLiteral("name")).toString().trimmed();
+            if (name.isEmpty()) {
+                continue;
+            }
+            const QString rowId = row.value(QStringLiteral("row_id")).toString().trimmed().isEmpty()
+                ? QStringLiteral("inv-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces))
+                : row.value(QStringLiteral("row_id")).toString().trimmed();
+            const int itemId = upsertItem(database.handle(), company, rowId, name, row.value(QStringLiteral("cost")).toDouble(), row.value(QStringLiteral("min_stock")).toDouble());
+            replaceDayValues(database.handle(), QStringLiteral("inventory_quantities"), itemId, company, financialYear, month, QStringLiteral("qty_"), row);
+            replaceDayValues(database.handle(), QStringLiteral("inventory_purchases"), itemId, company, financialYear, month, QStringLiteral("purchase_"), row);
+        }
+        writeAudit(database.handle(), QStringLiteral("native-admin"), QStringLiteral("Save Inventory"), QStringLiteral("Saved inventory snapshot ") + financialYear + QStringLiteral(" month ") + QString::number(month));
+    }
+
+    QJsonArray stockValue(const QString& financialYear, int month) override {
+        const QJsonArray rows = loadSnapshot(financialYear, month);
+        QJsonArray values;
+        for (int day = 1; day <= 31; day += 1) {
+            double totalQuantity = 0.0;
+            double totalValue = 0.0;
+            const QString key = dayKey(QStringLiteral("qty_"), day);
+            for (const QJsonValue& value : rows) {
+                const QJsonObject row = value.toObject();
+                const double quantity = row.value(key).toDouble();
+                totalQuantity += quantity;
+                totalValue += quantity * row.value(QStringLiteral("cost")).toDouble();
+            }
+            QJsonObject item;
+            item.insert(QStringLiteral("day"), day);
+            item.insert(QStringLiteral("quantity"), totalQuantity);
+            item.insert(QStringLiteral("stock_value"), totalValue);
+            values.append(item);
+        }
+        return values;
+    }
+
     QByteArray buildPdfPreview(const domain::InventoryPdfMailRequest& request) override {
         Q_UNUSED(request);
         throw domain::NotImplementedError("InventoryService::buildPdfPreview");
@@ -1107,6 +1281,105 @@ public:
     void sendPdfMail(const domain::InventoryPdfMailRequest& request) override {
         Q_UNUSED(request);
         throw domain::NotImplementedError("InventoryService::sendPdfMail");
+    }
+
+private:
+    void validateInventoryPeriod(const QString& financialYear, int month) const {
+        if (financialYear.trimmed().isEmpty()) {
+            throw domain::DomainError("Inventory financial year is required");
+        }
+        if (month < 1 || month > 12) {
+            throw domain::DomainError(QStringLiteral("Inventory month must be 1-12: %1").arg(month).toStdString());
+        }
+    }
+
+    QString companyScope(QSqlDatabase database) const {
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral("SELECT setting_value FROM app_settings WHERE setting_key=?"));
+        query.addBindValue(QStringLiteral("company_name"));
+        executePrepared(query, QStringLiteral("Read inventory company"));
+        if (query.next() && !query.value(0).toString().trimmed().isEmpty()) {
+            return normalizeKey(query.value(0).toString());
+        }
+        return QStringLiteral("default");
+    }
+
+    QString dayKey(const QString& prefix, int day) const {
+        return QStringLiteral("%1%2").arg(prefix, QString::number(day).rightJustified(2, QLatin1Char('0')));
+    }
+
+    void applyDayValues(QSqlDatabase database, const QString& tableName, int itemId, const QString& company, const QString& financialYear, int month, const QString& prefix, QJsonObject& item) const {
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral("SELECT day, qty FROM %1 WHERE item_id=? AND company=? AND financial_year=? AND month=?").arg(tableName));
+        query.addBindValue(itemId);
+        query.addBindValue(company);
+        query.addBindValue(financialYear);
+        query.addBindValue(month);
+        executePrepared(query, QStringLiteral("Load inventory day values"));
+        while (query.next()) {
+            const int day = query.value(0).toInt();
+            if (day >= 1 && day <= 31) {
+                item.insert(dayKey(prefix, day), query.value(1).toDouble());
+            }
+        }
+    }
+
+    int upsertItem(QSqlDatabase database, const QString& company, const QString& rowId, const QString& name, double cost, double minStock) const {
+        QSqlQuery selectQuery(database);
+        selectQuery.prepare(QStringLiteral("SELECT id FROM inventory_items WHERE company=? AND client_row_id=?"));
+        selectQuery.addBindValue(company);
+        selectQuery.addBindValue(rowId);
+        executePrepared(selectQuery, QStringLiteral("Read inventory item by row id"));
+        if (selectQuery.next()) {
+            const int itemId = selectQuery.value(0).toInt();
+            QSqlQuery updateQuery(database);
+            updateQuery.prepare(QStringLiteral("UPDATE inventory_items SET name=?, cost=?, min_stock=?, updated_at=GETDATE() WHERE id=?"));
+            updateQuery.addBindValue(name);
+            updateQuery.addBindValue(cost);
+            updateQuery.addBindValue(minStock);
+            updateQuery.addBindValue(itemId);
+            executePrepared(updateQuery, QStringLiteral("Update inventory item"));
+            return itemId;
+        }
+
+        QSqlQuery insertQuery(database);
+        insertQuery.prepare(QStringLiteral("INSERT INTO inventory_items (client_row_id, company, name, cost, min_stock) OUTPUT INSERTED.id VALUES (?, ?, ?, ?, ?)"));
+        insertQuery.addBindValue(rowId);
+        insertQuery.addBindValue(company);
+        insertQuery.addBindValue(name);
+        insertQuery.addBindValue(cost);
+        insertQuery.addBindValue(minStock);
+        executePrepared(insertQuery, QStringLiteral("Create inventory item"));
+        if (!insertQuery.next()) {
+            throw domain::DomainError(QStringLiteral("Inventory item insert did not return an id: %1").arg(name).toStdString());
+        }
+        return insertQuery.value(0).toInt();
+    }
+
+    void replaceDayValues(QSqlDatabase database, const QString& tableName, int itemId, const QString& company, const QString& financialYear, int month, const QString& prefix, const QJsonObject& row) const {
+        QSqlQuery deleteQuery(database);
+        deleteQuery.prepare(QStringLiteral("DELETE FROM %1 WHERE item_id=? AND company=? AND financial_year=? AND month=?").arg(tableName));
+        deleteQuery.addBindValue(itemId);
+        deleteQuery.addBindValue(company);
+        deleteQuery.addBindValue(financialYear);
+        deleteQuery.addBindValue(month);
+        executePrepared(deleteQuery, QStringLiteral("Clear inventory day values"));
+
+        for (int day = 1; day <= 31; day += 1) {
+            const double quantity = row.value(dayKey(prefix, day)).toDouble();
+            if (std::abs(quantity) < 0.005) {
+                continue;
+            }
+            QSqlQuery insertQuery(database);
+            insertQuery.prepare(QStringLiteral("INSERT INTO %1 (item_id, company, financial_year, month, day, qty) VALUES (?, ?, ?, ?, ?, ?)").arg(tableName));
+            insertQuery.addBindValue(itemId);
+            insertQuery.addBindValue(company);
+            insertQuery.addBindValue(financialYear);
+            insertQuery.addBindValue(month);
+            insertQuery.addBindValue(day);
+            insertQuery.addBindValue(quantity);
+            executePrepared(insertQuery, QStringLiteral("Save inventory day value"));
+        }
     }
 };
 
@@ -1240,7 +1513,7 @@ domain::ServiceRegistry createSqlBusinessServices(const std::shared_ptr<domain::
     registry.transactions = std::make_shared<NativeTransactionService>(configService);
     registry.parties = std::make_shared<NativePartyService>(configService);
     registry.reports = std::make_shared<NativeReportService>(configService);
-    registry.inventory = std::make_shared<NativeInventoryService>();
+    registry.inventory = std::make_shared<NativeInventoryService>(configService);
     registry.backups = std::make_shared<NativeBackupService>(configService);
     registry.audit = std::make_shared<NativeAuditService>(configService);
     registry.updates = std::make_shared<NativeUpdateService>();

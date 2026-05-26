@@ -106,6 +106,47 @@ void SchemaInitializer::ensureCoreTables() {
         "FOREIGN KEY (party_id) REFERENCES parties (party_id)"
         ")"
     ));
+
+    executeStatement(QStringLiteral(
+        "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'inventory_items') "
+        "CREATE TABLE inventory_items ("
+        "id INT PRIMARY KEY IDENTITY(1,1),"
+        "client_row_id NVARCHAR(128) NULL,"
+        "company NVARCHAR(255) NOT NULL,"
+        "name NVARCHAR(255) NOT NULL,"
+        "cost DECIMAL(18,2) DEFAULT 0,"
+        "min_stock DECIMAL(18,2) DEFAULT 0,"
+        "updated_at DATETIME DEFAULT GETDATE()"
+        ")"
+    ));
+
+    executeStatement(QStringLiteral(
+        "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'inventory_quantities') "
+        "CREATE TABLE inventory_quantities ("
+        "id INT PRIMARY KEY IDENTITY(1,1),"
+        "item_id INT NOT NULL,"
+        "company NVARCHAR(255) NOT NULL,"
+        "financial_year NVARCHAR(9) NOT NULL,"
+        "month INT NOT NULL,"
+        "day INT NOT NULL,"
+        "qty DECIMAL(18,2) DEFAULT 0,"
+        "FOREIGN KEY (item_id) REFERENCES inventory_items(id)"
+        ")"
+    ));
+
+    executeStatement(QStringLiteral(
+        "IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'inventory_purchases') "
+        "CREATE TABLE inventory_purchases ("
+        "id INT PRIMARY KEY IDENTITY(1,1),"
+        "item_id INT NOT NULL,"
+        "company NVARCHAR(255) NOT NULL,"
+        "financial_year NVARCHAR(9) NOT NULL,"
+        "month INT NOT NULL,"
+        "day INT NOT NULL,"
+        "qty DECIMAL(18,2) DEFAULT 0,"
+        "FOREIGN KEY (item_id) REFERENCES inventory_items(id)"
+        ")"
+    ));
 }
 
 void SchemaInitializer::ensureMigrations(const QString& companyName) {
@@ -143,7 +184,11 @@ void SchemaInitializer::ensureIndexes() {
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_transactions_date_id' AND object_id = OBJECT_ID('transactions')) CREATE INDEX idx_transactions_date_id ON transactions(txn_date DESC, txn_id DESC)"),
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_transactions_date_type_mode' AND object_id = OBJECT_ID('transactions')) CREATE INDEX idx_transactions_date_type_mode ON transactions(txn_date, txn_type, payment_mode)"),
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_transactions_fy_date' AND object_id = OBJECT_ID('transactions')) CREATE INDEX idx_transactions_fy_date ON transactions(financial_year, txn_date)"),
-        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_parties_normalized' AND object_id = OBJECT_ID('parties')) CREATE INDEX idx_parties_normalized ON parties(normalized_name)")
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_parties_normalized' AND object_id = OBJECT_ID('parties')) CREATE INDEX idx_parties_normalized ON parties(normalized_name)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_items_company_id' AND object_id = OBJECT_ID('inventory_items')) CREATE INDEX idx_inventory_items_company_id ON inventory_items(company, id)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_items_company_client_row' AND object_id = OBJECT_ID('inventory_items')) CREATE INDEX idx_inventory_items_company_client_row ON inventory_items(company, client_row_id)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_quantities_lookup' AND object_id = OBJECT_ID('inventory_quantities')) CREATE INDEX idx_inventory_quantities_lookup ON inventory_quantities(company, financial_year, month, item_id)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_purchases_lookup' AND object_id = OBJECT_ID('inventory_purchases')) CREATE INDEX idx_inventory_purchases_lookup ON inventory_purchases(company, financial_year, month, item_id)")
     };
 
     for (const QString& statement : statements) {

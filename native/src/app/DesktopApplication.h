@@ -20,6 +20,8 @@ private:
     QWidget* buildDashboardPage();
     QWidget* buildPartiesPage();
     QWidget* buildReportPage(const QString& title, const QString& description);
+    QWidget* buildInventoryPage();
+    QWidget* buildInventoryValuePage();
     QWidget* buildAuditPage();
     QWidget* buildSettingsPage();
     QWidget* buildComingSoonPage(const QString& title, const QString& description);
@@ -27,8 +29,11 @@ private:
     void loadAuditLogs(QTableWidget& table);
     void loadDashboard(QGridLayout& metricGrid);
     void loadParties(QTableWidget& table);
+    void loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month);
+    void loadInventoryValue(QTableWidget& table, const QString& financialYear, int month);
     void loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range);
     void loadTransactions(QTableWidget& table);
+    QJsonArray inventoryRowsFromTable(QTableWidget& table);
     void applyTableSearch(QTableWidget& table, const QString& query);
     QStringList partyNames();
     void setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows);

@@ -106,6 +106,12 @@ QString currentFinancialYearText() {
     return QStringLiteral("FY: %1-%2").arg(startYear).arg(startYear + 1);
 }
 
+QString currentFinancialYearValue() {
+    const QDate today = QDate::currentDate();
+    const int startYear = today.month() >= 4 ? today.year() : today.year() - 1;
+    return QStringLiteral("%1-%2").arg(startYear).arg(startYear + 1);
+}
+
 QFrame* createContextBar(mfinlogs::app::AppContext& context, QWidget* parent) {
     QFrame* bar = new QFrame(parent);
     bar->setObjectName(QStringLiteral("contextBar"));
@@ -419,10 +425,10 @@ void DesktopApplication::buildNavigation() {
     pageIndex += 1;
 
     addGroupItem(*nav, QStringLiteral("Inventory"));
-    pages->addWidget(buildComingSoonPage(QStringLiteral("Inventory Management"), QStringLiteral("Inventory tables, PDF preview, and email sending are still pending in the native rewrite.")));
+    pages->addWidget(buildInventoryPage());
     addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex);
     pageIndex += 1;
-    pages->addWidget(buildComingSoonPage(QStringLiteral("Stock Value Report"), QStringLiteral("Inventory valuation report will use the native inventory service once implemented.")));
+    pages->addWidget(buildInventoryValuePage());
     addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex);
     pageIndex += 1;
 
@@ -791,6 +797,34 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     filterLayout->addWidget(refresh);
     layout->addWidget(filters);
 
+    if (title == QStringLiteral("Short / Excess")) {
+        QFrame* cashPanel = createPanel(page);
+        QHBoxLayout* cashLayout = new QHBoxLayout(cashPanel);
+        QDateEdit* cashDate = new QDateEdit(QDate::currentDate(), cashPanel);
+        cashDate->setCalendarPopup(true);
+        QDoubleSpinBox* cashAmount = new QDoubleSpinBox(cashPanel);
+        cashAmount->setMaximum(999999999.0);
+        cashAmount->setDecimals(2);
+        QPushButton* saveCash = new QPushButton(QStringLiteral("Save Cash In Hand"), cashPanel);
+        saveCash->setObjectName(QStringLiteral("secondaryButton"));
+        cashLayout->addWidget(new QLabel(QStringLiteral("Cash Date"), cashPanel));
+        cashLayout->addWidget(cashDate);
+        cashLayout->addWidget(new QLabel(QStringLiteral("Cash In Hand"), cashPanel));
+        cashLayout->addWidget(cashAmount);
+        cashLayout->addStretch(1);
+        cashLayout->addWidget(saveCash);
+        layout->addWidget(cashPanel);
+        connect(saveCash, &QPushButton::clicked, this, [this, cashDate, cashAmount, refresh]() {
+            try {
+                context_.services().reports->saveCashInHand(cashDate->date(), cashAmount->value());
+                refresh->click();
+                statusBar()->showMessage(QStringLiteral("Cash in hand saved"), 7000);
+            } catch (const std::exception& err) {
+                showError(QStringLiteral("Save Cash In Hand"), err);
+            }
+        });
+    }
+
     QTableWidget* table = createDataTable(page);
     const domain::ReportRange initialRange{start->date(), end->date(), rangeDays(start->date(), end->date())};
     loadReportTable(*table, title, search->text().trimmed(), initialRange);
@@ -938,6 +972,122 @@ QWidget* DesktopApplication::buildSettingsPage() {
     return page;
 }
 
+QWidget* DesktopApplication::buildInventoryPage() {
+    QWidget* page = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities, purchases, cost, and reorder levels."), page));
+    layout->addWidget(createContextBar(context_, page));
+
+    const QString financialYear = currentFinancialYearValue();
+    QFrame* toolbar = createPanel(page);
+    QHBoxLayout* toolbarLayout = new QHBoxLayout(toolbar);
+    QComboBox* month = new QComboBox(toolbar);
+    month->addItems({
+        QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
+        QStringLiteral("04 - April"), QStringLiteral("05 - May"), QStringLiteral("06 - June"),
+        QStringLiteral("07 - July"), QStringLiteral("08 - August"), QStringLiteral("09 - September"),
+        QStringLiteral("10 - October"), QStringLiteral("11 - November"), QStringLiteral("12 - December")
+    });
+    month->setCurrentIndex(QDate::currentDate().month() - 1);
+    QLineEdit* product = new QLineEdit(toolbar);
+    product->setPlaceholderText(QStringLiteral("Product name"));
+    QPushButton* add = new QPushButton(QStringLiteral("Add Product"), toolbar);
+    add->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
+    refresh->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* save = new QPushButton(QStringLiteral("Save Inventory"), toolbar);
+    toolbarLayout->addWidget(new QLabel(QStringLiteral("Month"), toolbar));
+    toolbarLayout->addWidget(month);
+    toolbarLayout->addWidget(product, 1);
+    toolbarLayout->addWidget(add);
+    toolbarLayout->addWidget(refresh);
+    toolbarLayout->addWidget(save);
+    layout->addWidget(toolbar);
+
+    QTableWidget* table = createDataTable(page);
+    table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
+    loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+    layout->addWidget(table, 1);
+
+    connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month](int) {
+        loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+    });
+    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+        loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+    });
+    connect(add, &QPushButton::clicked, this, [table, product]() {
+        const QString name = product->text().trimmed();
+        if (name.isEmpty()) {
+            return;
+        }
+        const int row = table->rowCount();
+        table->insertRow(row);
+        table->setItem(row, 0, new QTableWidgetItem(QString()));
+        table->setItem(row, 1, new QTableWidgetItem(name));
+        table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("0.00")));
+        table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("0.00")));
+        for (int column = 4; column < table->columnCount(); column += 1) {
+            table->setItem(row, column, new QTableWidgetItem(QString()));
+        }
+        product->clear();
+        table->setCurrentCell(row, 1);
+    });
+    connect(product, &QLineEdit::returnPressed, add, &QPushButton::click);
+    connect(save, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+        try {
+            context_.services().inventory->saveSnapshot(financialYear, month->currentIndex() + 1, inventoryRowsFromTable(*table));
+            loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+            statusBar()->showMessage(QStringLiteral("Inventory saved"), 7000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Save Inventory"), err);
+        }
+    });
+    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+S")), [save]() { save->click(); });
+    createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+K")), [product]() { focusEntryWidget(*product); });
+    return page;
+}
+
+QWidget* DesktopApplication::buildInventoryValuePage() {
+    QWidget* page = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(22, 18, 22, 22);
+    layout->setSpacing(12);
+    layout->addWidget(createPageHeader(QStringLiteral("Stock Value Report"), QStringLiteral("Daily stock quantity and value from saved inventory snapshots."), page));
+    layout->addWidget(createContextBar(context_, page));
+
+    const QString financialYear = currentFinancialYearValue();
+    QFrame* toolbar = createPanel(page);
+    QHBoxLayout* toolbarLayout = new QHBoxLayout(toolbar);
+    QComboBox* month = new QComboBox(toolbar);
+    month->addItems({
+        QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
+        QStringLiteral("04 - April"), QStringLiteral("05 - May"), QStringLiteral("06 - June"),
+        QStringLiteral("07 - July"), QStringLiteral("08 - August"), QStringLiteral("09 - September"),
+        QStringLiteral("10 - October"), QStringLiteral("11 - November"), QStringLiteral("12 - December")
+    });
+    month->setCurrentIndex(QDate::currentDate().month() - 1);
+    QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
+    refresh->setObjectName(QStringLiteral("secondaryButton"));
+    toolbarLayout->addWidget(new QLabel(QStringLiteral("Month"), toolbar));
+    toolbarLayout->addWidget(month);
+    toolbarLayout->addStretch(1);
+    toolbarLayout->addWidget(refresh);
+    layout->addWidget(toolbar);
+
+    QTableWidget* table = createDataTable(page);
+    loadInventoryValue(*table, financialYear, month->currentIndex() + 1);
+    layout->addWidget(table, 1);
+    connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month](int) {
+        loadInventoryValue(*table, financialYear, month->currentIndex() + 1);
+    });
+    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+        loadInventoryValue(*table, financialYear, month->currentIndex() + 1);
+    });
+    return page;
+}
+
 QWidget* DesktopApplication::buildComingSoonPage(const QString& title, const QString& description) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
@@ -986,6 +1136,45 @@ void DesktopApplication::loadParties(QTableWidget& table) {
         setTableRows(table, {QStringLiteral("name"), QStringLiteral("type")}, context_.services().parties->listParties());
     } catch (const std::exception& err) {
         showError(QStringLiteral("Parties"), err);
+    }
+}
+
+void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
+    try {
+        QStringList headers = {QStringLiteral("row_id"), QStringLiteral("name"), QStringLiteral("cost"), QStringLiteral("min_stock")};
+        for (int day = 1; day <= 31; day += 1) {
+            headers.append(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+        }
+        for (int day = 1; day <= 31; day += 1) {
+            headers.append(QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0'))));
+        }
+
+        const QJsonArray rows = context_.services().inventory->loadSnapshot(financialYear, month);
+        table.clear();
+        table.setColumnCount(headers.size());
+        table.setRowCount(rows.size());
+        table.setHorizontalHeaderLabels(headers);
+        table.setColumnHidden(0, true);
+        for (int rowIndex = 0; rowIndex < rows.size(); rowIndex += 1) {
+            const QJsonObject row = rows.at(rowIndex).toObject();
+            for (int columnIndex = 0; columnIndex < headers.size(); columnIndex += 1) {
+                const QString key = headers.at(columnIndex);
+                const QJsonValue value = row.value(key);
+                const QString text = value.isDouble() ? moneyText(value.toDouble()) : value.toVariant().toString();
+                table.setItem(rowIndex, columnIndex, new QTableWidgetItem(text));
+            }
+        }
+        table.resizeColumnsToContents();
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Inventory"), err);
+    }
+}
+
+void DesktopApplication::loadInventoryValue(QTableWidget& table, const QString& financialYear, int month) {
+    try {
+        setTableRows(table, {QStringLiteral("day"), QStringLiteral("quantity"), QStringLiteral("stock_value")}, context_.services().inventory->stockValue(financialYear, month));
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Stock Value"), err);
     }
 }
 
@@ -1100,6 +1289,34 @@ QStringList DesktopApplication::partyNames() {
     names.removeDuplicates();
     names.sort(Qt::CaseInsensitive);
     return names;
+}
+
+QJsonArray DesktopApplication::inventoryRowsFromTable(QTableWidget& table) {
+    QJsonArray rows;
+    for (int rowIndex = 0; rowIndex < table.rowCount(); rowIndex += 1) {
+        const QTableWidgetItem* nameItem = table.item(rowIndex, 1);
+        const QString name = nameItem ? nameItem->text().trimmed() : QString();
+        if (name.isEmpty()) {
+            continue;
+        }
+
+        QJsonObject row;
+        const QTableWidgetItem* rowIdItem = table.item(rowIndex, 0);
+        row.insert(QStringLiteral("row_id"), rowIdItem ? rowIdItem->text().trimmed() : QString());
+        row.insert(QStringLiteral("name"), name);
+        row.insert(QStringLiteral("cost"), table.item(rowIndex, 2) ? table.item(rowIndex, 2)->text().toDouble() : 0.0);
+        row.insert(QStringLiteral("min_stock"), table.item(rowIndex, 3) ? table.item(rowIndex, 3)->text().toDouble() : 0.0);
+        for (int day = 1; day <= 31; day += 1) {
+            const int qtyColumn = 3 + day;
+            const int purchaseColumn = 34 + day;
+            const QString qtyKey = QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
+            const QString purchaseKey = QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
+            row.insert(qtyKey, table.item(rowIndex, qtyColumn) ? table.item(rowIndex, qtyColumn)->text().toDouble() : 0.0);
+            row.insert(purchaseKey, table.item(rowIndex, purchaseColumn) ? table.item(rowIndex, purchaseColumn)->text().toDouble() : 0.0);
+        }
+        rows.append(row);
+    }
+    return rows;
 }
 
 void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows) {
