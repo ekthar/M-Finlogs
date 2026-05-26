@@ -68,6 +68,7 @@ public:
     virtual QJsonArray dayBook(const QDate& date) = 0;
     virtual QJsonArray dailySummary(const ReportRange& range) = 0;
     virtual QJsonArray shortExcess(const ReportRange& range) = 0;
+    virtual void saveCashInHand(const QDate& date, double amount) = 0;
     virtual QJsonObject outstanding() = 0;
     virtual QJsonArray trialBalance() = 0;
     virtual QJsonObject profitAndLoss() = 0;
@@ -76,6 +77,9 @@ public:
 class InventoryService {
 public:
     virtual ~InventoryService() = default;
+    virtual QJsonArray loadSnapshot(const QString& financialYear, int month) = 0;
+    virtual void saveSnapshot(const QString& financialYear, int month, const QJsonArray& rows) = 0;
+    virtual QJsonArray stockValue(const QString& financialYear, int month) = 0;
     virtual QByteArray buildPdfPreview(const InventoryPdfMailRequest& request) = 0;
     virtual void sendPdfMail(const InventoryPdfMailRequest& request) = 0;
 };
@@ -111,4 +115,3 @@ public:
 };
 
 } // namespace mfinlogs::domain
-
