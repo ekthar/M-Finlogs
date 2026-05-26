@@ -1,6 +1,8 @@
 # M-Finlogs
 Desktop financial log management system with SQL Server backend
 
+<!-- Trigger a fresh native build run after workflow updates. -->
+
 ## 🚀 Quick Start for New Users
 
 ### Before Installing M-Finlogs
