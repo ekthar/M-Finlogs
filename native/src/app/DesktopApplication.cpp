@@ -502,28 +502,32 @@ void focusEntryWidget(QWidget& widget) {
 }
 
 static QString buildModernQss(bool darkMode = false) {
-    // macOS-native clean design — system font, minimal styling
-    const QString bg           = darkMode ? QStringLiteral("#1c1c1e") : QStringLiteral("#ffffff");
-    const QString surface      = darkMode ? QStringLiteral("#1c1c1e") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#f8f8fa");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#e8f0fe");
-    const QString sidebarHover = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#eeeeee");
-    const QString textPrimary  = darkMode ? QStringLiteral("#f5f5f7") : QStringLiteral("#1d1d1f");
-    const QString textSecondary= darkMode ? QStringLiteral("#98989d") : QStringLiteral("#86868b");
-    const QString border       = darkMode ? QStringLiteral("#38383a") : QStringLiteral("#d2d2d7");
-    const QString tableHeaderBg= darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#f5f5f7");
-    const QString tableHeaderTx= darkMode ? QStringLiteral("#f5f5f7") : QStringLiteral("#1d1d1f");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#242426") : QStringLiteral("#fcfcfc");
-    const QString tableGrid    = darkMode ? QStringLiteral("#38383a") : QStringLiteral("#e5e5ea");
-    const QString accent       = darkMode ? QStringLiteral("#0a84ff") : QStringLiteral("#007aff");
-    const QString accentHover  = darkMode ? QStringLiteral("#409cff") : QStringLiteral("#0066d6");
-    const QString accentPanelBg= darkMode ? QStringLiteral("#1a2a3a") : QStringLiteral("#f0f7ff");
-    const QString inputBg      = darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#ffffff");
-    const QString scrollHandle = darkMode ? QStringLiteral("#48484a") : QStringLiteral("#c7c7cc");
-    const QString secondaryHover = darkMode ? QStringLiteral("#48484a") : QStringLiteral("#e5e5ea");
+    // Mac-grade minimalist design — Tailwind palette, flat, borderless
+    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#f9fafb");
+    const QString surface      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#f3f4f6");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#3b82f6");
+    const QString sidebarSelTx = QStringLiteral("#ffffff");
+    const QString sidebarHover = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
+    const QString textPrimary  = darkMode ? QStringLiteral("#f9fafb") : QStringLiteral("#111827");
+    const QString textSecondary= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#6b7280");
+    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
+    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
+    const QString tableHeaderBg= darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
+    const QString tableHeaderTx= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#6b7280");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#ffffff");
+    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#f3f4f6");
+    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eff6ff");
+    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#3b82f6");
+    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#2563eb");
+    const QString accentPanelBg= darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eff6ff");
+    const QString inputBg      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
+    const QString scrollHandle = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
+    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
+    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
     const QString heroGrad     = darkMode
-        ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #0a84ff, stop:1 #4da3ff)")
-        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #007aff, stop:1 #4da3ff)");
+        ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
+        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3b82f6, stop:1 #60a5fa)");
 
     return QStringLiteral(
         // 1. Universal font reset — normal weight baseline
@@ -550,10 +554,10 @@ static QString buildModernQss(bool darkMode = false) {
         "QListWidget#sidebar::item { padding: 8px 12px; border-radius: 4px; }"
     )
 
-    // 6. Sidebar selected
+    // 6. Sidebar selected — vibrant blue with white bold text
     + QStringLiteral(
-        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 500; }"
-    ).arg(sidebarSel, textPrimary)
+        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 600; }"
+    ).arg(sidebarSel, sidebarSelTx)
 
     // 7. Sidebar hover
     + QStringLiteral(
@@ -624,21 +628,23 @@ static QString buildModernQss(bool darkMode = false) {
         "QFrame#contextBar { background: transparent; border: none; padding: 0; }"
     )
 
-    // 18. Tables — flat, clean, 1px border, no radius
+    // 18. Tables — flat, clean, soft-blue selection, no vertical grid
     + QStringLiteral(
         "QTableWidget#dataTable, QTableWidget#inventoryTable {"
         " background: %1; alternate-background-color: %2;"
-        " border: 1px solid %3; border-radius: 0px;"
-        " selection-background-color: %4; selection-color: %5;"
-        " gridline-color: %6; color: %5; font-size: 13px; font-weight: 400; }"
-    ).arg(surface, tableAltRow, border, sidebarSel, textPrimary, tableGrid)
+        " border: none; border-radius: 0px;"
+        " selection-background-color: %3; selection-color: %4;"
+        " gridline-color: %5; color: %4; font-size: 13px; font-weight: 400;"
+        " outline: none; }"
+    ).arg(surface, tableAltRow, tableSelBg, textPrimary, tableGrid)
 
-    // 19. Header — light grey, normal case, no uppercase
+    // 19. Header — flat white, small uppercase muted text, bottom border only
     + QStringLiteral(
         "QHeaderView::section {"
         " background-color: %1; color: %2;"
         " border: none; border-bottom: 1px solid %3;"
-        " padding: 6px 8px; font-weight: 500; font-size: 12px; }"
+        " padding: 8px 8px; font-weight: 600; font-size: 11px;"
+        " text-transform: uppercase; letter-spacing: 0.5px; }"
     ).arg(tableHeaderBg, tableHeaderTx, border)
 
     // 20. Header background fill
@@ -652,11 +658,11 @@ static QString buildModernQss(bool darkMode = false) {
         "QTableWidget#inventoryTable::item { padding: 4px 6px; border-right: 1px solid %1; }"
     ).arg(tableGrid, textPrimary)
 
-    // 22. Primary button — blue accent, the ONLY blue element
+    // 22. Primary button — solid blue, white bold text
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
-        " border-radius: 6px; min-height: 28px; padding: 4px 14px;"
-        " font-weight: 500; font-size: 13px; }"
+        " border-radius: 6px; min-height: 32px; padding: 4px 16px;"
+        " font-weight: 600; font-size: 13px; }"
     ).arg(accent)
 
     // 23. Button hover
@@ -665,19 +671,19 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton:pressed { background: %1; }"
     ).arg(accentHover)
 
-    // 24. Secondary button — grey fill, no border
+    // 24. Secondary button — grey fill, no border (Clear / Delete)
     + QStringLiteral(
         "QPushButton#secondaryButton { background: %1; color: %2;"
         " border: none; }"
         "QPushButton#secondaryButton:hover { background: %3; }"
-    ).arg(darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#f2f2f7"), textPrimary, secondaryHover)
+    ).arg(secondaryBg, textPrimary, secondaryHover)
 
-    // 25. Inputs — 30px height, simple border, 6px radius
+    // 25. Inputs — 32px height, light border, 5px radius
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
-        " background: %1; border: 1px solid %2; border-radius: 6px;"
-        " min-height: 30px; padding: 0 8px; color: %3; font-size: 13px; }"
-    ).arg(inputBg, border, textPrimary)
+        " background: %1; border: 1px solid %2; border-radius: 5px;"
+        " min-height: 32px; padding: 0 8px; color: %3; font-size: 13px; }"
+    ).arg(inputBg, inputBorder, textPrimary)
 
     // 26. Focus states
     + QStringLiteral(
