@@ -935,8 +935,8 @@ void writeInventoryMailProfile(const InventoryMailProfile& profile) {
     file.write(QJsonDocument(payload).toJson(QJsonDocument::Indented));
 }
 
-QVector<domain::InventoryProductRow> inventoryProductRowsFromJson(const QJsonArray& sourceRows) {
-    QVector<domain::InventoryProductRow> rows;
+QVector<mfinlogs::domain::InventoryProductRow> inventoryProductRowsFromJson(const QJsonArray& sourceRows) {
+    QVector<mfinlogs::domain::InventoryProductRow> rows;
     rows.reserve(sourceRows.size());
     for (const QJsonValue& value : sourceRows) {
         const QJsonObject item = value.toObject();
@@ -949,7 +949,7 @@ QVector<domain::InventoryProductRow> inventoryProductRowsFromJson(const QJsonArr
             quantities.append(item.value(QStringLiteral("qty_%1").arg(dayText)).toDouble());
             purchases.append(item.value(QStringLiteral("purchase_%1").arg(dayText)).toDouble());
         }
-        rows.append(domain::InventoryProductRow{
+        rows.append(mfinlogs::domain::InventoryProductRow{
             item.value(QStringLiteral("name")).toString(),
             item.value(QStringLiteral("cost")).toDouble(),
             item.value(QStringLiteral("min_stock")).toDouble(),
