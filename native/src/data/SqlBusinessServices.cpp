@@ -1365,7 +1365,7 @@ public:
 
         QPdfWriter writer(&buffer);
         writer.setPageSize(QPageSize(QPageSize::A4));
-        writer.setPageOrientation(QPageLayout::Landscape);
+        writer.setPageOrientation(QPageLayout::Portrait);
         writer.setResolution(96);
         writer.setTitle(QStringLiteral("M-Finlogs Inventory Report"));
 
@@ -1374,22 +1374,23 @@ public:
             throw domain::DomainError("Could not start PDF painter for inventory report");
         }
 
-        // Fonts
-        QFont titleFont(QStringLiteral("Inter Tight"), 15, QFont::Bold);
-        QFont subtitleFont(QStringLiteral("Inter Tight"), 8);
-        QFont headingFont(QStringLiteral("Inter Tight"), 7, QFont::Bold);
-        QFont bodyFont(QStringLiteral("Inter Tight"), 7);
-        QFont metricValueFont(QStringLiteral("Inter Tight"), 13, QFont::Bold);
-        QFont metricLabelFont(QStringLiteral("Inter Tight"), 7);
-        QFont chipFont(QStringLiteral("Inter Tight"), 8, QFont::Bold);
+        // Fonts - Space Mono monospace to match the reference report design
+        const QString monoFamily = QStringLiteral("Space Mono");
+        QFont titleFont(monoFamily, 16, QFont::Bold);
+        QFont subtitleFont(monoFamily, 8);
+        QFont headingFont(monoFamily, 7, QFont::Bold);
+        QFont bodyFont(monoFamily, 7);
+        QFont metricValueFont(monoFamily, 16, QFont::Bold);
+        QFont metricLabelFont(monoFamily, 7);
+        QFont chipFont(monoFamily, 9, QFont::Bold);
 
-        // Colors matching the Python PDF design
+        // Colors matching the reference PDF design
         const QColor ink(QStringLiteral("#111827"));
         const QColor muted(QStringLiteral("#6B7280"));
         const QColor headerBg(QStringLiteral("#F3F4F6"));
         const QColor headerFg(QStringLiteral("#374151"));
-        const QColor gridColor(QStringLiteral("#D1D5DB"));
-        const QColor altRowBg(QStringLiteral("#F8FAFC"));
+        const QColor gridColor(QStringLiteral("#E5E7EB"));
+        const QColor altRowBg(QStringLiteral("#FAFAFA"));
         const QColor cardBg(QStringLiteral("#F8FAFC"));
         const QColor cardBorder(QStringLiteral("#CBD5E1"));
         const QColor chipBg(QStringLiteral("#1f2937"));
@@ -1397,12 +1398,14 @@ public:
         const QColor currentDayFg(QStringLiteral("#1E3A8A"));
         const QColor reorderBg(QStringLiteral("#FEF2F2"));
         const QColor reorderFg(QStringLiteral("#B91C1C"));
+        const QColor groupBg(QStringLiteral("#F1F3F5"));
+        const QColor groupFg(QStringLiteral("#64748B"));
         const QColor purchaseGreenBg(QStringLiteral("#ECFDF3"));
         const QColor purchaseGreenFg(QStringLiteral("#047857"));
 
-        const int pageWidth = 1100;  // landscape A4 at 96dpi
-        const int left = 18;
-        const int right = pageWidth - 18;
+        const int pageWidth = 794;  // portrait A4 at 96dpi
+        const int left = 24;
+        const int right = pageWidth - 24;
 
         // Determine day range (last 7 days like the Python backend)
         const int today = QDate::currentDate().day();
@@ -1529,41 +1532,43 @@ public:
             QStringLiteral("Generated: %1").arg(QDateTime::currentDateTime().toString(QStringLiteral("dd MMM yyyy, HH:mm"))));
         y += 22;
 
-        // Metric cards row
-        const int cardW = (right - left) / 4 - 4;
-        const int cardH = 42;
-        auto drawCard = [&](int x, const QString& value, const QString& label) {
-            painter.fillRect(QRect(x, y, cardW, cardH), cardBg);
-            painter.setPen(cardBorder);
-            painter.drawRect(QRect(x, y, cardW, cardH));
+        // Metric cards row - single bordered box with 4 left-aligned metrics
+        const int cardsH = 48;
+        painter.fillRect(QRect(left, y, right - left, cardsH), cardBg);
+        painter.setPen(cardBorder);
+        painter.drawRect(QRect(left, y, right - left, cardsH));
+        const int cardW = (right - left) / 4;
+        auto drawCard = [&](int idx, const QString& value, const QString& label) {
+            const int x = left + idx * cardW;
             painter.setPen(ink);
             painter.setFont(metricValueFont);
-            painter.drawText(QRect(x + 8, y + 4, cardW - 16, 20), Qt::AlignCenter, value);
+            painter.drawText(QRect(x + 12, y + 6, cardW - 16, 22), Qt::AlignLeft | Qt::AlignVCenter, value);
             painter.setFont(metricLabelFont);
             painter.setPen(muted);
-            painter.drawText(QRect(x + 8, y + 24, cardW - 16, 14), Qt::AlignCenter, label);
+            painter.drawText(QRect(x + 12, y + 30, cardW - 16, 14), Qt::AlignLeft | Qt::AlignVCenter, label);
         };
-        drawCard(left, QString::number(grandTotal, 'f', 2), QStringLiteral("Current Quantity"));
-        drawCard(left + cardW + 4, QString::number(grandPurchaseIn, 'f', 2), QStringLiteral("Purchase In"));
-        drawCard(left + (cardW + 4) * 2, QString::number(avgDaily, 'f', 1), QStringLiteral("Avg Daily Movement"));
-        drawCard(left + (cardW + 4) * 3, QString::number(reorderCount), QStringLiteral("Reorder Products"));
-        y += cardH + 16;
+        drawCard(0, QString::number(grandTotal, 'f', 2), QStringLiteral("Current Quantity"));
+        drawCard(1, QString::number(grandPurchaseIn, 'f', 2), QStringLiteral("Purchase In"));
+        drawCard(2, QString::number(avgDaily, 'f', 1), QStringLiteral("Avg Daily Movement"));
+        drawCard(3, QString::number(reorderCount), QStringLiteral("Reorder Products"));
+        y += cardsH + 14;
 
         // Section title
         painter.setFont(headingFont);
-        painter.setPen(QColor(QStringLiteral("#334155")));
+        painter.setPen(ink);
         painter.drawText(QRect(left, y, 400, 14), Qt::AlignLeft,
-            QStringLiteral("Daily Stock (Days %1-%2)").arg(startDay).arg(endDay));
+            QStringLiteral("Daily Stock (Last 7 Days: %1-%2)").arg(startDay).arg(endDay));
         y += 18;
 
-        // Table header
-        const int nameColW = 120;
-        const int openColW = 52;
-        const int purchColW = 52;
-        const int closeColW = 52;
+        // Table header - widths fill the portrait page
+        const int nameColW = 150;
+        const int openColW = 64;
+        const int purchColW = 70;
+        const int closeColW = 64;
         const int fixedW = nameColW + openColW + purchColW + closeColW;
-        const int dayColW = qMin(38, qMax(28, (right - left - fixedW) / qMax(days.size(), 1)));
-        const int rowH = 26;
+        const int dayColW = qMax(36, (right - left - fixedW) / qMax(days.size(), 1));
+        const int rowH = 28;
+        const int pageBottom = 1080;  // portrait A4 usable height at 96dpi
 
         auto drawTableHeader = [&]() {
             painter.fillRect(QRect(left, y, right - left, rowH), headerBg);
@@ -1598,9 +1603,9 @@ public:
         // Table rows
         painter.setFont(bodyFont);
         for (int ri = 0; ri < reportRows.size(); ++ri) {
-            if (y + rowH > 540) {  // page break
+            if (y + rowH > pageBottom) {  // page break
                 writer.newPage();
-                y = 20;
+                y = 24;
                 drawTableHeader();
                 painter.setFont(bodyFont);
             }
@@ -1609,8 +1614,8 @@ public:
 
             // Group separator row
             if (rr.isGroup) {
-                painter.fillRect(QRect(left, y, right - left, rowH - 4), QColor(QStringLiteral("#E5E7EB")));
-                painter.setPen(QColor(QStringLiteral("#475569")));
+                painter.fillRect(QRect(left, y, right - left, rowH - 4), groupBg);
+                painter.setPen(groupFg);
                 painter.setFont(headingFont);
                 painter.drawText(QRect(left + 8, y, 300, rowH - 4), Qt::AlignLeft | Qt::AlignVCenter, rr.name);
                 painter.setFont(bodyFont);
@@ -1702,17 +1707,6 @@ public:
             painter.setPen(gridColor);
             painter.drawLine(left, y + rowH, x, y + rowH);
             y += rowH;
-        }
-
-        // Current day vertical highlight lines
-        {
-            const int currentDayIdx = days.indexOf(today);
-            if (currentDayIdx >= 0) {
-                const int cdX = left + fixedW + currentDayIdx * dayColW;
-                painter.setPen(QPen(QColor(QStringLiteral("#2563EB")), 1));
-                painter.drawLine(cdX, y - reportRows.size() * rowH - rowH, cdX, y);
-                painter.drawLine(cdX + dayColW, y - reportRows.size() * rowH - rowH, cdX + dayColW, y);
-            }
         }
 
         painter.end();

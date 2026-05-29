@@ -297,11 +297,10 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
 
 QIcon appIcon(const QString& name) {
     // Render SVG directly via QSvgRenderer (Qt6::Svg) to avoid depending on the
-    // qsvg image plugin being deployed. Resource path is ":/icons/icons/<name>.svg"
-    // because the qrc prefix is "/icons" and files are listed under "icons/".
+    // qsvg image plugin being deployed.
     const QStringList candidates = {
-        QStringLiteral(":/icons/icons/%1.svg").arg(name),
         QStringLiteral(":/icons/%1.svg").arg(name),
+        QStringLiteral(":/icons/icons/%1.svg").arg(name),
     };
     for (const QString& path : candidates) {
         if (!QFile::exists(path)) {
@@ -325,8 +324,8 @@ QIcon appIcon(const QString& name) {
 // Render an SVG icon tinted to a single color, for display on the dark sidebar.
 QIcon appIconTinted(const QString& name, const QColor& color) {
     const QStringList candidates = {
-        QStringLiteral(":/icons/icons/%1.svg").arg(name),
         QStringLiteral(":/icons/%1.svg").arg(name),
+        QStringLiteral(":/icons/icons/%1.svg").arg(name),
     };
     for (const QString& path : candidates) {
         if (!QFile::exists(path)) {
@@ -1056,6 +1055,9 @@ void DesktopApplication::applyTheme(bool darkMode) {
         if (QDir(fontDir).exists()) {
             QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
             QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
+            // Space Mono is used for the inventory PDF report (monospace layout)
+            QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Regular.ttf"));
+            QFontDatabase::addApplicationFont(fontDir + QStringLiteral("SpaceMono-Bold.ttf"));
             break;
         }
     }
