@@ -283,6 +283,8 @@ QListWidgetItem* addGroupItem(QListWidget& nav, const QString& label) {
 QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex) {
     QListWidgetItem* item = new QListWidgetItem(label, &nav);
     item->setData(Qt::UserRole, pageIndex);
+    item->setData(Qt::UserRole + 1, label);
+    item->setToolTip(label);
     return item;
 }
 
@@ -364,7 +366,23 @@ void animatePanel(QWidget& widget, int delayMs, int durationMs = 500) {
 }
 
 QString moneyText(double value) {
-    return QStringLiteral("$%1").arg(value, 0, 'f', 2);
+    return (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(value, 0, 'f', 2);
+}
+
+bool isMoneyColumn(const QString& key) {
+    const QString normalized = key.trimmed().toLower();
+    return normalized == QStringLiteral("amount")
+        || normalized == QStringLiteral("balance")
+        || normalized == QStringLiteral("debit")
+        || normalized == QStringLiteral("credit")
+        || normalized == QStringLiteral("sales")
+        || normalized == QStringLiteral("sale_returns")
+        || normalized == QStringLiteral("receipts")
+        || normalized == QStringLiteral("expenses")
+        || normalized == QStringLiteral("net_sales")
+        || normalized == QStringLiteral("net_profit")
+        || normalized == QStringLiteral("cash_in_hand")
+        || normalized == QStringLiteral("stock_value");
 }
 
 QString humanizeHeaderKey(const QString& key) {
@@ -574,6 +592,13 @@ static QString buildModernQss(bool darkMode = false) {
     + QStringLiteral(
         "QWidget#sidebarWrap { background: %1; border-right: 1px solid rgba(0,0,0,0.14); }"
     ).arg(sidebarBg, border)
+
+    + QStringLiteral(
+        "QPushButton#sidebarToggle { background: transparent; color: %1;"
+        " border: 1px solid %2; border-radius: 7px; min-height: 28px;"
+        " padding: 0 8px; font-weight: 800; }"
+        "QPushButton#sidebarToggle:hover { background: %3; }"
+    ).arg(textPrimary, border, sidebarHover)
 
     // 4. Sidebar list
     + QStringLiteral(
@@ -974,11 +999,23 @@ void DesktopApplication::buildNavigation() {
     sidebarLayout->setSpacing(0);
 
     QWidget* sidebarTopInset = new QWidget(sidebar);
-    sidebarTopInset->setFixedHeight(44);
+    sidebarTopInset->setFixedHeight(54);
+    QHBoxLayout* sidebarTopLayout = new QHBoxLayout(sidebarTopInset);
+    sidebarTopLayout->setContentsMargins(12, 10, 8, 8);
+    sidebarTopLayout->setSpacing(8);
+    QLabel* sidebarBrand = new QLabel(QStringLiteral("M-Finlogs"), sidebarTopInset);
+    sidebarBrand->setObjectName(QStringLiteral("brandLabel"));
+    QPushButton* sidebarToggle = new QPushButton(QStringLiteral("<"), sidebarTopInset);
+    sidebarToggle->setObjectName(QStringLiteral("sidebarToggle"));
+    sidebarToggle->setFixedWidth(34);
+    sidebarToggle->setToolTip(QStringLiteral("Collapse sidebar"));
+    sidebarTopLayout->addWidget(sidebarBrand, 1);
+    sidebarTopLayout->addWidget(sidebarToggle);
     sidebarLayout->addWidget(sidebarTopInset);
 
     QListWidget* nav = new QListWidget(sidebar);
     nav->setObjectName(QStringLiteral("sidebar"));
+    nav->setIconSize(QSize(18, 18));
 
     QStackedWidget* pages = new QStackedWidget(root);
     int pageIndex = 0;
@@ -1039,6 +1076,29 @@ void DesktopApplication::buildNavigation() {
     pages->addWidget(buildSettingsPage());
     addNavItem(*nav, QStringLiteral("Settings"), pageIndex, QStringLiteral("settings"));
     sidebarLayout->addWidget(nav, 1);
+
+    const std::shared_ptr<bool> sidebarCollapsed = std::make_shared<bool>(false);
+    auto applySidebarState = [sidebar, nav, sidebarBrand, sidebarToggle, sidebarCollapsed]() {
+        sidebar->setFixedWidth(*sidebarCollapsed ? 64 : 240);
+        sidebarBrand->setVisible(!*sidebarCollapsed);
+        sidebarToggle->setText(*sidebarCollapsed ? QStringLiteral(">") : QStringLiteral("<"));
+        sidebarToggle->setToolTip(*sidebarCollapsed ? QStringLiteral("Expand sidebar") : QStringLiteral("Collapse sidebar"));
+        for (int row = 0; row < nav->count(); row += 1) {
+            QListWidgetItem* item = nav->item(row);
+            const QString label = item->data(Qt::UserRole + 1).toString();
+            if (!label.isEmpty()) {
+                item->setText(*sidebarCollapsed ? QString() : label);
+                const Qt::Alignment alignment = *sidebarCollapsed
+                    ? Qt::AlignCenter
+                    : Qt::AlignLeft | Qt::AlignVCenter;
+                item->setTextAlignment(alignment);
+            }
+        }
+    };
+    connect(sidebarToggle, &QPushButton::clicked, this, [sidebarCollapsed, applySidebarState]() {
+        *sidebarCollapsed = !*sidebarCollapsed;
+        applySidebarState();
+    });
 
     connect(nav, &QListWidget::currentRowChanged, this, [nav, pages](int row) {
         const QListWidgetItem* item = nav->item(row);
@@ -1494,12 +1554,14 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QDoubleSpinBox* amount = new QDoubleSpinBox(entryPanel);
     amount->setMaximum(999999999.0);
     amount->setDecimals(2);
+    amount->setPrefix(QString(QChar(0x20B9)));
     QPushButton* save = new QPushButton(QStringLiteral("Save Entry"), entryPanel);
     save->setIcon(appIcon(QStringLiteral("save")));
     QPushButton* deleteButton = new QPushButton(QStringLiteral("Delete"), entryPanel);
     deleteButton->setObjectName(QStringLiteral("dangerButton"));
     deleteButton->setIcon(appIcon(QStringLiteral("delete")));
     deleteButton->setEnabled(false);
+    deleteButton->setVisible(false);
     QPushButton* clear = new QPushButton(QStringLiteral("Clear"), entryPanel);
     clear->setObjectName(QStringLiteral("secondaryButton"));
     clear->setIcon(appIcon(QStringLiteral("clear")));
@@ -1511,8 +1573,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Bill No."), entryPanel), 0, 1);
     form->addWidget(bill, 1, 1);
     form->addWidget(new QLabel(QStringLiteral("Party"), entryPanel), 0, 2);
-    form->addWidget(party, 1, 2, 1, 2);
-    form->addWidget(partyHint, 2, 2, 1, 2);
+    form->addWidget(party, 1, 2, 1, 4);
+    form->addWidget(partyHint, 2, 2, 1, 4);
     form->addWidget(new QLabel(QStringLiteral("Type"), entryPanel), 3, 0);
     form->addWidget(type, 4, 0);
     form->addWidget(new QLabel(QStringLiteral("Mode"), entryPanel), 3, 1);
@@ -1520,8 +1582,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 3, 2);
     form->addWidget(amount, 4, 2);
     form->addWidget(save, 4, 3);
-    form->addWidget(deleteButton, 4, 4);
-    form->addWidget(clear, 4, 5);
+    form->addWidget(clear, 4, 4);
+    form->addWidget(deleteButton, 4, 5);
     form->addWidget(formStatus, 5, 0, 1, 6);
     form->setColumnStretch(0, 1);
     form->setColumnStretch(1, 2);
@@ -1598,6 +1660,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         amount->setValue(0.0);
         save->setText(QStringLiteral("Save Entry"));
         deleteButton->setEnabled(false);
+        deleteButton->setVisible(false);
         formStatus->setText(QStringLiteral("Ready for a new entry"));
         focusEntryWidget(*bill);
     });
@@ -1626,6 +1689,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             amount->setValue(row.amount);
             save->setText(QStringLiteral("Update Entry"));
             deleteButton->setEnabled(true);
+            deleteButton->setVisible(true);
             formStatus->setText(QStringLiteral("Editing selected transaction"));
         } catch (const std::exception& err) {
             showError(QStringLiteral("Load Entry"), err);
@@ -1681,6 +1745,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
             deleteButton->setEnabled(false);
+            deleteButton->setVisible(false);
         } catch (const std::exception& err) {
             formStatus->setText(QString::fromUtf8(err.what()));
             showError(QStringLiteral("Save Entry"), err);
@@ -1705,6 +1770,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
             deleteButton->setEnabled(false);
+            deleteButton->setVisible(false);
             loadTransactions(*table);
             applyTableSearch(*table, transactionSearch->text());
             statusBar()->showMessage(QStringLiteral("Transaction deleted"), 5000);
@@ -2681,7 +2747,7 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
             const QJsonValue value = row.value(key);
             QString text;
             if (value.isDouble()) {
-                text = moneyText(value.toDouble());
+                text = isMoneyColumn(key) ? moneyText(value.toDouble()) : QString::number(value.toDouble(), 'f', 2);
             } else {
                 text = value.toVariant().toString();
             }
