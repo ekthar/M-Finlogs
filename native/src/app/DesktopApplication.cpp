@@ -1157,40 +1157,76 @@ bool DesktopApplication::showAuthDialog() {
     try {
         const bool setupRequired = context_.services().auth->setupRequired();
         QDialog dialog(this);
-        dialog.setWindowTitle(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("Sign In"));
+        dialog.setWindowTitle(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("M-Finlogs - Sign In"));
         dialog.setModal(true);
-        dialog.resize(420, 260);
+        dialog.resize(440, 380);
+
         QVBoxLayout* layout = new QVBoxLayout(&dialog);
-        layout->setContentsMargins(22, 20, 22, 20);
-        layout->setSpacing(12);
-        QLabel* title = new QLabel(setupRequired ? QStringLiteral("First run setup") : QStringLiteral("Sign in to continue"), &dialog);
-        title->setObjectName(QStringLiteral("pageTitle"));
-        QLabel* subtitle = new QLabel(setupRequired ? QStringLiteral("Create the admin password for this database.") : currentCompanyText(context_), &dialog);
-        subtitle->setObjectName(QStringLiteral("pageMeta"));
+        layout->setContentsMargins(36, 32, 36, 28);
+        layout->setSpacing(0);
+
+        // Logo / Brand section
+        QLabel* logoLabel = new QLabel(QStringLiteral("M"), &dialog);
+        logoLabel->setAlignment(Qt::AlignCenter);
+        logoLabel->setFixedSize(52, 52);
+        logoLabel->setStyleSheet(QStringLiteral(
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #66e2d4, stop:1 #55b5ea);"
+            "border-radius: 14px; color: #ffffff; font-size: 22px; font-weight: 800;"));
+        QHBoxLayout* logoRow = new QHBoxLayout();
+        logoRow->addStretch(1);
+        logoRow->addWidget(logoLabel);
+        logoRow->addStretch(1);
+        layout->addLayout(logoRow);
+        layout->addSpacing(18);
+
+        QLabel* title = new QLabel(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("Welcome Back"), &dialog);
+        title->setAlignment(Qt::AlignCenter);
+        title->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: 700; color: #111827;"));
+        layout->addWidget(title);
+        layout->addSpacing(4);
+
+        QLabel* subtitle = new QLabel(setupRequired
+            ? QStringLiteral("Set up the admin password for this database")
+            : QStringLiteral("Sign in to manage your accounting workspace"), &dialog);
+        subtitle->setAlignment(Qt::AlignCenter);
+        subtitle->setStyleSheet(QStringLiteral("font-size: 12px; color: #6B7280;"));
+        layout->addWidget(subtitle);
+        layout->addSpacing(24);
+
+        // Input fields
         QLineEdit* username = new QLineEdit(setupRequired ? QStringLiteral("admin") : QString(), &dialog);
         username->setPlaceholderText(QStringLiteral("Username"));
         username->setEnabled(!setupRequired);
+        username->setMinimumHeight(38);
         QLineEdit* password = new QLineEdit(&dialog);
         password->setPlaceholderText(setupRequired ? QStringLiteral("Create password") : QStringLiteral("Password"));
         password->setEchoMode(QLineEdit::Password);
+        password->setMinimumHeight(38);
+        layout->addWidget(username);
+        layout->addSpacing(10);
+        layout->addWidget(password);
+        layout->addSpacing(8);
+
         QLabel* error = new QLabel(&dialog);
-        error->setObjectName(QStringLiteral("pageMeta"));
+        error->setStyleSheet(QStringLiteral("color: #EF4444; font-size: 11px; font-weight: 500;"));
+        error->setAlignment(Qt::AlignCenter);
+        layout->addWidget(error);
+        layout->addSpacing(16);
+
         QPushButton* submit = new QPushButton(setupRequired ? QStringLiteral("Save Admin") : QStringLiteral("Sign In"), &dialog);
+        submit->setMinimumHeight(40);
+        layout->addWidget(submit);
+        layout->addSpacing(12);
+
+        QHBoxLayout* footerRow = new QHBoxLayout();
         QPushButton* configure = new QPushButton(QStringLiteral("Configure Database"), &dialog);
         configure->setObjectName(QStringLiteral("secondaryButton"));
         QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
         cancel->setObjectName(QStringLiteral("secondaryButton"));
-        QHBoxLayout* actions = new QHBoxLayout();
-        actions->addWidget(configure);
-        actions->addStretch(1);
-        actions->addWidget(cancel);
-        actions->addWidget(submit);
-        layout->addWidget(title);
-        layout->addWidget(subtitle);
-        layout->addWidget(username);
-        layout->addWidget(password);
-        layout->addWidget(error);
-        layout->addLayout(actions);
+        footerRow->addWidget(configure);
+        footerRow->addStretch(1);
+        footerRow->addWidget(cancel);
+        layout->addLayout(footerRow);
 
         connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
         connect(configure, &QPushButton::clicked, this, [this, &dialog]() { showDatabaseConfigDialog(&dialog); });
@@ -2240,20 +2276,20 @@ QWidget* DesktopApplication::buildInventoryPage() {
                 continue;
             }
             productCount += 1;
-            // Current qty = today's qty column (col 3 + today)
-            const int todayCol = 3 + today;
-            const double currentQty = (todayCol < table->columnCount() && table->item(rowIndex, todayCol))
-                ? table->item(rowIndex, todayCol)->text().toDouble() : 0.0;
+            // Current qty = today's qty column
+            const int todayQtyCol = 4 + (today - 1) * 2;
+            const double currentQty = (todayQtyCol < table->columnCount() && table->item(rowIndex, todayQtyCol))
+                ? table->item(rowIndex, todayQtyCol)->text().toDouble() : 0.0;
             grandTotal += currentQty;
-            // Today's purchase (col 34 + today)
-            const int purchaseTodayCol = 34 + today;
+            // Today's purchase
+            const int purchaseTodayCol = 4 + (today - 1) * 2 + 1;
             const double purchaseToday = (purchaseTodayCol < table->columnCount() && table->item(rowIndex, purchaseTodayCol))
                 ? table->item(rowIndex, purchaseTodayCol)->text().toDouble() : 0.0;
             grandPurchaseToday += purchaseToday;
             // Avg daily outflow: sum of stock drops across days
             double prevQty = 0.0;
             for (int day = 1; day <= today; day += 1) {
-                const int col = 3 + day;
+                const int col = 4 + (day - 1) * 2;
                 const double qty = (col < table->columnCount() && table->item(rowIndex, col))
                     ? table->item(rowIndex, col)->text().toDouble() : 0.0;
                 if (day > 1 && prevQty > qty) {
@@ -2284,10 +2320,11 @@ QWidget* DesktopApplication::buildInventoryPage() {
         const int visibleDays = daysInInventoryMonth(month->currentIndex() + 1);
         for (int day = 1; day <= 31; ++day) {
             const bool dayVisible = (day <= visibleDays);
-            // Qty columns (4..34) = col index 3+day
-            table->setColumnHidden(3 + day, !dayVisible || index == 1);
-            // Purchase columns (35..65) = col index 34+day
-            table->setColumnHidden(34 + day, !dayVisible || index == 0);
+            const int qtyCol = 4 + (day - 1) * 2;
+            const int purchCol = 4 + (day - 1) * 2 + 1;
+            // index 0 = Stock only, 1 = Purchase only, 2 = Both
+            table->setColumnHidden(qtyCol, !dayVisible || index == 1);
+            table->setColumnHidden(purchCol, !dayVisible || index == 0);
         }
     });
 
@@ -2344,7 +2381,7 @@ QWidget* DesktopApplication::buildInventoryPage() {
         connect(qtyInput, &QDoubleSpinBox::editingFinished, apply, [apply]() { apply->setFocus(); });
         connect(apply, &QPushButton::clicked, &dialog, [&]() {
             const int day = dayInput->value();
-            const int purchaseCol = 34 + day;
+            const int purchaseCol = 4 + (day - 1) * 2 + 1;
             QTableWidgetItem* cell = table->item(selectedRow, purchaseCol);
             if (!cell) {
                 cell = new QTableWidgetItem();
@@ -2633,51 +2670,51 @@ void DesktopApplication::loadParties(QTableWidget& table) {
 }
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
-    // Step 1 - Build 66-element header list with date-formatted day headers (matching Electron: "1.05", "2.05")
+    // Interleaved column layout: Product, Cost, Min Stock, then for each day: Qty, Purchase
+    // Col 0: row_id (hidden)
+    // Col 1: Product, Col 2: Cost, Col 3: Min Stock
+    // Col 4+(d-1)*2: Qty for day d, Col 4+(d-1)*2+1: Purchase for day d
     const int visibleDays = daysInInventoryMonth(month);
     const QString monthPad = QString::number(month).rightJustified(2, QLatin1Char('0'));
+    const int totalCols = 4 + 31 * 2; // 66
+
     QStringList headers;
-    headers.reserve(66);
+    headers.reserve(totalCols);
     headers << QStringLiteral("row_id") << QStringLiteral("Product") << QStringLiteral("Cost") << QStringLiteral("Min Stock");
     for (int day = 1; day <= 31; ++day) {
         headers.append(QStringLiteral("%1.%2").arg(day).arg(monthPad));
-    }
-    for (int day = 1; day <= 31; ++day) {
         headers.append(QStringLiteral("%1.%2 P").arg(day).arg(monthPad));
     }
 
-    // Step 2 - Reset table state BEFORE setting headers
+    // Reset table
     table.clearSpans();
     table.clear();
     table.setRowCount(0);
-    table.setColumnCount(66);
-
-    // Step 3 - Set headers FIRST (before any hide/width calls)
+    table.setColumnCount(totalCols);
     table.setHorizontalHeaderLabels(headers);
 
-    // Step 4 - Configure column visibility and widths
-    table.setColumnHidden(0, true);   // hide row_id
-    table.setColumnWidth(1, 200);     // Product
-    table.setColumnWidth(2, 80);      // Cost
-    table.setColumnWidth(3, 80);      // Min Stock
-
-    // Only show days that exist in this month (e.g., 28 for Feb, 30 for Apr, 31 for May)
-    for (int day = 1; day <= 31; ++day) {
-        const bool visible = (day <= visibleDays);
-        table.setColumnHidden(3 + day, !visible);
-        table.setColumnHidden(34 + day, !visible);
-        if (visible) {
-            table.setColumnWidth(3 + day, 64);   // Qty column (compact)
-            table.setColumnWidth(34 + day, 58);  // Purchase column (compact)
-        }
-    }
-
-    // Freeze Product, Cost, Min Stock columns (first 4 visible columns stay fixed on scroll)
+    // Column visibility and widths
+    table.setColumnHidden(0, true);
+    table.setColumnWidth(1, 180);
+    table.setColumnWidth(2, 70);
+    table.setColumnWidth(3, 70);
     table.horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
     table.horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     table.horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
 
-    // Step 5 - Load data from service (wrapped in try/catch)
+    for (int day = 1; day <= 31; ++day) {
+        const int qtyCol = 4 + (day - 1) * 2;
+        const int purchCol = 4 + (day - 1) * 2 + 1;
+        const bool visible = (day <= visibleDays);
+        table.setColumnHidden(qtyCol, !visible);
+        table.setColumnHidden(purchCol, !visible);
+        if (visible) {
+            table.setColumnWidth(qtyCol, 58);
+            table.setColumnWidth(purchCol, 50);
+        }
+    }
+
+    // Load data
     QJsonArray rows;
     try {
         rows = context_.services().inventory->loadSnapshot(financialYear, month);
@@ -2687,22 +2724,19 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         return;
     }
 
-    // Step 6 - Handle empty result
     if (rows.isEmpty()) {
         table.setRowCount(1);
         auto* placeholder = new QTableWidgetItem(tr("No inventory rows yet..."));
         placeholder->setFlags(Qt::ItemIsEnabled);
         placeholder->setForeground(QColor(QStringLiteral("#58677a")));
         table.setItem(0, 1, placeholder);
-        table.setSpan(0, 1, 1, 64);
+        table.setSpan(0, 1, 1, totalCols - 2);
         table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
         return;
     }
 
-    // Step 7 - Populate rows with PDF-style visual enhancements
+    // Populate rows
     const int today = QDate::currentDate().day();
-    const int currentDayQtyCol = 3 + today;   // current day qty column
-    const int currentDayPurchaseCol = 34 + today; // current day purchase column
     const QColor highlightBlueBg(QStringLiteral("#dbeafe"));
     const QColor highlightBlueFg(QStringLiteral("#1e3a8a"));
     const QColor reorderBg(QStringLiteral("#fef2f2"));
@@ -2713,20 +2747,20 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
     table.setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         const QJsonObject row = rows[r].toObject();
-        // col 0: row_id (read-only, hidden)
+
         auto* idItem = new QTableWidgetItem(row[QStringLiteral("row_id")].toVariant().toString());
         idItem->setFlags(Qt::ItemIsEnabled);
         table.setItem(r, 0, idItem);
-        // col 1: Product name (editable)
+
         auto* nameItem = new QTableWidgetItem(row[QStringLiteral("name")].toString());
         nameItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
         table.setItem(r, 1, nameItem);
-        // col 2: Cost (editable, right-aligned)
+
         auto* costItem = new QTableWidgetItem(row[QStringLiteral("cost")].toVariant().toString());
         costItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
         costItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         table.setItem(r, 2, costItem);
-        // col 3: Min Stock (editable, right-aligned)
+
         auto* minItem = new QTableWidgetItem(row[QStringLiteral("min_stock")].toVariant().toString());
         minItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
         minItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -2735,57 +2769,50 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         double currentQty = 0.0;
         const double minStock = row[QStringLiteral("min_stock")].toDouble();
 
-        // cols 4..34: Qty per day
         for (int day = 1; day <= 31; ++day) {
-            const QString key = QString::asprintf("qty_%02d", day);
-            const double qty = row[key].toDouble();
-            const QString text = (qty == 0.0) ? QString{} : QString::number(qty, 'f', 2);
-            auto* item = new QTableWidgetItem(text);
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
-            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            // Highlight current day column (blue) - matches PDF design
-            if (day == today && day <= visibleDays) {
-                item->setBackground(highlightBlueBg);
-                item->setForeground(highlightBlueFg);
-                QFont boldFont = item->font();
-                boldFont.setBold(true);
-                item->setFont(boldFont);
-                currentQty = qty;
+            const int qtyCol = 4 + (day - 1) * 2;
+            const int purchCol = 4 + (day - 1) * 2 + 1;
+            const bool isCurrent = (day == today && day <= visibleDays);
+
+            // Qty cell
+            const QString qtyKey = QString::asprintf("qty_%02d", day);
+            const double qty = row[qtyKey].toDouble();
+            const QString qtyText = (qty == 0.0) ? QString{} : QString::number(qty, 'f', 2);
+            auto* qtyItem = new QTableWidgetItem(qtyText);
+            qtyItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+            qtyItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            if (isCurrent) {
+                qtyItem->setBackground(highlightBlueBg);
+                qtyItem->setForeground(highlightBlueFg);
+                QFont bf = qtyItem->font(); bf.setBold(true); qtyItem->setFont(bf);
             }
-            if (day == today) {
-                currentQty = qty;
-            }
-            table.setItem(r, 3 + day, item);
-        }
-        // cols 35..65: Purchase/In per day
-        for (int day = 1; day <= 31; ++day) {
-            const QString key = QString::asprintf("purchase_%02d", day);
-            const double purchase = row[key].toDouble();
-            const QString text = (purchase == 0.0) ? QString{} : QString::number(purchase, 'f', 2);
-            auto* item = new QTableWidgetItem(text);
-            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
-            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            // Highlight purchase cells with value (green) - matches PDF design
+            if (day == today) currentQty = qty;
+            table.setItem(r, qtyCol, qtyItem);
+
+            // Purchase cell
+            const QString purchKey = QString::asprintf("purchase_%02d", day);
+            const double purchase = row[purchKey].toDouble();
+            const QString purchText = (purchase == 0.0) ? QString{} : QString::number(purchase, 'f', 2);
+            auto* purchItem = new QTableWidgetItem(purchText);
+            purchItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+            purchItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
             if (purchase > 0.0) {
-                item->setBackground(purchaseGreenBg);
-                item->setForeground(purchaseGreenFg);
+                purchItem->setBackground(purchaseGreenBg);
+                purchItem->setForeground(purchaseGreenFg);
             }
-            // Current day purchase column also gets blue highlight
-            if (day == today && day <= visibleDays) {
-                item->setBackground(highlightBlueBg);
-                item->setForeground(highlightBlueFg);
+            if (isCurrent) {
+                purchItem->setBackground(highlightBlueBg);
+                purchItem->setForeground(highlightBlueFg);
             }
-            table.setItem(r, 34 + day, item);
+            table.setItem(r, purchCol, purchItem);
         }
 
-        // Reorder row highlighting (red) - matches PDF design
+        // Reorder highlighting
         const bool isReorder = minStock > 0.0 && currentQty < minStock;
         if (isReorder) {
             nameItem->setBackground(reorderBg);
             nameItem->setForeground(reorderFg);
-            QFont boldFont = nameItem->font();
-            boldFont.setBold(true);
-            nameItem->setFont(boldFont);
+            QFont bf = nameItem->font(); bf.setBold(true); nameItem->setFont(bf);
             costItem->setBackground(reorderBg);
             costItem->setForeground(reorderFg);
             minItem->setBackground(reorderBg);
@@ -2793,7 +2820,6 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         }
     }
 
-    // Step 8 - Force header repaint AFTER all rows populated
     table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
 }
 
@@ -2959,8 +2985,8 @@ QJsonArray DesktopApplication::inventoryRowsFromTable(QTableWidget& table) {
         row.insert(QStringLiteral("cost"), table.item(rowIndex, 2) ? table.item(rowIndex, 2)->text().toDouble() : 0.0);
         row.insert(QStringLiteral("min_stock"), table.item(rowIndex, 3) ? table.item(rowIndex, 3)->text().toDouble() : 0.0);
         for (int day = 1; day <= 31; day += 1) {
-            const int qtyColumn = 3 + day;
-            const int purchaseColumn = 34 + day;
+            const int qtyColumn = 4 + (day - 1) * 2;
+            const int purchaseColumn = 4 + (day - 1) * 2 + 1;
             const QString qtyKey = QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
             const QString purchaseKey = QStringLiteral("purchase_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')));
             row.insert(qtyKey, table.item(rowIndex, qtyColumn) ? table.item(rowIndex, qtyColumn)->text().toDouble() : 0.0);
@@ -3039,8 +3065,18 @@ void DesktopApplication::wireActions() {
     toolbar->addWidget(spacer);
     QAction* updateAction = toolbar->addAction(QStringLiteral("Check Updates"));
     QAction* backupAction = toolbar->addAction(QStringLiteral("Backup"));
+    QAction* logoutAction = toolbar->addAction(QStringLiteral("Logout"));
     updateAction->setIcon(appIcon(QStringLiteral("refresh")));
     backupAction->setIcon(appIcon(QStringLiteral("database")));
+
+    connect(logoutAction, &QAction::triggered, this, [this]() {
+        const QMessageBox::StandardButton result = QMessageBox::question(
+            this, QStringLiteral("Logout"), QStringLiteral("Sign out and close the application?"),
+            QMessageBox::Yes | QMessageBox::No);
+        if (result == QMessageBox::Yes) {
+            QApplication::quit();
+        }
+    });
 
     connect(updateAction, &QAction::triggered, this, [this]() {
         try {
