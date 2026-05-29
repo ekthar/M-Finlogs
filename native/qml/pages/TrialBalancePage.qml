@@ -6,7 +6,17 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.trialBalance() }
+    property var totals: ({})
+
+    function load() {
+        rows = backend.trialBalance()
+        var d = 0, c = 0
+        for (var i = 0; i < rows.length; i++) {
+            d += Number(rows[i].debit || 0)
+            c += Number(rows[i].credit || 0)
+        }
+        totals = { debit: d, credit: c }
+    }
     Component.onCompleted: load()
     Connections { target: backend; function onDataChanged() { page.load() } }
 
@@ -32,6 +42,8 @@ Item {
                 anchors.margins: Theme.s5
                 emptyText: "No account data"
                 rows: page.rows
+                totals: page.totals
+                totalsLabel: "Total"
                 columns: [
                     { title: "Account / Party", key: "account", weight: 2 },
                     { title: "Debit", key: "debit", money: true, align: "right", weight: 1.2 },
