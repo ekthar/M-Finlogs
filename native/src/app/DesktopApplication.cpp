@@ -12,22 +12,27 @@
 #include <QDateEdit>
 #include <QDialog>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QFormLayout>
 #include <QFont>
 #include <QFontDatabase>
 #include <QFrame>
 #include <QGridLayout>
 #include <QGraphicsOpacityEffect>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QJsonValue>
 #include <QLabel>
 #include <QLineEdit>
@@ -38,6 +43,7 @@
 #include <QParallelAnimationGroup>
 #include <QPushButton>
 #include <QPropertyAnimation>
+#include <QProcess>
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -45,7 +51,9 @@
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStandardPaths>
 #include <QStringList>
+#include <QStyleHints>
 #include <QTableWidget>
 #include <QToolBar>
 #include <QVariant>
@@ -56,6 +64,7 @@
 #include <exception>
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <functional>
 
@@ -85,6 +94,16 @@ protected:
 
 private:
     QLineEdit& input_;
+};
+
+struct InventoryMailProfile final {
+    QString toEmail;
+    QString ccEmail;
+    QString senderEmail;
+    QString smtpHost;
+    QString smtpPort;
+    QString subject;
+    QString averageMode;
 };
 
 class InventoryTableKeyFilter final : public QObject {
@@ -303,7 +322,7 @@ QString findExistingPartyName(const QStringList& existingNames, const QString& t
 
 int daysInInventoryMonth(int month) {
     // Use a fixed non-leap year (2023) for consistent day counts across all financial years.
-    // April–December map to 2023; January–March map to 2024 (next calendar year in FY).
+    // April-December map to 2023; January-March map to 2024 (next calendar year in FY).
     const int calendarYear = month >= 4 ? 2023 : 2024;
     return QDate(calendarYear, month, 1).daysInMonth();
 }
@@ -515,35 +534,35 @@ void focusEntryWidget(QWidget& widget) {
 }
 
 static QString buildModernQss(bool darkMode = false) {
-    // Mac-grade minimalist design — Tailwind palette, flat, borderless
-    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#f3f4f6");
-    const QString surface      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #dff2f4, stop:0.58 #dbe9e2, stop:1 #eee2c9)");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("rgba(48, 111, 159, 0.18)");
-    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#0c0c0c");
-    const QString sidebarHover = darkMode ? QStringLiteral("#374151") : QStringLiteral("rgba(255, 255, 255, 0.35)");
-    const QString textPrimary  = darkMode ? QStringLiteral("#f9fafb") : QStringLiteral("#0c0c0c");
-    const QString textSecondary= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#777777");
-    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#d7dce2");
-    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#cfd6dd");
-    const QString tableHeaderBg= darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString tableHeaderTx= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#111111");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#f7f8fa");
-    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8ebef");
-    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#e7f0f8");
-    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#1f7bd8");
-    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#166fc6");
-    const QString accentPanelBg= darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eef6ff");
-    const QString inputBg      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString scrollHandle = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#c7c7c7");
-    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#edf0f3");
-    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#e1e6eb");
+    // Mac-grade minimalist design - Tailwind palette, flat, borderless
+    const QString bg           = darkMode ? QStringLiteral("#121925") : QStringLiteral("#f4eedf");
+    const QString surface      = darkMode ? QStringLiteral("#182130") : QStringLiteral("#fbf5e8");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1b2432") : QStringLiteral("#f4ead8");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#e3f0ea");
+    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#2d3a33");
+    const QString sidebarHover = darkMode ? QStringLiteral("#243044") : QStringLiteral("#ece2cf");
+    const QString textPrimary  = darkMode ? QStringLiteral("#edf3ff") : QStringLiteral("#2d3a33");
+    const QString textSecondary= darkMode ? QStringLiteral("#aab8d1") : QStringLiteral("#667268");
+    const QString border       = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#ddd2bb");
+    const QString inputBorder  = darkMode ? QStringLiteral("#344057") : QStringLiteral("#cfc1a5");
+    const QString tableHeaderBg= darkMode ? QStringLiteral("#273246") : QStringLiteral("#6b756f");
+    const QString tableHeaderTx= darkMode ? QStringLiteral("#eaf1ff") : QStringLiteral("#f8f4e8");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#151e2c") : QStringLiteral("#f7f1e4");
+    const QString tableGrid    = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#ddd2bb");
+    const QString tableSelBg   = darkMode ? QStringLiteral("#1b3642") : QStringLiteral("#e3f0ea");
+    const QString accent       = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#2f7a65");
+    const QString accentHover  = darkMode ? QStringLiteral("#17766d") : QStringLiteral("#296a58");
+    const QString accentPanelBg= darkMode ? QStringLiteral("#1b2638") : QStringLiteral("#e3f0ea");
+    const QString inputBg      = darkMode ? QStringLiteral("#121a28") : QStringLiteral("#fffaf0");
+    const QString scrollHandle = darkMode ? QStringLiteral("#344057") : QStringLiteral("#c4b69b");
+    const QString secondaryBg  = darkMode ? QStringLiteral("#202b3d") : QStringLiteral("#e8f1ed");
+    const QString secondaryHover = darkMode ? QStringLiteral("#2a364c") : QStringLiteral("#dcebe4");
     const QString heroGrad     = darkMode
         ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
         : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3b82f6, stop:1 #60a5fa)");
 
     return QStringLiteral(
-        // 1. Universal font reset — normal weight baseline
+        // 1. Universal font reset - normal weight baseline
         "* { font-family: 'Inter Tight', 'Segoe UI', '-apple-system', 'Helvetica Neue', sans-serif;"
         " font-weight: 400; }"
 
@@ -567,7 +586,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QListWidget#sidebar::item { padding: 7px 12px; border-radius: 7px; min-height: 24px; margin: 1px 8px; }"
     )
 
-    // 6. Sidebar selected — vibrant blue with white bold text
+    // 6. Sidebar selected - vibrant blue with white bold text
     + QStringLiteral(
         "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 700; }"
     ).arg(sidebarSel, sidebarSelTx)
@@ -621,12 +640,12 @@ static QString buildModernQss(bool darkMode = false) {
         "QLabel#contextChip { color: %1; font-size: 12px; }"
     ).arg(textSecondary)
 
-    // 15. Panel — no border, just white space
+    // 15. Panel - no border, just white space
     + QStringLiteral(
         "QFrame#panel { background: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(surface, border)
 
-    // 15b. Form panel — visible border
+    // 15b. Form panel - visible border
     + QStringLiteral(
         "QFrame#formPanel { background: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(surface, border)
@@ -636,12 +655,12 @@ static QString buildModernQss(bool darkMode = false) {
         "QFrame#accentPanel { background: %1; border: none; border-radius: 6px; }"
     ).arg(accentPanelBg)
 
-    // 17. Context bar — transparent, no border
+    // 17. Context bar - transparent, no border
     + QStringLiteral(
         "QFrame#contextBar { background: transparent; border: none; padding: 0; }"
     )
 
-    // 18. Tables — flat, clean, soft-blue selection, no vertical grid
+    // 18. Tables - flat, clean, soft-blue selection, no vertical grid
     + QStringLiteral(
         "QTableWidget#dataTable, QTableWidget#inventoryTable {"
         " background: %1; alternate-background-color: %2;"
@@ -651,7 +670,7 @@ static QString buildModernQss(bool darkMode = false) {
         " outline: none; }"
     ).arg(surface, tableAltRow, tableSelBg, textPrimary, tableGrid)
 
-    // 19. Header — flat white, small uppercase muted text, bottom border only
+    // 19. Header - flat white, small uppercase muted text, bottom border only
     + QStringLiteral(
         "QHeaderView::section {"
         " background-color: %1; color: %2;"
@@ -665,13 +684,13 @@ static QString buildModernQss(bool darkMode = false) {
         "QHeaderView { background-color: %1; }"
     ).arg(tableHeaderBg)
 
-    // 21. Table items — tight padding, thin bottom border
+    // 21. Table items - tight padding, thin bottom border
     + QStringLiteral(
         "QTableWidget::item { padding: 6px 10px; border-bottom: 1px solid %1; color: %2; }"
         "QTableWidget#inventoryTable::item { padding: 4px 6px; border-right: 1px solid %1; }"
     ).arg(tableGrid, textPrimary)
 
-    // 22. Primary button — solid blue, white bold text
+    // 22. Primary button - solid blue, white bold text
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
         " border-radius: 8px; min-height: 30px; padding: 2px 18px;"
@@ -684,7 +703,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton:pressed { background: %1; }"
     ).arg(accentHover)
 
-    // 24. Secondary button — grey fill, no border (Clear / Delete)
+    // 24. Secondary button - grey fill, no border (Clear / Delete)
     + QStringLiteral(
         "QPushButton#secondaryButton { background: %1; color: %2;"
         " border: none; }"
@@ -694,7 +713,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton:disabled { background: #edf0f3; color: #9aa3ad; }"
     ).arg(secondaryBg, textPrimary, secondaryHover)
 
-    // 25. Inputs — 32px height, light border, 5px radius
+    // 25. Inputs - 32px height, light border, 5px radius
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
         " background: %1; border: 1px solid %2; border-radius: 5px;"
@@ -708,7 +727,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QComboBox::drop-down { border: none; width: 20px; }"
     ).arg(accent)
 
-    // 27. Scrollbars — 8px, subtle
+    // 27. Scrollbars - 8px, subtle
     + QStringLiteral(
         "QScrollBar:vertical { background: transparent; width: 8px; border-radius: 4px; margin: 0; }"
         "QScrollBar::handle:vertical { background: %1; border-radius: 4px; min-height: 20px; }"
@@ -739,7 +758,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QToolButton:hover { background: rgba(0,0,0,0.05); border-radius: 7px; }"
     ).arg(surface, border, textPrimary)
 
-    // 30. Welcome hero — accent blue gradient
+    // 30. Welcome hero - accent blue gradient
     + QStringLiteral(
         "QFrame#welcomeHero {"
         " background: %1;"
@@ -757,7 +776,7 @@ static QString buildModernQss(bool darkMode = false) {
         " color: rgba(255,255,255,0.8); font-size: 13px; }"
     )
 
-    // 31. Welcome stat chips — subtle bg
+    // 31. Welcome stat chips - subtle bg
     + QStringLiteral(
         "QLabel#welcomeStat {"
         " color: #ffffff; background: rgba(255,255,255,0.15);"
@@ -766,7 +785,7 @@ static QString buildModernQss(bool darkMode = false) {
         " font-size: 12px; font-weight: 700; }"
     )
 
-    // 32. Feature cards — clean, no border
+    // 32. Feature cards - clean, no border
     + QStringLiteral(
         "QFrame#featureCard {"
         " background: %1; border: none; border-radius: 6px; }"
@@ -779,7 +798,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QLabel#featureDesc { color: %3; font-size: 12px; }"
     ).arg(accent, textPrimary, textSecondary)
 
-    // 33. Onboarding steps — clean, minimal
+    // 33. Onboarding steps - clean, minimal
     + QStringLiteral(
         "QFrame#onboardStep { background: transparent; border: none; border-radius: 8px; }"
     ).arg(surface)
@@ -820,6 +839,102 @@ static QString buildModernQss(bool darkMode = false) {
     );
 }
 
+bool systemPrefersDarkTheme() {
+    return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+}
+
+QStringList monthNames() {
+    return {
+        QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
+        QStringLiteral("04 - April"), QStringLiteral("05 - May"), QStringLiteral("06 - June"),
+        QStringLiteral("07 - July"), QStringLiteral("08 - August"), QStringLiteral("09 - September"),
+        QStringLiteral("10 - October"), QStringLiteral("11 - November"), QStringLiteral("12 - December")
+    };
+}
+
+QString inventoryMailProfilePath() {
+    const QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (appDataPath.trimmed().isEmpty()) {
+        throw std::runtime_error("Could not resolve app data path for inventory mail profile");
+    }
+    QDir appDataDir(appDataPath);
+    if (!appDataDir.exists() && !appDataDir.mkpath(QStringLiteral("."))) {
+        throw std::runtime_error(QStringLiteral("Could not create app data path for inventory mail profile: %1").arg(appDataPath).toStdString());
+    }
+    return appDataDir.filePath(QStringLiteral("inventory_mail_profile.json"));
+}
+
+std::optional<InventoryMailProfile> readInventoryMailProfile() {
+    const QString path = inventoryMailProfilePath();
+    QFile file(path);
+    if (!file.exists()) {
+        return std::nullopt;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        throw std::runtime_error(QStringLiteral("Could not read inventory mail profile at %1: %2").arg(path, file.errorString()).toStdString());
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        throw std::runtime_error(QStringLiteral("Inventory mail profile is invalid JSON at %1: %2").arg(path, parseError.errorString()).toStdString());
+    }
+
+    const QJsonObject payload = document.object();
+    return InventoryMailProfile{
+        payload.value(QStringLiteral("to_email")).toString(),
+        payload.value(QStringLiteral("cc_email")).toString(),
+        payload.value(QStringLiteral("sender_email")).toString(),
+        payload.value(QStringLiteral("smtp_host")).toString(QStringLiteral("smtp.gmail.com")),
+        payload.value(QStringLiteral("smtp_port")).toString(QStringLiteral("587")),
+        payload.value(QStringLiteral("subject")).toString(QStringLiteral("Inventory Report")),
+        payload.value(QStringLiteral("average_mode")).toString(QStringLiteral("monthly"))
+    };
+}
+
+void writeInventoryMailProfile(const InventoryMailProfile& profile) {
+    const QString path = inventoryMailProfilePath();
+    QJsonObject payload;
+    payload.insert(QStringLiteral("to_email"), profile.toEmail);
+    payload.insert(QStringLiteral("cc_email"), profile.ccEmail);
+    payload.insert(QStringLiteral("sender_email"), profile.senderEmail);
+    payload.insert(QStringLiteral("smtp_host"), profile.smtpHost);
+    payload.insert(QStringLiteral("smtp_port"), profile.smtpPort);
+    payload.insert(QStringLiteral("subject"), profile.subject);
+    payload.insert(QStringLiteral("average_mode"), profile.averageMode);
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        throw std::runtime_error(QStringLiteral("Could not write inventory mail profile at %1: %2").arg(path, file.errorString()).toStdString());
+    }
+    file.write(QJsonDocument(payload).toJson(QJsonDocument::Indented));
+}
+
+QVector<domain::InventoryProductRow> inventoryProductRowsFromJson(const QJsonArray& sourceRows) {
+    QVector<domain::InventoryProductRow> rows;
+    rows.reserve(sourceRows.size());
+    for (const QJsonValue& value : sourceRows) {
+        const QJsonObject item = value.toObject();
+        QVector<double> quantities;
+        QVector<double> purchases;
+        quantities.reserve(31);
+        purchases.reserve(31);
+        for (int day = 1; day <= 31; day += 1) {
+            const QString dayText = QString::number(day).rightJustified(2, QLatin1Char('0'));
+            quantities.append(item.value(QStringLiteral("qty_%1").arg(dayText)).toDouble());
+            purchases.append(item.value(QStringLiteral("purchase_%1").arg(dayText)).toDouble());
+        }
+        rows.append(domain::InventoryProductRow{
+            item.value(QStringLiteral("name")).toString(),
+            item.value(QStringLiteral("cost")).toDouble(),
+            item.value(QStringLiteral("min_stock")).toDouble(),
+            quantities,
+            purchases
+        });
+    }
+    return rows;
+}
+
 } // namespace
 
 namespace mfinlogs::app {
@@ -828,7 +943,7 @@ DesktopApplication::DesktopApplication(AppContext& context)
     : context_(context) {
     setWindowTitle(QStringLiteral("M-Finlogs Native"));
     resize(1360, 860);
-    applyTheme();
+    applyTheme(systemPrefersDarkTheme());
     buildNavigation();
     wireActions();
     if (!showAuthDialog()) {
@@ -969,9 +1084,12 @@ bool DesktopApplication::showAuthDialog() {
         QLabel* error = new QLabel(&dialog);
         error->setObjectName(QStringLiteral("pageMeta"));
         QPushButton* submit = new QPushButton(setupRequired ? QStringLiteral("Save Admin") : QStringLiteral("Sign In"), &dialog);
+        QPushButton* configure = new QPushButton(QStringLiteral("Configure Database"), &dialog);
+        configure->setObjectName(QStringLiteral("secondaryButton"));
         QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
         cancel->setObjectName(QStringLiteral("secondaryButton"));
         QHBoxLayout* actions = new QHBoxLayout();
+        actions->addWidget(configure);
         actions->addStretch(1);
         actions->addWidget(cancel);
         actions->addWidget(submit);
@@ -983,6 +1101,7 @@ bool DesktopApplication::showAuthDialog() {
         layout->addLayout(actions);
 
         connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(configure, &QPushButton::clicked, this, [this, &dialog]() { showDatabaseConfigDialog(&dialog); });
         connect(password, &QLineEdit::returnPressed, submit, &QPushButton::click);
         connect(submit, &QPushButton::clicked, this, [this, setupRequired, username, password, error, &dialog]() {
             try {
@@ -1004,6 +1123,149 @@ bool DesktopApplication::showAuthDialog() {
         QMessageBox::warning(this, QStringLiteral("Authentication"), QStringLiteral("Could not load auth state. Open Settings and verify the database connection.\n\n%1").arg(QString::fromUtf8(err.what())));
         return true;
     }
+}
+
+void DesktopApplication::showDatabaseConfigDialog(QWidget* parent) {
+    const domain::DatabaseConfig config = context_.services().config->readDatabaseConfig();
+    QDialog dialog(parent ? parent : this);
+    dialog.setWindowTitle(QStringLiteral("Database Configuration"));
+    dialog.setModal(true);
+    dialog.resize(980, 620);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(24, 22, 24, 22);
+    layout->setSpacing(14);
+    QLabel* title = new QLabel(QStringLiteral("Database Configuration"), &dialog);
+    QLabel* subtitle = new QLabel(QStringLiteral("Configure SQL Server connection, backup, restore, and native server controls."), &dialog);
+    title->setObjectName(QStringLiteral("pageTitle"));
+    subtitle->setObjectName(QStringLiteral("pageMeta"));
+    layout->addWidget(title);
+    layout->addWidget(subtitle);
+
+    QFrame* panel = createPanel(&dialog);
+    QGridLayout* form = new QGridLayout(panel);
+    form->setContentsMargins(18, 16, 18, 16);
+    form->setHorizontalSpacing(12);
+    form->setVerticalSpacing(10);
+    QLineEdit* server = new QLineEdit(config.server, panel);
+    QLineEdit* apiBase = new QLineEdit(config.apiBaseUrl, panel);
+    QLineEdit* database = new QLineEdit(config.database, panel);
+    QComboBox* authType = new QComboBox(panel);
+    authType->addItems({QStringLiteral("Windows Authentication"), QStringLiteral("SQL Server Authentication")});
+    authType->setCurrentIndex(config.useWindowsAuth ? 0 : 1);
+    QLineEdit* username = new QLineEdit(config.username, panel);
+    QLineEdit* password = new QLineEdit(config.password, panel);
+    QLineEdit* backupDir = new QLineEdit(config.backupDir, panel);
+    password->setEchoMode(QLineEdit::Password);
+    QLabel* status = new QLabel(panel);
+    status->setObjectName(QStringLiteral("formStatus"));
+
+    form->addWidget(new QLabel(QStringLiteral("SQL Server Instance"), panel), 0, 0);
+    form->addWidget(server, 1, 0);
+    form->addWidget(new QLabel(QStringLiteral("API Server URL"), panel), 0, 1);
+    form->addWidget(apiBase, 1, 1);
+    form->addWidget(new QLabel(QStringLiteral("Database Name"), panel), 2, 0);
+    form->addWidget(database, 3, 0);
+    form->addWidget(new QLabel(QStringLiteral("Authentication Type"), panel), 2, 1);
+    form->addWidget(authType, 3, 1);
+    form->addWidget(new QLabel(QStringLiteral("SQL Username"), panel), 4, 0);
+    form->addWidget(username, 5, 0);
+    form->addWidget(new QLabel(QStringLiteral("SQL Password"), panel), 4, 1);
+    form->addWidget(password, 5, 1);
+    form->addWidget(new QLabel(QStringLiteral("Backup Target Folder"), panel), 6, 0, 1, 2);
+    form->addWidget(backupDir, 7, 0, 1, 2);
+    form->addWidget(status, 8, 0, 1, 2);
+    layout->addWidget(panel);
+
+    QWidget* actions = new QWidget(&dialog);
+    QGridLayout* actionLayout = new QGridLayout(actions);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
+    actionLayout->setSpacing(10);
+    QPushButton* test = new QPushButton(QStringLiteral("Test Connection"), actions);
+    QPushButton* save = new QPushButton(QStringLiteral("Save & Apply"), actions);
+    QPushButton* backup = new QPushButton(QStringLiteral("Backup Database"), actions);
+    QPushButton* restore = new QPushButton(QStringLiteral("Choose Backup & Restore"), actions);
+    QPushButton* startServer = new QPushButton(QStringLiteral("Start Native Server"), actions);
+    QPushButton* stopServer = new QPushButton(QStringLiteral("Stop Native Server"), actions);
+    QPushButton* close = new QPushButton(QStringLiteral("Close"), actions);
+    backup->setObjectName(QStringLiteral("secondaryButton"));
+    restore->setObjectName(QStringLiteral("secondaryButton"));
+    startServer->setObjectName(QStringLiteral("secondaryButton"));
+    stopServer->setObjectName(QStringLiteral("secondaryButton"));
+    close->setObjectName(QStringLiteral("secondaryButton"));
+    actionLayout->addWidget(test, 0, 0);
+    actionLayout->addWidget(save, 0, 1);
+    actionLayout->addWidget(backup, 0, 2);
+    actionLayout->addWidget(restore, 0, 3);
+    actionLayout->addWidget(startServer, 1, 0);
+    actionLayout->addWidget(stopServer, 1, 1);
+    actionLayout->addWidget(close, 1, 3);
+    layout->addWidget(actions);
+
+    auto buildConfig = [server, database, authType, username, password, backupDir, apiBase, config]() -> domain::DatabaseConfig {
+        return domain::DatabaseConfig{
+            server->text().trimmed(),
+            database->text().trimmed(),
+            username->text().trimmed(),
+            password->text(),
+            config.driver,
+            apiBase->text().trimmed(),
+            backupDir->text().trimmed(),
+            authType->currentIndex() == 0
+        };
+    };
+
+    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+    connect(test, &QPushButton::clicked, this, [this, buildConfig, status]() {
+        try {
+            context_.services().config->testDatabaseConfig(buildConfig());
+            status->setText(QStringLiteral("Connection successful"));
+        } catch (const std::exception& err) {
+            status->setText(QString::fromUtf8(err.what()));
+        }
+    });
+    connect(save, &QPushButton::clicked, this, [this, buildConfig, status]() {
+        try {
+            const domain::DatabaseConfig nextConfig = buildConfig();
+            context_.services().config->testDatabaseConfig(nextConfig);
+            context_.services().config->writeDatabaseConfig(nextConfig);
+            status->setText(QStringLiteral("Database configuration saved. Restart native app to reload all screens."));
+        } catch (const std::exception& err) {
+            status->setText(QString::fromUtf8(err.what()));
+        }
+    });
+    connect(backup, &QPushButton::clicked, this, [this, backupDir, status]() {
+        try {
+            const domain::BackupResult result = context_.services().backups->backup(backupDir->text().trimmed());
+            status->setText(result.status + QStringLiteral(": ") + result.path);
+        } catch (const std::exception& err) {
+            status->setText(QString::fromUtf8(err.what()));
+        }
+    });
+    connect(restore, &QPushButton::clicked, this, [this, backupDir, status]() {
+        const QString backupPath = QFileDialog::getOpenFileName(this, QStringLiteral("Choose SQL Backup"), backupDir->text().trimmed(), QStringLiteral("SQL Backup (*.bak)"));
+        if (backupPath.trimmed().isEmpty()) {
+            return;
+        }
+        try {
+            context_.services().backups->restore(backupPath);
+            status->setText(QStringLiteral("Backup restored. Restart native app to reload all screens."));
+        } catch (const std::exception& err) {
+            status->setText(QString::fromUtf8(err.what()));
+        }
+    });
+    connect(startServer, &QPushButton::clicked, this, [status]() {
+        status->setText(QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--server-start")})
+            ? QStringLiteral("Native server start requested")
+            : QStringLiteral("Could not start native server"));
+    });
+    connect(stopServer, &QPushButton::clicked, this, [status]() {
+        status->setText(QProcess::startDetached(QCoreApplication::applicationFilePath(), {QStringLiteral("--server-stop")})
+            ? QStringLiteral("Native server stop requested")
+            : QStringLiteral("Could not stop native server"));
+    });
+
+    dialog.exec();
 }
 
 QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
@@ -1774,17 +2036,16 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QHBoxLayout* toolbarLayout = new QHBoxLayout();
     toolbarLayout->setSpacing(8);
     QComboBox* month = new QComboBox(toolbar);
-    month->addItems({
-        QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
-        QStringLiteral("04 - April"), QStringLiteral("05 - May"), QStringLiteral("06 - June"),
-        QStringLiteral("07 - July"), QStringLiteral("08 - August"), QStringLiteral("09 - September"),
-        QStringLiteral("10 - October"), QStringLiteral("11 - November"), QStringLiteral("12 - December")
-    });
+    month->addItems(monthNames());
     month->setCurrentIndex(QDate::currentDate().month() - 1);
     QLineEdit* product = new QLineEdit(toolbar);
     product->setPlaceholderText(QStringLiteral("Product name"));
     QPushButton* add = new QPushButton(QStringLiteral("Add Product"), toolbar);
     add->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* addGap = new QPushButton(QStringLiteral("Add Gap"), toolbar);
+    addGap->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* cleanEmpty = new QPushButton(QStringLiteral("Clean Empty Rows"), toolbar);
+    cleanEmpty->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* preview = new QPushButton(QStringLiteral("Preview PDF"), toolbar);
@@ -1792,6 +2053,9 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QPushButton* mail = new QPushButton(QStringLiteral("Send PDF"), toolbar);
     mail->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Inventory"), toolbar);
+    QCheckBox* onlyReorder = new QCheckBox(QStringLiteral("Reorder only"), toolbar);
+    QCheckBox* includeValue = new QCheckBox(QStringLiteral("Include stock value"), toolbar);
+    includeValue->setChecked(true);
     QLabel* periodChip = new QLabel(inventoryDateRangeText(financialYear, month->currentIndex() + 1), toolbar);
     QLabel* tableSummary = new QLabel(QStringLiteral("No inventory loaded"), toolbar);
     periodChip->setObjectName(QStringLiteral("contextChip"));
@@ -1800,6 +2064,8 @@ QWidget* DesktopApplication::buildInventoryPage() {
     toolbarLayout->addWidget(month);
     toolbarLayout->addWidget(product, 1);
     toolbarLayout->addWidget(add);
+    toolbarLayout->addWidget(addGap);
+    toolbarLayout->addWidget(cleanEmpty);
     toolbarLayout->addWidget(refresh);
     toolbarLayout->addWidget(preview);
     toolbarLayout->addWidget(mail);
@@ -1807,6 +2073,8 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QHBoxLayout* toolbarMeta = new QHBoxLayout();
     toolbarMeta->setSpacing(10);
     toolbarMeta->addWidget(periodChip);
+    toolbarMeta->addWidget(onlyReorder);
+    toolbarMeta->addWidget(includeValue);
     toolbarMeta->addWidget(tableSummary, 1);
     toolbarOuter->addLayout(toolbarLayout);
     toolbarOuter->addLayout(toolbarMeta);
@@ -1865,6 +2133,29 @@ QWidget* DesktopApplication::buildInventoryPage() {
         table->editItem(table->item(row, 1));
         refreshSummary();
     });
+    connect(addGap, &QPushButton::clicked, this, [table, refreshSummary]() {
+        const int row = table->rowCount();
+        table->insertRow(row);
+        table->setItem(row, 0, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+        table->setItem(row, 1, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        table->setItem(row, 2, createNumberTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        table->setItem(row, 3, createNumberTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        for (int column = 4; column < table->columnCount(); column += 1) {
+            table->setItem(row, column, createNumberTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable));
+        }
+        table->setCurrentCell(row, 1);
+        table->editItem(table->item(row, 1));
+        refreshSummary();
+    });
+    connect(cleanEmpty, &QPushButton::clicked, this, [table, refreshSummary]() {
+        for (int row = table->rowCount() - 1; row >= 0; row -= 1) {
+            const QTableWidgetItem* item = table->item(row, 1);
+            if (!item || item->text().trimmed().isEmpty()) {
+                table->removeRow(row);
+            }
+        }
+        refreshSummary();
+    });
     connect(product, &QLineEdit::returnPressed, add, &QPushButton::click);
     connect(save, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary]() {
         try {
@@ -1876,26 +2167,13 @@ QWidget* DesktopApplication::buildInventoryPage() {
             showError(QStringLiteral("Save Inventory"), err);
         }
     });
-    connect(preview, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+    connect(preview, &QPushButton::clicked, this, [this, table, financialYear, month, onlyReorder, includeValue]() {
         try {
             const QJsonArray sourceRows = inventoryRowsFromTable(*table);
-            QVector<domain::InventoryProductRow> rows;
-            for (const QJsonValue& value : sourceRows) {
-                const QJsonObject item = value.toObject();
-                QVector<double> quantities;
-                for (int day = 1; day <= 31; day += 1) {
-                    quantities.append(item.value(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')))).toDouble());
-                }
-                rows.append(domain::InventoryProductRow{
-                    item.value(QStringLiteral("name")).toString(),
-                    item.value(QStringLiteral("cost")).toDouble(),
-                    item.value(QStringLiteral("min_stock")).toDouble(),
-                    quantities
-                });
-            }
+            const QVector<domain::InventoryProductRow> rows = inventoryProductRowsFromJson(sourceRows);
             const QByteArray pdf = context_.services().inventory->buildPdfPreview(domain::InventoryPdfMailRequest{
                 QString(), QString(), QString(), QString(), QStringLiteral("smtp.gmail.com"), 587,
-                QStringLiteral("Inventory Report"), QString(), financialYear, month->currentText(), QStringLiteral("monthly"), false, rows
+                QStringLiteral("Inventory Report"), QString(), financialYear, month->currentText(), QStringLiteral("monthly"), onlyReorder->isChecked(), includeValue->isChecked(), rows
             });
             const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Inventory PDF"), QStringLiteral("Inventory_%1_%2.pdf").arg(financialYear, QString::number(month->currentIndex() + 1)), QStringLiteral("PDF (*.pdf)"));
             if (path.trimmed().isEmpty()) {
@@ -1911,7 +2189,15 @@ QWidget* DesktopApplication::buildInventoryPage() {
             showError(QStringLiteral("Inventory PDF"), err);
         }
     });
-    connect(mail, &QPushButton::clicked, this, [this, table, financialYear, month]() {
+    connect(mail, &QPushButton::clicked, this, [this, table, financialYear, month, onlyReorder, includeValue]() {
+        std::optional<InventoryMailProfile> storedProfile;
+        try {
+            storedProfile = readInventoryMailProfile();
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Inventory Mail Profile"), err);
+            return;
+        }
+
         QDialog dialog(this);
         dialog.setWindowTitle(QStringLiteral("Send Inventory PDF"));
         QGridLayout* form = new QGridLayout(&dialog);
@@ -1923,7 +2209,23 @@ QWidget* DesktopApplication::buildInventoryPage() {
         QLineEdit* port = new QLineEdit(QStringLiteral("587"), &dialog);
         QLineEdit* subject = new QLineEdit(QStringLiteral("Inventory Report"), &dialog);
         QLineEdit* notes = new QLineEdit(&dialog);
+        QComboBox* averageMode = new QComboBox(&dialog);
+        averageMode->addItems({QStringLiteral("monthly"), QStringLiteral("last7")});
+        QCheckBox* rememberProfile = new QCheckBox(QStringLiteral("Remember address and SMTP settings"), &dialog);
         password->setEchoMode(QLineEdit::Password);
+        if (storedProfile.has_value()) {
+            to->setText(storedProfile->toEmail);
+            cc->setText(storedProfile->ccEmail);
+            from->setText(storedProfile->senderEmail);
+            host->setText(storedProfile->smtpHost);
+            port->setText(storedProfile->smtpPort);
+            subject->setText(storedProfile->subject);
+            const int averageIndex = averageMode->findText(storedProfile->averageMode);
+            if (averageIndex >= 0) {
+                averageMode->setCurrentIndex(averageIndex);
+            }
+            rememberProfile->setChecked(true);
+        }
         QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
         cancel->setObjectName(QStringLiteral("secondaryButton"));
         QPushButton* send = new QPushButton(QStringLiteral("Send"), &dialog);
@@ -1943,8 +2245,11 @@ QWidget* DesktopApplication::buildInventoryPage() {
         form->addWidget(subject, 6, 1);
         form->addWidget(new QLabel(QStringLiteral("Notes"), &dialog), 7, 0);
         form->addWidget(notes, 7, 1);
-        form->addWidget(cancel, 8, 0);
-        form->addWidget(send, 8, 1);
+        form->addWidget(new QLabel(QStringLiteral("Average Mode"), &dialog), 8, 0);
+        form->addWidget(averageMode, 8, 1);
+        form->addWidget(rememberProfile, 9, 1);
+        form->addWidget(cancel, 10, 0);
+        form->addWidget(send, 10, 1);
         connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
         connect(send, &QPushButton::clicked, &dialog, &QDialog::accept);
         if (dialog.exec() != QDialog::Accepted) {
@@ -1952,25 +2257,25 @@ QWidget* DesktopApplication::buildInventoryPage() {
         }
         try {
             const QJsonArray sourceRows = inventoryRowsFromTable(*table);
-            QVector<domain::InventoryProductRow> rows;
-            for (const QJsonValue& value : sourceRows) {
-                const QJsonObject item = value.toObject();
-                QVector<double> quantities;
-                for (int day = 1; day <= 31; day += 1) {
-                    quantities.append(item.value(QStringLiteral("qty_%1").arg(QString::number(day).rightJustified(2, QLatin1Char('0')))).toDouble());
-                }
-                rows.append(domain::InventoryProductRow{
-                    item.value(QStringLiteral("name")).toString(),
-                    item.value(QStringLiteral("cost")).toDouble(),
-                    item.value(QStringLiteral("min_stock")).toDouble(),
-                    quantities
-                });
-            }
+            const QVector<domain::InventoryProductRow> rows = inventoryProductRowsFromJson(sourceRows);
             context_.services().inventory->sendPdfMail(domain::InventoryPdfMailRequest{
                 to->text(), cc->text(), from->text(), password->text(), host->text(), port->text().toInt(),
-                subject->text(), notes->text(), financialYear, month->currentText(), QStringLiteral("monthly"), false, rows
+                subject->text(), notes->text(), financialYear, month->currentText(), averageMode->currentText(), onlyReorder->isChecked(), includeValue->isChecked(), rows
             });
-            statusBar()->showMessage(QStringLiteral("Inventory PDF sent"), 9000);
+            if (rememberProfile->isChecked()) {
+                writeInventoryMailProfile(InventoryMailProfile{
+                    to->text().trimmed(),
+                    cc->text().trimmed(),
+                    from->text().trimmed(),
+                    host->text().trimmed(),
+                    port->text().trimmed(),
+                    subject->text().trimmed(),
+                    averageMode->currentText()
+                });
+                statusBar()->showMessage(QStringLiteral("Inventory PDF sent. Mail profile saved without password."), 9000);
+            } else {
+                statusBar()->showMessage(QStringLiteral("Inventory PDF sent"), 9000);
+            }
         } catch (const std::exception& err) {
             showError(QStringLiteral("Send Inventory PDF"), err);
         }
@@ -1992,12 +2297,7 @@ QWidget* DesktopApplication::buildInventoryValuePage() {
     QFrame* toolbar = createPanel(page);
     QHBoxLayout* toolbarLayout = new QHBoxLayout(toolbar);
     QComboBox* month = new QComboBox(toolbar);
-    month->addItems({
-        QStringLiteral("01 - January"), QStringLiteral("02 - February"), QStringLiteral("03 - March"),
-        QStringLiteral("04 - April"), QStringLiteral("05 - May"), QStringLiteral("06 - June"),
-        QStringLiteral("07 - July"), QStringLiteral("08 - August"), QStringLiteral("09 - September"),
-        QStringLiteral("10 - October"), QStringLiteral("11 - November"), QStringLiteral("12 - December")
-    });
+    month->addItems(monthNames());
     month->setCurrentIndex(QDate::currentDate().month() - 1);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
@@ -2069,7 +2369,7 @@ void DesktopApplication::loadParties(QTableWidget& table) {
 }
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
-    // Step 1 — Build 66-element header list
+    // Step 1 - Build 66-element header list
     const int visibleDays = daysInInventoryMonth(month);
     QStringList headers;
     headers.reserve(66);
@@ -2081,16 +2381,16 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         headers.append(QString::asprintf("%02d In", day));
     }
 
-    // Step 2 — Reset table state BEFORE setting headers
+    // Step 2 - Reset table state BEFORE setting headers
     table.clearSpans();
     table.clear();
     table.setRowCount(0);
     table.setColumnCount(66);
 
-    // Step 3 — Set headers FIRST (before any hide/width calls)
+    // Step 3 - Set headers FIRST (before any hide/width calls)
     table.setHorizontalHeaderLabels(headers);
 
-    // Step 4 — Configure column visibility and widths
+    // Step 4 - Configure column visibility and widths
     table.setColumnHidden(0, true);   // hide row_id
     table.setColumnWidth(1, 230);     // Product
     table.setColumnWidth(2, 95);      // Cost
@@ -2105,7 +2405,7 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         }
     }
 
-    // Step 5 — Load data from service (wrapped in try/catch)
+    // Step 5 - Load data from service (wrapped in try/catch)
     QJsonArray rows;
     try {
         rows = context_.services().inventory->loadSnapshot(financialYear, month);
@@ -2115,7 +2415,7 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         return;
     }
 
-    // Step 6 — Handle empty result
+    // Step 6 - Handle empty result
     if (rows.isEmpty()) {
         table.setRowCount(1);
         auto* placeholder = new QTableWidgetItem(tr("No inventory rows yet..."));
@@ -2127,7 +2427,7 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         return;
     }
 
-    // Step 7 — Populate rows
+    // Step 7 - Populate rows
     table.setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         const QJsonObject row = rows[r].toObject();
@@ -2171,7 +2471,7 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         }
     }
 
-    // Step 8 — Force header repaint AFTER all rows populated
+    // Step 8 - Force header repaint AFTER all rows populated
     table.horizontalHeader()->resizeSections(QHeaderView::Fixed);
 }
 

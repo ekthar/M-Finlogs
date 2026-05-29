@@ -29,6 +29,7 @@ private:
     QWidget* buildSettingsPage();
     void buildNavigation();
     bool showAuthDialog();
+    void showDatabaseConfigDialog(QWidget* parent);
     void loadAuditLogs(QTableWidget& table);
     void loadDashboard(QGridLayout& metricGrid);
     void loadParties(QTableWidget& table);

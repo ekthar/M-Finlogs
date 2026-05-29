@@ -86,6 +86,7 @@ struct InventoryProductRow final {
     double cost;
     double minStock;
     QVector<double> quantities;
+    QVector<double> purchaseQuantities;
 };
 
 struct InventoryPdfMailRequest final {
@@ -101,6 +102,7 @@ struct InventoryPdfMailRequest final {
     QString month;
     QString averageMode;
     bool onlyReorder;
+    bool includeStockValue;
     QVector<InventoryProductRow> rows;
 };
 
