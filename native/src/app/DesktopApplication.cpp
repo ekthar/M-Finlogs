@@ -615,7 +615,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 5. Sidebar items
     + QStringLiteral(
-        "QListWidget#sidebar::item { padding: 7px 12px; border-radius: 7px; min-height: 24px; margin: 1px 8px; }"
+        "QListWidget#sidebar::item { padding: 8px 10px; border-radius: 7px; min-height: 22px; margin: 1px 4px; }"
     )
 
     // 6. Sidebar selected - vibrant blue with white bold text
@@ -1109,6 +1109,8 @@ void DesktopApplication::buildNavigation() {
         sidebarToggle->setText(*sidebarCollapsed ? QStringLiteral("\xe2\x96\xb6") : QStringLiteral("\xe2\x97\x80"));
         sidebarToggle->setToolTip(*sidebarCollapsed ? QStringLiteral("Expand sidebar") : QStringLiteral("Collapse sidebar"));
         sidebarToggle->setFixedWidth(*sidebarCollapsed ? 40 : 34);
+        // Larger icons when collapsed for better visibility
+        nav->setIconSize(*sidebarCollapsed ? QSize(22, 22) : QSize(18, 18));
         for (int row = 0; row < nav->count(); row += 1) {
             QListWidgetItem* item = nav->item(row);
             const int pageIndex = item->data(Qt::UserRole).toInt();
@@ -1120,10 +1122,7 @@ void DesktopApplication::buildNavigation() {
             }
             if (!label.isEmpty()) {
                 item->setText(*sidebarCollapsed ? QString() : label);
-                const Qt::Alignment alignment = *sidebarCollapsed
-                    ? Qt::AlignCenter
-                    : Qt::AlignLeft | Qt::AlignVCenter;
-                item->setTextAlignment(alignment);
+                item->setSizeHint(*sidebarCollapsed ? QSize(40, 36) : QSize(-1, -1));
             }
         }
     };
