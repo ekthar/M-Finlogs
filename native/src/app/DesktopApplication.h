@@ -41,7 +41,7 @@ private:
     QStringList partyNames();
     void setTableRows(QTableWidget& table, const QStringList& headers, const QJsonArray& rows);
     void showError(const QString& title, const std::exception& err);
-    void applyTheme();
+    void applyTheme(bool darkMode = false);
     void wireActions();
 
     AppContext& context_;
