@@ -505,22 +505,22 @@ static QString buildModernQss(bool darkMode = false) {
     // macOS-native clean design — system font, minimal styling
     const QString bg           = darkMode ? QStringLiteral("#1c1c1e") : QStringLiteral("#ffffff");
     const QString surface      = darkMode ? QStringLiteral("#1c1c1e") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#f5f5f5");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#e8e8e8");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#f8f8fa");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#e8f0fe");
     const QString sidebarHover = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#eeeeee");
     const QString textPrimary  = darkMode ? QStringLiteral("#f5f5f7") : QStringLiteral("#1d1d1f");
     const QString textSecondary= darkMode ? QStringLiteral("#98989d") : QStringLiteral("#86868b");
     const QString border       = darkMode ? QStringLiteral("#38383a") : QStringLiteral("#d2d2d7");
     const QString tableHeaderBg= darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#f5f5f7");
     const QString tableHeaderTx= darkMode ? QStringLiteral("#f5f5f7") : QStringLiteral("#1d1d1f");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#242426") : QStringLiteral("#fafafa");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#242426") : QStringLiteral("#fcfcfc");
     const QString tableGrid    = darkMode ? QStringLiteral("#38383a") : QStringLiteral("#e5e5ea");
     const QString accent       = darkMode ? QStringLiteral("#0a84ff") : QStringLiteral("#007aff");
     const QString accentHover  = darkMode ? QStringLiteral("#409cff") : QStringLiteral("#0066d6");
     const QString accentPanelBg= darkMode ? QStringLiteral("#1a2a3a") : QStringLiteral("#f0f7ff");
     const QString inputBg      = darkMode ? QStringLiteral("#2c2c2e") : QStringLiteral("#ffffff");
     const QString scrollHandle = darkMode ? QStringLiteral("#48484a") : QStringLiteral("#c7c7cc");
-    const QString secondaryHover = darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#f5f5f5");
+    const QString secondaryHover = darkMode ? QStringLiteral("#48484a") : QStringLiteral("#e5e5ea");
     const QString heroGrad     = darkMode
         ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #0a84ff, stop:1 #4da3ff)")
         : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #007aff, stop:1 #4da3ff)");
@@ -547,7 +547,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 5. Sidebar items
     + QStringLiteral(
-        "QListWidget#sidebar::item { padding: 6px 10px; border-radius: 4px; }"
+        "QListWidget#sidebar::item { padding: 8px 12px; border-radius: 4px; }"
     )
 
     // 6. Sidebar selected
@@ -573,7 +573,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 10. Page title
     + QStringLiteral(
-        "QLabel#pageTitle { color: %1; font-size: 28px; font-weight: 700; }"
+        "QLabel#pageTitle { color: %1; font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }"
     ).arg(textPrimary)
 
     // 11. Page meta
@@ -608,6 +608,11 @@ static QString buildModernQss(bool darkMode = false) {
     + QStringLiteral(
         "QFrame#panel { background: %1; border: none; border-radius: 6px; }"
     ).arg(surface)
+
+    // 15b. Form panel — visible border
+    + QStringLiteral(
+        "QFrame#formPanel { background: %1; border: 1px solid %2; border-radius: 8px; }"
+    ).arg(surface, border)
 
     // 16. Accent panel
     + QStringLiteral(
@@ -660,18 +665,18 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton:pressed { background: %1; }"
     ).arg(accentHover)
 
-    // 24. Secondary button — transparent, border only
+    // 24. Secondary button — grey fill, no border
     + QStringLiteral(
-        "QPushButton#secondaryButton { background: transparent; color: %1;"
-        " border: 1px solid %2; }"
+        "QPushButton#secondaryButton { background: %1; color: %2;"
+        " border: none; }"
         "QPushButton#secondaryButton:hover { background: %3; }"
-    ).arg(textPrimary, border, secondaryHover)
+    ).arg(darkMode ? QStringLiteral("#3a3a3c") : QStringLiteral("#f2f2f7"), textPrimary, secondaryHover)
 
-    // 25. Inputs — 28px height, simple border, 6px radius
+    // 25. Inputs — 30px height, simple border, 6px radius
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
         " background: %1; border: 1px solid %2; border-radius: 6px;"
-        " min-height: 28px; padding: 0 8px; color: %3; font-size: 13px; }"
+        " min-height: 30px; padding: 0 8px; color: %3; font-size: 13px; }"
     ).arg(inputBg, border, textPrimary)
 
     // 26. Focus states
@@ -823,7 +828,7 @@ void DesktopApplication::buildNavigation() {
 
     QWidget* sidebar = new QWidget(root);
     sidebar->setObjectName(QStringLiteral("sidebarWrap"));
-    sidebar->setFixedWidth(220);
+    sidebar->setFixedWidth(200);
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
     sidebarLayout->setContentsMargins(0, 0, 0, 0);
     sidebarLayout->setSpacing(0);
@@ -1208,7 +1213,9 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     ));
     layout->addWidget(createContextBar(context_, page));
 
-    QFrame* entryPanel = createPanel(page);
+    QFrame* entryPanel = new QFrame(page);
+    entryPanel->setObjectName(QStringLiteral("formPanel"));
+    entryPanel->setFrameShape(QFrame::NoFrame);
     QGridLayout* form = new QGridLayout(entryPanel);
     form->setContentsMargins(16, 16, 16, 16);
     form->setHorizontalSpacing(12);
