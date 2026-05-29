@@ -14,12 +14,16 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QHash>
+#include <QHostInfo>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfWriter>
+#include <QRegularExpression>
+#include <QSslSocket>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
+#include <QTcpSocket>
 #include <QUuid>
 #include <QVariant>
 
@@ -115,6 +119,58 @@ QString paymentModeToString(domain::PaymentMode mode) {
         return QStringLiteral("Bank");
     }
     throw domain::DomainError("Unknown payment mode");
+}
+
+QStringList mailRecipients(const QString& raw) {
+    QStringList recipients;
+    const QStringList parts = raw.split(QRegularExpression(QStringLiteral("[,;]")), Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        const QString recipient = part.trimmed();
+        if (!recipient.isEmpty()) {
+            recipients.append(recipient);
+        }
+    }
+    return recipients;
+}
+
+void expectSmtpCode(QIODevice& socket, const QString& context, const QStringList& acceptedCodes) {
+    if (!socket.waitForReadyRead(15000)) {
+        throw domain::DomainError(QStringLiteral("SMTP timeout while waiting for %1").arg(context).toStdString());
+    }
+
+    QString response;
+    while (socket.bytesAvailable() > 0 || socket.waitForReadyRead(200)) {
+        response += QString::fromUtf8(socket.readAll());
+        const QStringList lines = response.split(QStringLiteral("\r\n"), Qt::SkipEmptyParts);
+        if (!lines.isEmpty() && lines.last().size() >= 4 && lines.last().at(3) == QLatin1Char(' ')) {
+            break;
+        }
+    }
+
+    for (const QString& code : acceptedCodes) {
+        if (response.startsWith(code)) {
+            return;
+        }
+    }
+    throw domain::DomainError(QStringLiteral("SMTP %1 failed. response=%2").arg(context, response.trimmed()).toStdString());
+}
+
+void writeSmtpLine(QIODevice& socket, const QString& command, const QString& context, const QStringList& acceptedCodes) {
+    socket.write(command.toUtf8());
+    socket.write("\r\n");
+    if (!socket.waitForBytesWritten(15000)) {
+        throw domain::DomainError(QStringLiteral("SMTP write timeout while sending %1").arg(context).toStdString());
+    }
+    expectSmtpCode(socket, context, acceptedCodes);
+}
+
+QString wrappedBase64(const QByteArray& bytes) {
+    const QByteArray encoded = bytes.toBase64();
+    QStringList lines;
+    for (int index = 0; index < encoded.size(); index += 76) {
+        lines.append(QString::fromLatin1(encoded.mid(index, 76)));
+    }
+    return lines.join(QStringLiteral("\r\n"));
 }
 
 domain::PaymentMode paymentModeFromString(const QString& mode) {
@@ -1315,23 +1371,49 @@ public:
             throw domain::DomainError("Could not start PDF painter for inventory report");
         }
 
-        QFont titleFont(QStringLiteral("Space Mono"), 18, QFont::Bold);
-        QFont bodyFont(QStringLiteral("Space Mono"), 9);
+        QFont titleFont(QStringLiteral("Inter Tight"), 20, QFont::Bold);
+        QFont headingFont(QStringLiteral("Inter Tight"), 10, QFont::Bold);
+        QFont bodyFont(QStringLiteral("Inter Tight"), 9);
+        const QColor ink(QStringLiteral("#24342e"));
+        const QColor muted(QStringLiteral("#667268"));
+        const QColor border(QStringLiteral("#d8cdb7"));
+        const QColor band(QStringLiteral("#f5efe3"));
+        const int left = 44;
+        const int right = 750;
         painter.setFont(titleFont);
-        painter.drawText(QRect(48, 36, 700, 40), Qt::AlignLeft, QStringLiteral("M-Finlogs Inventory Report"));
+        painter.setPen(ink);
+        painter.fillRect(QRect(0, 0, 794, 96), QColor(QStringLiteral("#fbf5e8")));
+        painter.drawText(QRect(left, 28, 500, 34), Qt::AlignLeft, QStringLiteral("M-Finlogs Inventory Report"));
         painter.setFont(bodyFont);
-        painter.drawText(QRect(48, 78, 700, 24), Qt::AlignLeft, QStringLiteral("%1 | %2").arg(request.financialYear, request.month));
+        painter.setPen(muted);
+        painter.drawText(QRect(left, 64, 700, 24), Qt::AlignLeft, QStringLiteral("%1 | %2 | %3").arg(request.financialYear, request.month, request.averageMode));
+        if (!request.notes.trimmed().isEmpty()) {
+            painter.drawText(QRect(left, 88, 700, 32), Qt::AlignLeft | Qt::TextWordWrap, request.notes.trimmed());
+        }
 
-        int y = 126;
-        painter.drawText(48, y, QStringLiteral("Product"));
-        painter.drawText(310, y, QStringLiteral("Qty"));
-        painter.drawText(410, y, QStringLiteral("Cost"));
-        painter.drawText(520, y, QStringLiteral("Value"));
-        y += 18;
-        painter.drawLine(48, y, 740, y);
-        y += 18;
+        int y = request.notes.trimmed().isEmpty() ? 124 : 150;
+        auto drawHeader = [&]() {
+            painter.fillRect(QRect(left, y - 16, right - left, 26), band);
+            painter.setPen(border);
+            painter.drawLine(left, y + 12, right, y + 12);
+            painter.setPen(ink);
+            painter.setFont(headingFont);
+            painter.drawText(left + 8, y, QStringLiteral("Product"));
+            painter.drawText(330, y, QStringLiteral("Qty"));
+            painter.drawText(420, y, QStringLiteral("Purchase"));
+            painter.drawText(530, y, QStringLiteral("Cost"));
+            if (request.includeStockValue) {
+                painter.drawText(620, y, QStringLiteral("Value"));
+            }
+            painter.setFont(bodyFont);
+            y += 34;
+        };
+        drawHeader();
 
         double grandValue = 0.0;
+        double grandQuantity = 0.0;
+        double grandPurchase = 0.0;
+        int rowNumber = 0;
         for (const domain::InventoryProductRow& row : request.rows) {
             if (row.name.trimmed().isEmpty()) {
                 continue;
@@ -1340,31 +1422,111 @@ public:
             for (double value : row.quantities) {
                 quantity += value;
             }
+            double purchaseQuantity = 0.0;
+            for (double value : row.purchaseQuantities) {
+                purchaseQuantity += value;
+            }
+            if (request.onlyReorder && quantity >= row.minStock) {
+                continue;
+            }
             const double stockValue = quantity * row.cost;
+            grandQuantity += quantity;
+            grandPurchase += purchaseQuantity;
             grandValue += stockValue;
-            painter.drawText(48, y, row.name.left(34));
-            painter.drawText(310, y, QString::number(quantity, 'f', 2));
-            painter.drawText(410, y, QString::number(row.cost, 'f', 2));
-            painter.drawText(520, y, QString::number(stockValue, 'f', 2));
-            y += 18;
+            if (rowNumber % 2 == 1) {
+                painter.fillRect(QRect(left, y - 14, right - left, 24), QColor(QStringLiteral("#fbfaf6")));
+            }
+            painter.setPen(ink);
+            painter.drawText(left + 8, y, row.name.left(42));
+            painter.drawText(330, y, QString::number(quantity, 'f', 2));
+            painter.drawText(420, y, QString::number(purchaseQuantity, 'f', 2));
+            painter.drawText(530, y, QString::number(row.cost, 'f', 2));
+            if (request.includeStockValue) {
+                painter.drawText(620, y, QString::number(stockValue, 'f', 2));
+            }
+            rowNumber += 1;
+            y += 24;
             if (y > 1040) {
                 writer.newPage();
-                y = 60;
+                y = 70;
+                drawHeader();
             }
         }
-        y += 10;
-        painter.drawLine(48, y, 740, y);
+        y += 8;
+        painter.setPen(border);
+        painter.drawLine(left, y, right, y);
         y += 24;
-        painter.setFont(QFont(QStringLiteral("Space Mono"), 11, QFont::Bold));
-        painter.drawText(48, y, QStringLiteral("Total Stock Value"));
-        painter.drawText(520, y, QString::number(grandValue, 'f', 2));
+        painter.setFont(headingFont);
+        painter.setPen(ink);
+        painter.drawText(left + 8, y, QStringLiteral("Totals"));
+        painter.drawText(330, y, QString::number(grandQuantity, 'f', 2));
+        painter.drawText(420, y, QString::number(grandPurchase, 'f', 2));
+        if (request.includeStockValue) {
+            painter.drawText(620, y, QString::number(grandValue, 'f', 2));
+        }
         painter.end();
         return bytes;
     }
 
     void sendPdfMail(const domain::InventoryPdfMailRequest& request) override {
-        Q_UNUSED(request);
-        throw domain::DomainError("Inventory email sending is disabled in the no-libcurl native package. Use Preview PDF and send the saved PDF from your mail client.");
+        const QStringList toRecipients = mailRecipients(request.toEmail);
+        const QStringList ccRecipients = mailRecipients(request.ccEmail);
+        if (toRecipients.isEmpty()) {
+            throw domain::DomainError("Inventory email requires at least one recipient");
+        }
+        if (request.senderEmail.trimmed().isEmpty() || request.senderPassword.isEmpty()) {
+            throw domain::DomainError("Inventory email requires sender email and app password");
+        }
+        if (request.smtpHost.trimmed().isEmpty() || request.smtpPort <= 0) {
+            throw domain::DomainError("Inventory email requires SMTP host and port");
+        }
+
+        const QByteArray pdf = buildPdfPreview(request);
+        const QString boundary = QStringLiteral("mfinlogs-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+        QString message;
+        message += QStringLiteral("From: %1\r\n").arg(request.senderEmail.trimmed());
+        message += QStringLiteral("To: %1\r\n").arg(toRecipients.join(QStringLiteral(", ")));
+        if (!ccRecipients.isEmpty()) {
+            message += QStringLiteral("Cc: %1\r\n").arg(ccRecipients.join(QStringLiteral(", ")));
+        }
+        message += QStringLiteral("Subject: %1\r\n").arg(request.subject.trimmed().isEmpty() ? QStringLiteral("Inventory Report") : request.subject.trimmed());
+        message += QStringLiteral("MIME-Version: 1.0\r\n");
+        message += QStringLiteral("Content-Type: multipart/mixed; boundary=\"%1\"\r\n\r\n").arg(boundary);
+        message += QStringLiteral("--%1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%2\r\n\r\n")
+            .arg(boundary, request.notes.trimmed().isEmpty() ? QStringLiteral("Inventory report attached.") : request.notes.trimmed());
+        message += QStringLiteral("--%1\r\nContent-Type: application/pdf; name=\"inventory-report.pdf\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"inventory-report.pdf\"\r\n\r\n%2\r\n--%1--\r\n")
+            .arg(boundary, wrappedBase64(pdf));
+
+        QSslSocket socket;
+        socket.connectToHost(request.smtpHost.trimmed(), static_cast<quint16>(request.smtpPort));
+        if (!socket.waitForConnected(15000)) {
+            throw domain::DomainError(QStringLiteral("SMTP connect failed. host=%1 port=%2 error=%3")
+                .arg(request.smtpHost, QString::number(request.smtpPort), socket.errorString()).toStdString());
+        }
+        expectSmtpCode(socket, QStringLiteral("greeting"), QStringList{QStringLiteral("220")});
+        const QString localName = QHostInfo::localHostName().isEmpty() ? QStringLiteral("localhost") : QHostInfo::localHostName();
+        writeSmtpLine(socket, QStringLiteral("EHLO %1").arg(localName), QStringLiteral("EHLO"), QStringList{QStringLiteral("250")});
+        writeSmtpLine(socket, QStringLiteral("STARTTLS"), QStringLiteral("STARTTLS"), QStringList{QStringLiteral("220")});
+        socket.startClientEncryption();
+        if (!socket.waitForEncrypted(15000)) {
+            throw domain::DomainError(QStringLiteral("SMTP TLS handshake failed. error=%1").arg(socket.errorString()).toStdString());
+        }
+        writeSmtpLine(socket, QStringLiteral("EHLO %1").arg(localName), QStringLiteral("EHLO after STARTTLS"), QStringList{QStringLiteral("250")});
+        writeSmtpLine(socket, QStringLiteral("AUTH LOGIN"), QStringLiteral("AUTH LOGIN"), QStringList{QStringLiteral("334")});
+        writeSmtpLine(socket, QString::fromUtf8(request.senderEmail.trimmed().toUtf8().toBase64()), QStringLiteral("SMTP username"), QStringList{QStringLiteral("334")});
+        writeSmtpLine(socket, QString::fromUtf8(request.senderPassword.toUtf8().toBase64()), QStringLiteral("SMTP password"), QStringList{QStringLiteral("235")});
+        writeSmtpLine(socket, QStringLiteral("MAIL FROM:<%1>").arg(request.senderEmail.trimmed()), QStringLiteral("MAIL FROM"), QStringList{QStringLiteral("250")});
+        for (const QString& recipient : toRecipients + ccRecipients) {
+            writeSmtpLine(socket, QStringLiteral("RCPT TO:<%1>").arg(recipient), QStringLiteral("RCPT TO"), QStringList{QStringLiteral("250"), QStringLiteral("251")});
+        }
+        writeSmtpLine(socket, QStringLiteral("DATA"), QStringLiteral("DATA"), QStringList{QStringLiteral("354")});
+        socket.write(message.toUtf8());
+        socket.write("\r\n.\r\n");
+        if (!socket.waitForBytesWritten(15000)) {
+            throw domain::DomainError("SMTP write timeout while sending message body");
+        }
+        expectSmtpCode(socket, QStringLiteral("message body"), QStringList{QStringLiteral("250")});
+        writeSmtpLine(socket, QStringLiteral("QUIT"), QStringLiteral("QUIT"), QStringList{QStringLiteral("221")});
     }
 
 private:

@@ -17,6 +17,7 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Charts
     PrintSupport
     HttpServer
+    Svg
 )
 
 qt_standard_project_setup()
@@ -64,6 +65,7 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::Charts
     Qt6::PrintSupport
     Qt6::HttpServer
+    Qt6::Svg
 )
 
 if(WIN32)
