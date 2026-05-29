@@ -48,6 +48,7 @@
 #include <QVariant>
 #include <QVBoxLayout>
 #include <QTimer>
+#include <QVariantAnimation>
 
 #include <exception>
 #include <algorithm>
@@ -245,10 +246,15 @@ QTableWidget* createInventoryTable(QWidget* parent) {
 }
 
 QListWidgetItem* addGroupItem(QListWidget& nav, const QString& label) {
-    QListWidgetItem* item = new QListWidgetItem(label, &nav);
+    QListWidgetItem* item = new QListWidgetItem(label.toUpper(), &nav);
     item->setFlags(Qt::NoItemFlags);
     item->setData(Qt::UserRole, -1);
     item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    QFont groupFont;
+    groupFont.setPixelSize(10);
+    groupFont.setWeight(QFont::Bold);
+    item->setFont(groupFont);
+    item->setSizeHint(QSize(0, 32));
     return item;
 }
 
@@ -313,12 +319,12 @@ QTableWidgetItem* createNumberTableItem(const QString& text, Qt::ItemFlags flags
     return item;
 }
 
-void animatePanel(QWidget& widget, int delayMs) {
+void animatePanel(QWidget& widget, int delayMs, int durationMs = 500) {
     QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&widget);
     effect->setOpacity(0.0);
     widget.setGraphicsEffect(effect);
     QPropertyAnimation* fade = new QPropertyAnimation(effect, "opacity", &widget);
-    fade->setDuration(420);
+    fade->setDuration(durationMs);
     fade->setStartValue(0.0);
     fade->setEndValue(1.0);
     fade->setEasingCurve(QEasingCurve::OutCubic);
@@ -526,9 +532,9 @@ static QString buildModernQss(bool darkMode = false) {
         : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2383e2, stop:0.6 #4a9de8, stop:1 #7ab8f0)");
 
     return QStringLiteral(
-        // 1. Universal font reset
+        // 1. Universal font reset — medium weight baseline for bold feel
         "* { font-family: 'Inter', 'SF Pro Display', 'Segoe UI', -apple-system, sans-serif;"
-        " font-weight: 400; }"
+        " font-weight: 500; }"
 
         // 2. Workspace
         "QMainWindow, QWidget#workspace { background: %1; color: %2; font-size: 13px; }"
@@ -542,7 +548,7 @@ static QString buildModernQss(bool darkMode = false) {
     // 4. Sidebar list
     + QStringLiteral(
         "QListWidget#sidebar { background: transparent; border: none; color: %1;"
-        " font-size: 13px; font-weight: 500; outline: none; }"
+        " font-size: 13px; font-weight: 600; outline: none; }"
     ).arg(textPrimary)
 
     // 5. Sidebar items
@@ -562,7 +568,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 8. Brand label
     + QStringLiteral(
-        "QLabel#brandLabel { color: %1; font-size: 15px; font-weight: 700;"
+        "QLabel#brandLabel { color: %1; font-size: 15px; font-weight: 800;"
         " padding: 16px 14px 2px 14px; }"
     ).arg(textPrimary)
 
@@ -573,36 +579,36 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 10. Page title
     + QStringLiteral(
-        "QLabel#pageTitle { color: %1; font-size: 24px; font-weight: 700; }"
+        "QLabel#pageTitle { color: %1; font-size: 24px; font-weight: 800; }"
     ).arg(textPrimary)
 
     // 11. Page meta
     + QStringLiteral(
-        "QLabel#pageMeta { color: %1; font-size: 12px; font-weight: 400; }"
+        "QLabel#pageMeta { color: %1; font-size: 12px; font-weight: 500; }"
     ).arg(textSecondary)
 
     // 12. Section title
     + QStringLiteral(
-        "QLabel#sectionTitle { color: %1; font-size: 14px; font-weight: 600; }"
+        "QLabel#sectionTitle { color: %1; font-size: 14px; font-weight: 700; }"
     ).arg(textPrimary)
 
     + QStringLiteral(
-        "QLabel#sectionDescription { color: %1; font-size: 12px; font-weight: 400; }"
+        "QLabel#sectionDescription { color: %1; font-size: 12px; font-weight: 500; }"
     ).arg(textSecondary)
 
     // 13. Metric label
     + QStringLiteral(
-        "QLabel#metricLabel { color: %1; font-size: 11px; font-weight: 600;"
+        "QLabel#metricLabel { color: %1; font-size: 11px; font-weight: 700;"
         " text-transform: uppercase; letter-spacing: 0.5px; }"
     ).arg(textSecondary)
 
     // 14. Metric value
     + QStringLiteral(
-        "QLabel#metricValue { color: %1; font-size: 22px; font-weight: 700; }"
+        "QLabel#metricValue { color: %1; font-size: 22px; font-weight: 800; }"
     ).arg(textPrimary)
 
     + QStringLiteral(
-        "QLabel#contextChip { color: %1; font-size: 12px; font-weight: 400; }"
+        "QLabel#contextChip { color: %1; font-size: 12px; font-weight: 500; }"
     ).arg(textSecondary)
 
     // 15. Panel — no border in light, subtle border in dark
@@ -618,7 +624,7 @@ static QString buildModernQss(bool darkMode = false) {
     // 17. Context bar
     + QStringLiteral(
         "QFrame#contextBar { background: %1; border: 1px solid %2; border-radius: 4px;"
-        " padding: 4px 10px; }"
+        " padding: 3px 8px; }"
     ).arg(surface, border)
 
     // 18. Tables — flat, clean, no outer border-radius
@@ -635,7 +641,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QHeaderView::section {"
         " background-color: %1; color: %2;"
         " border: none; border-bottom: 1px solid %3;"
-        " padding: 4px 8px; font-weight: 600; font-size: 12px;"
+        " padding: 4px 8px; font-weight: 700; font-size: 12px;"
         " text-transform: uppercase; letter-spacing: 0.5px; }"
     ).arg(tableHeaderBg, tableHeaderTx, border)
 
@@ -655,7 +661,7 @@ static QString buildModernQss(bool darkMode = false) {
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
         " border-radius: 4px; min-height: 30px; padding: 4px 14px;"
-        " font-weight: 600; font-size: 13px; }"
+        " font-weight: 700; font-size: 13px; }"
     ).arg(accent)
 
     // 23. Button hover
@@ -721,13 +727,13 @@ static QString buildModernQss(bool darkMode = false) {
 
     + QStringLiteral(
         "QLabel#welcomeKicker {"
-        " color: rgba(255,255,255,0.7); font-size: 10px; font-weight: 600; letter-spacing: 2px; }"
+        " color: rgba(255,255,255,0.7); font-size: 10px; font-weight: 700; letter-spacing: 2px; }"
 
         "QLabel#welcomeTitle {"
-        " color: #ffffff; font-size: 28px; font-weight: 700; }"
+        " color: #ffffff; font-size: 28px; font-weight: 800; }"
 
         "QLabel#welcomeSubtitle {"
-        " color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 400; }"
+        " color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 500; }"
     )
 
     // 31. Welcome stat chips — subtle bg, no heavy border
@@ -748,8 +754,8 @@ static QString buildModernQss(bool darkMode = false) {
 
     + QStringLiteral(
         "QLabel#featureIcon { color: %1; font-size: 22px; }"
-        "QLabel#featureTitle { color: %2; font-size: 13px; font-weight: 600; }"
-        "QLabel#featureDesc { color: %3; font-size: 12px; font-weight: 400; }"
+        "QLabel#featureTitle { color: %2; font-size: 13px; font-weight: 700; }"
+        "QLabel#featureDesc { color: %3; font-size: 12px; font-weight: 500; }"
     ).arg(accent, textPrimary, textSecondary)
 
     // 33. Onboarding steps — clean, minimal
@@ -766,8 +772,8 @@ static QString buildModernQss(bool darkMode = false) {
     ).arg(accent)
 
     + QStringLiteral(
-        "QLabel#stepTitle { color: %1; font-size: 13px; font-weight: 600; }"
-        "QLabel#stepDesc { color: %2; font-size: 12px; font-weight: 400; }"
+        "QLabel#stepTitle { color: %1; font-size: 13px; font-weight: 700; }"
+        "QLabel#stepDesc { color: %2; font-size: 12px; font-weight: 500; }"
     ).arg(textPrimary, textSecondary)
 
     + QStringLiteral(
@@ -827,7 +833,7 @@ void DesktopApplication::buildNavigation() {
 
     QWidget* sidebar = new QWidget(root);
     sidebar->setObjectName(QStringLiteral("sidebarWrap"));
-    sidebar->setFixedWidth(248);
+    sidebar->setFixedWidth(220);
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
     sidebarLayout->setContentsMargins(0, 0, 0, 0);
     sidebarLayout->setSpacing(0);
@@ -838,6 +844,13 @@ void DesktopApplication::buildNavigation() {
     brandSub->setObjectName(QStringLiteral("brandSub"));
     sidebarLayout->addWidget(brand);
     sidebarLayout->addWidget(brandSub);
+
+    // Thin separator between brand area and nav items
+    QFrame* sidebarSep = new QFrame(sidebar);
+    sidebarSep->setObjectName(QStringLiteral("divider"));
+    sidebarSep->setFrameShape(QFrame::HLine);
+    sidebarSep->setFixedHeight(1);
+    sidebarLayout->addWidget(sidebarSep);
 
     QListWidget* nav = new QListWidget(sidebar);
     nav->setObjectName(QStringLiteral("sidebar"));
@@ -986,13 +999,13 @@ bool DesktopApplication::showAuthDialog() {
 QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 16, 20, 20);
+    layout->setContentsMargins(20, 14, 20, 20);
     layout->setSpacing(14);
 
     // ── Hero panel ────────────────────────────────────────────────────────────
     QFrame* hero = new QFrame(page);
     hero->setObjectName(QStringLiteral("welcomeHero"));
-    hero->setMinimumHeight(200);
+    hero->setMinimumHeight(220);
     QVBoxLayout* heroLayout = new QVBoxLayout(hero);
     heroLayout->setContentsMargins(28, 24, 28, 24);
     heroLayout->setSpacing(0);
@@ -1050,7 +1063,7 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     ctaLayout->addStretch(1);
 
     heroLayout->addWidget(kicker);
-    heroLayout->addSpacing(10);
+    heroLayout->addSpacing(12);
     heroLayout->addWidget(headline);
     heroLayout->addSpacing(6);
     heroLayout->addWidget(subline);
@@ -1067,7 +1080,7 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     QLabel* onboardTitle = new QLabel(QStringLiteral("Quick start"), onboard);
     onboardTitle->setObjectName(QStringLiteral("sectionTitle"));
     onboardLayout->addWidget(onboardTitle);
-    onboardLayout->addSpacing(14);
+    onboardLayout->addSpacing(10);
 
     struct StepDef { QString num; QString title; QString desc; };
     const QList<StepDef> steps = {
@@ -1118,6 +1131,13 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
         }
     }
     layout->addWidget(onboard);
+
+    // ── Tip label ─────────────────────────────────────────────────────────────
+    QLabel* tipLabel = new QLabel(QStringLiteral("Press Ctrl+1..9 to jump between pages"), page);
+    tipLabel->setObjectName(QStringLiteral("pageMeta"));
+    tipLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(tipLabel);
+
     layout->addStretch(1);
 
     // ── Navigation wiring ─────────────────────────────────────────────────────
@@ -1138,7 +1158,49 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
 
     // ── Staggered entrance animations ─────────────────────────────────────────
     animatePanel(*hero,     0);
-    animatePanel(*onboard,  150);
+    animatePanel(*onboard,  300);
+
+    // Animate hero children individually for cascade effect
+    animatePanel(*kicker, 100);
+    animatePanel(*headline, 250);
+    animatePanel(*subline, 350);
+    animatePanel(*chipsRow, 450);
+    animatePanel(*ctaRow, 550);
+
+    // ── Variable font weight animation — headline starts thin, animates to bold ──
+    QFont headlineFont = headline->font();
+    headlineFont.setPointSize(28);
+    headlineFont.setWeight(QFont::Thin);  // Start at weight 100
+    headline->setFont(headlineFont);
+
+    QVariantAnimation* weightAnim = new QVariantAnimation(headline);
+    weightAnim->setStartValue(100);
+    weightAnim->setEndValue(800);
+    weightAnim->setDuration(800);
+    weightAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(weightAnim, &QVariantAnimation::valueChanged, headline, [headline](const QVariant& value) {
+        QFont f = headline->font();
+        f.setWeight(static_cast<QFont::Weight>(value.toInt()));
+        headline->setFont(f);
+    });
+    QTimer::singleShot(200, weightAnim, [weightAnim]() { weightAnim->start(QAbstractAnimation::DeleteWhenStopped); });
+
+    // Subtler weight animation on kicker text (300 → 600 over 600ms)
+    QFont kickerFont = kicker->font();
+    kickerFont.setWeight(QFont::Light);  // Start at weight 300
+    kicker->setFont(kickerFont);
+
+    QVariantAnimation* kickerWeightAnim = new QVariantAnimation(kicker);
+    kickerWeightAnim->setStartValue(300);
+    kickerWeightAnim->setEndValue(600);
+    kickerWeightAnim->setDuration(600);
+    kickerWeightAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(kickerWeightAnim, &QVariantAnimation::valueChanged, kicker, [kicker](const QVariant& value) {
+        QFont f = kicker->font();
+        f.setWeight(static_cast<QFont::Weight>(value.toInt()));
+        kicker->setFont(f);
+    });
+    QTimer::singleShot(100, kickerWeightAnim, [kickerWeightAnim]() { kickerWeightAnim->start(QAbstractAnimation::DeleteWhenStopped); });
 
     return page;
 }
@@ -1146,8 +1208,8 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
 QWidget* DesktopApplication::buildDailyEntryPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
 
     layout->addWidget(createPageHeader(
         QStringLiteral("Daily Transactions"),
@@ -1160,7 +1222,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QGridLayout* form = new QGridLayout(entryPanel);
     form->setContentsMargins(16, 16, 16, 16);
     form->setHorizontalSpacing(12);
-    form->setVerticalSpacing(12);
+    form->setVerticalSpacing(10);
 
     QDateEdit* date = new QDateEdit(QDate::currentDate(), entryPanel);
     date->setCalendarPopup(true);
@@ -1391,8 +1453,8 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
 QWidget* DesktopApplication::buildDashboardPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
 
     layout->addWidget(createPageHeader(
         QStringLiteral("Dashboard"),
@@ -1419,8 +1481,8 @@ QWidget* DesktopApplication::buildDashboardPage() {
 QWidget* DesktopApplication::buildPartiesPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Add Party"), QStringLiteral("Create and review customer, supplier, bank, and expense parties."), page));
     layout->addWidget(createContextBar(context_, page));
 
@@ -1462,8 +1524,8 @@ QWidget* DesktopApplication::buildPartiesPage() {
 QWidget* DesktopApplication::buildReportPage(const QString& title, const QString& description) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
 
     layout->addWidget(createPageHeader(title, description, page));
     layout->addWidget(createContextBar(context_, page));
@@ -1548,8 +1610,8 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
 QWidget* DesktopApplication::buildAuditPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Audit Logs"), QStringLiteral("Administrative activity and native service events."), page));
     layout->addWidget(createContextBar(context_, page));
 
@@ -1562,8 +1624,8 @@ QWidget* DesktopApplication::buildAuditPage() {
 QWidget* DesktopApplication::buildSettingsPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Settings"), QStringLiteral("Database configuration, backup paths, and native runtime controls."), page));
     layout->addWidget(createContextBar(context_, page));
 
@@ -1694,8 +1756,8 @@ QWidget* DesktopApplication::buildSettingsPage() {
 QWidget* DesktopApplication::buildInventoryPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(24, 18, 24, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities, purchases, cost, and reorder levels."), page));
     layout->addWidget(createContextBar(context_, page));
 
@@ -1916,8 +1978,8 @@ QWidget* DesktopApplication::buildInventoryPage() {
 QWidget* DesktopApplication::buildInventoryValuePage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(22, 18, 22, 22);
-    layout->setSpacing(12);
+    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Stock Value Report"), QStringLiteral("Daily stock quantity and value from saved inventory snapshots."), page));
     layout->addWidget(createContextBar(context_, page));
 
