@@ -215,8 +215,8 @@ QTableWidget* createDataTable(QWidget* parent) {
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
     table->verticalHeader()->setVisible(false);
-    table->verticalHeader()->setDefaultSectionSize(34);
-    table->horizontalHeader()->setMinimumHeight(38);
+    table->verticalHeader()->setDefaultSectionSize(26);
+    table->horizontalHeader()->setMinimumHeight(30);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
@@ -239,7 +239,7 @@ QTableWidget* createInventoryTable(QWidget* parent) {
     table->horizontalHeader()->setStretchLastSection(false);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     table->horizontalHeader()->setMinimumSectionSize(60);
-    table->verticalHeader()->setDefaultSectionSize(36);
+    table->verticalHeader()->setDefaultSectionSize(28);
     table->installEventFilter(new InventoryTableKeyFilter(*table));
     return table;
 }
@@ -497,183 +497,152 @@ void focusEntryWidget(QWidget& widget) {
 
 static QString buildModernQss() {
     return QStringLiteral(
-        // Universal font reset
-        "* { font-family: 'Hanken Grotesk', 'Inter', 'Segoe UI', sans-serif; }"
+        // Universal font reset — Inter Tight preferred, Inter fallback
+        "* { font-family: 'Inter Tight', 'Inter', 'Segoe UI', sans-serif; }"
 
         // Workspace
-        "QMainWindow, QWidget#workspace { background: #f7f1df; color: #0f2436; font-size: 13px; }"
+        "QMainWindow, QWidget#workspace { background: #f0ead8; color: #0f2436; font-size: 12px; }"
 
         // Sidebar container
         "QWidget#sidebarWrap { background: #082f63; border-right: 1px solid #06264f; }"
 
         // Sidebar list
         "QListWidget#sidebar { background: transparent; border: none; color: #dce9f8;"
-        " font-size: 13px; font-weight: 600; outline: none; }"
-        "QListWidget#sidebar::item { padding: 10px 18px; border-radius: 6px; }"
+        " font-size: 12px; font-weight: 600; outline: none; }"
+        "QListWidget#sidebar::item { padding: 7px 14px; border-radius: 4px; }"
         "QListWidget#sidebar::item:selected { background: #d7e8ff; color: #082f63; font-weight: 700; }"
         "QListWidget#sidebar::item:hover:!selected { background: #1a4a8a; color: #ffffff; }"
 
         // Brand labels
-        "QLabel#brandLabel { color: #ffffff; font-size: 18px; font-weight: 800;"
-        " padding: 20px 18px 2px 18px; }"
-        "QLabel#brandSub { color: #8fb8ea; font-size: 11px; padding: 0 18px 16px 18px; }"
+        "QLabel#brandLabel { color: #ffffff; font-size: 15px; font-weight: 800;"
+        " padding: 16px 14px 2px 14px; }"
+        "QLabel#brandSub { color: #8fb8ea; font-size: 10px; padding: 0 14px 12px 14px; }"
 
         // Typography labels
-        "QLabel#pageTitle { color: #082f63; font-size: 22px; font-weight: 800; }"
-        "QLabel#pageMeta { color: #58677a; font-size: 12px; }"
-        "QLabel#sectionTitle { color: #082f63; font-size: 15px; font-weight: 700; }"
-        "QLabel#metricLabel { color: #58677a; font-size: 11px; font-weight: 700;"
+        "QLabel#pageTitle { color: #082f63; font-size: 18px; font-weight: 800; }"
+        "QLabel#pageMeta { color: #58677a; font-size: 11px; }"
+        "QLabel#sectionTitle { color: #082f63; font-size: 13px; font-weight: 700; }"
+        "QLabel#sectionDescription { color: #58677a; font-size: 11px; }"
+        "QLabel#metricLabel { color: #58677a; font-size: 10px; font-weight: 700;"
         " text-transform: uppercase; }"
-        "QLabel#metricValue { color: #082f63; font-size: 20px; font-weight: 800; }"
+        "QLabel#metricValue { color: #082f63; font-size: 18px; font-weight: 800; }"
+        "QLabel#contextChip { color: #58677a; font-size: 11px; }"
 
-        // Panels / cards
-        "QFrame#panel { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 10px; }"
-        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 10px; }"
-        "QFrame#contextBar { background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 8px;"
-        " padding: 6px 12px; }"
+        // Panels / cards — semi-rounded (6px)
+        "QFrame#panel { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
+        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 6px; }"
+        "QFrame#contextBar { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 4px;"
+        " padding: 4px 10px; }"
 
-        // Tables
+        // Tables — tight rows matching Electron build
         "QTableWidget#dataTable, QTableWidget#inventoryTable {"
-        " background: #fffaf0; alternate-background-color: #f4ead6;"
-        " border: 1px solid #d7c8a8; border-radius: 8px;"
+        " background: #fffdf5; alternate-background-color: #f5edd8;"
+        " border: 1px solid #d7c8a8; border-radius: 4px;"
         " selection-background-color: #d7e8ff; selection-color: #082f63;"
-        " gridline-color: #e2d4b8; color: #0f2436; }"
+        " gridline-color: #e8dcc4; color: #0f2436; font-size: 12px; }"
 
-        // Header — explicit background-color prevents invisible/transparent headers
+        // Header
         "QHeaderView::section {"
-        " background-color: #082f63; color: #fffaf0;"
+        " background-color: #082f63; color: #fffdf5;"
         " border: none; border-right: 1px solid #1b4c83; border-bottom: 2px solid #1b4c83;"
-        " padding: 8px 10px; font-weight: 700; font-size: 12px; }"
-        "QHeaderView::section:first { border-top-left-radius: 7px; }"
-        "QHeaderView::section:last { border-top-right-radius: 7px; border-right: none; }"
-        // Fills corner widget gap
+        " padding: 5px 8px; font-weight: 700; font-size: 11px; }"
+        "QHeaderView::section:first { border-top-left-radius: 3px; }"
+        "QHeaderView::section:last { border-top-right-radius: 3px; border-right: none; }"
         "QHeaderView { background-color: #082f63; }"
 
-        // Table items
-        "QTableWidget::item { padding: 7px 10px; border-bottom: 1px solid #eadcc2; color: #0f2436; }"
-        "QTableWidget#inventoryTable::item { padding: 5px 8px; border-right: 1px solid #eadcc2; }"
+        // Table items — tight padding like Electron
+        "QTableWidget::item { padding: 3px 8px; border-bottom: 1px solid #ede0c8; color: #0f2436; }"
+        "QTableWidget#inventoryTable::item { padding: 2px 6px; border-right: 1px solid #ede0c8; }"
 
-        // Buttons
-        "QPushButton { background: #0b5cab; color: #fffaf0; border: 1px solid #073f78;"
-        " border-radius: 7px; min-height: 32px; padding: 7px 16px; font-weight: 700; }"
+        // Buttons — semi-rounded (5px)
+        "QPushButton { background: #0b5cab; color: #fffdf5; border: 1px solid #073f78;"
+        " border-radius: 5px; min-height: 28px; padding: 4px 14px; font-weight: 700; font-size: 12px; }"
         "QPushButton:hover { background: #074c91; }"
         "QPushButton:pressed { background: #063d76; }"
         "QPushButton#secondaryButton { background: #edf5ff; color: #082f63;"
         " border: 1px solid #8fb8ea; }"
         "QPushButton#secondaryButton:hover { background: #d7e8ff; }"
 
-        // Inputs
+        // Inputs — semi-rounded (5px), tighter height
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
-        " background: #fffaf0; border: 1px solid #c9b68f; border-radius: 7px;"
-        " min-height: 34px; padding: 0 10px; color: #0f2436; font-size: 13px; }"
+        " background: #fffdf5; border: 1px solid #c9b68f; border-radius: 5px;"
+        " min-height: 28px; padding: 0 8px; color: #0f2436; font-size: 12px; }"
         "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {"
         " background: #ffffff; border-color: #0b5cab; }"
-        "QComboBox::drop-down { border: none; width: 24px; }"
+        "QComboBox::drop-down { border: none; width: 20px; }"
 
-        // Scrollbars — vertical
-        "QScrollBar:vertical { background: #f0e8d4; width: 8px; border-radius: 4px; margin: 0; }"
-        "QScrollBar::handle:vertical { background: #b8a88a; border-radius: 4px; min-height: 24px; }"
+        // Scrollbars
+        "QScrollBar:vertical { background: #ede0c8; width: 6px; border-radius: 3px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: #b8a88a; border-radius: 3px; min-height: 20px; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-
-        // Scrollbars — horizontal
-        "QScrollBar:horizontal { background: #f0e8d4; height: 8px; border-radius: 4px; margin: 0; }"
-        "QScrollBar::handle:horizontal { background: #b8a88a; border-radius: 4px; min-width: 24px; }"
+        "QScrollBar:horizontal { background: #ede0c8; height: 6px; border-radius: 3px; margin: 0; }"
+        "QScrollBar::handle:horizontal { background: #b8a88a; border-radius: 3px; min-width: 20px; }"
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
 
         // Status bar
-        "QStatusBar { background: #fffaf0; color: #58677a; border-top: 1px solid #d7c8a8;"
-        " font-size: 12px; }"
+        "QStatusBar { background: #fffdf5; color: #58677a; border-top: 1px solid #d7c8a8;"
+        " font-size: 11px; }"
 
         // Dialogs
-        "QDialog { background: #f7f1df; }"
-        "QMessageBox { background: #f7f1df; }"
+        "QDialog { background: #f0ead8; }"
+        "QMessageBox { background: #f0ead8; }"
 
         // Toolbar
-        "QToolBar { background: #fffaf0; border-bottom: 1px solid #d7c8a8; }"
+        "QToolBar { background: #fffdf5; border-bottom: 1px solid #d7c8a8; }"
 
         // ── Welcome / Onboarding ──────────────────────────────────────────────
 
-        // Full-bleed hero panel (navy gradient feel via solid colour)
         "QFrame#welcomeHero {"
         " background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        "   stop:0 #082f63, stop:0.55 #0b5cab, stop:1 #1a6fc4);"
-        " border-radius: 16px; border: none; }"
+        "   stop:0 #082f63, stop:0.6 #0b5cab, stop:1 #1a6fc4);"
+        " border-radius: 8px; border: none; }"
 
-        // Kicker / eyebrow text
         "QLabel#welcomeKicker {"
-        " color: #8fb8ea; font-size: 11px; font-weight: 700;"
-        " letter-spacing: 2px; text-transform: uppercase; }"
+        " color: #8fb8ea; font-size: 10px; font-weight: 700; letter-spacing: 2px; }"
 
-        // Hero headline
         "QLabel#welcomeTitle {"
-        " color: #ffffff; font-size: 34px; font-weight: 800; }"
+        " color: #ffffff; font-size: 28px; font-weight: 800; }"
 
-        // Hero sub-headline
         "QLabel#welcomeSubtitle {"
-        " color: #c8dff5; font-size: 15px; font-weight: 400; }"
+        " color: #c8dff5; font-size: 12px; font-weight: 400; }"
 
-        // Stat / badge chips inside hero
         "QLabel#welcomeStat {"
         " color: #ffffff; background: rgba(255,255,255,0.12);"
         " border: 1px solid rgba(255,255,255,0.22);"
-        " border-radius: 20px; padding: 6px 16px;"
-        " font-size: 12px; font-weight: 600; }"
+        " border-radius: 12px; padding: 4px 12px;"
+        " font-size: 11px; font-weight: 600; }"
 
-        // Feature cards (off-white cards below hero)
         "QFrame#featureCard {"
-        " background: #fffaf0; border: 1px solid #d7c8a8;"
-        " border-radius: 12px; }"
-        "QFrame#featureCard:hover {"
-        " background: #ffffff; border-color: #0b5cab; }"
+        " background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
+        "QFrame#featureCard:hover { background: #ffffff; border-color: #0b5cab; }"
 
-        // Feature card icon label (large emoji / symbol)
-        "QLabel#featureIcon {"
-        " color: #0b5cab; font-size: 28px; }"
+        "QLabel#featureIcon { color: #0b5cab; font-size: 22px; }"
+        "QLabel#featureTitle { color: #082f63; font-size: 12px; font-weight: 700; }"
+        "QLabel#featureDesc { color: #58677a; font-size: 11px; }"
 
-        // Feature card title
-        "QLabel#featureTitle {"
-        " color: #082f63; font-size: 14px; font-weight: 700; }"
+        "QFrame#onboardStep { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
 
-        // Feature card description
-        "QLabel#featureDesc {"
-        " color: #58677a; font-size: 12px; }"
-
-        // Onboarding step container
-        "QFrame#onboardStep {"
-        " background: #fffaf0; border: 1px solid #d7c8a8; border-radius: 12px; }"
-
-        // Onboarding step number badge
         "QLabel#stepBadge {"
-        " background: #0b5cab; color: #ffffff;"
-        " border-radius: 14px; font-size: 13px; font-weight: 800;"
-        " min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px;"
+        " background: #0b5cab; color: #ffffff; border-radius: 11px;"
+        " font-size: 11px; font-weight: 800;"
+        " min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px;"
         " qproperty-alignment: AlignCenter; }"
 
-        // Onboarding step title
-        "QLabel#stepTitle {"
-        " color: #082f63; font-size: 14px; font-weight: 700; }"
+        "QLabel#stepTitle { color: #082f63; font-size: 12px; font-weight: 700; }"
+        "QLabel#stepDesc { color: #58677a; font-size: 11px; }"
 
-        // Onboarding step description
-        "QLabel#stepDesc {"
-        " color: #58677a; font-size: 12px; }"
+        "QFrame#divider { background: #d7c8a8; border: none; max-height: 1px; }"
 
-        // Divider line
-        "QFrame#divider {"
-        " background: #d7c8a8; border: none; max-height: 1px; }"
-
-        // Hero primary CTA (white button on dark hero)
         "QPushButton#heroCta {"
-        " background: #ffffff; color: #082f63;"
-        " border: none; border-radius: 8px;"
-        " min-height: 38px; padding: 8px 22px; font-weight: 800; font-size: 14px; }"
+        " background: #ffffff; color: #082f63; border: none; border-radius: 5px;"
+        " min-height: 32px; padding: 6px 18px; font-weight: 800; font-size: 12px; }"
         "QPushButton#heroCta:hover { background: #eaf3ff; }"
         "QPushButton#heroCta:pressed { background: #d7e8ff; }"
 
-        // Hero ghost button
         "QPushButton#heroGhost {"
         " background: rgba(255,255,255,0.10); color: #ffffff;"
-        " border: 1px solid rgba(255,255,255,0.35); border-radius: 8px;"
-        " min-height: 38px; padding: 8px 22px; font-weight: 600; font-size: 13px; }"
+        " border: 1px solid rgba(255,255,255,0.35); border-radius: 5px;"
+        " min-height: 32px; padding: 6px 18px; font-weight: 600; font-size: 12px; }"
         "QPushButton#heroGhost:hover { background: rgba(255,255,255,0.20); }"
         "QPushButton#heroGhost:pressed { background: rgba(255,255,255,0.28); }"
     );
@@ -697,9 +666,11 @@ DesktopApplication::DesktopApplication(AppContext& context)
 
 void DesktopApplication::applyTheme() {
     const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("HankenGrotesk-Regular.ttf"));
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("HankenGrotesk-Bold.ttf"));
-    qApp->setFont(QFont(QStringLiteral("Hanken Grotesk"), 13));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Regular.ttf"));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Bold.ttf"));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
+    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
+    qApp->setFont(QFont(QStringLiteral("Inter Tight"), 12));
     qApp->setStyleSheet(buildModernQss());
 }
 
@@ -871,15 +842,15 @@ bool DesktopApplication::showAuthDialog() {
 QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(32, 28, 32, 32);
-    layout->setSpacing(20);
+    layout->setContentsMargins(20, 16, 20, 20);
+    layout->setSpacing(14);
 
     // ── Hero panel ────────────────────────────────────────────────────────────
     QFrame* hero = new QFrame(page);
     hero->setObjectName(QStringLiteral("welcomeHero"));
-    hero->setMinimumHeight(260);
+    hero->setMinimumHeight(200);
     QVBoxLayout* heroLayout = new QVBoxLayout(hero);
-    heroLayout->setContentsMargins(40, 36, 40, 36);
+    heroLayout->setContentsMargins(28, 24, 28, 24);
     heroLayout->setSpacing(0);
 
     // Kicker
@@ -942,45 +913,6 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     heroLayout->addWidget(chipsRow);
     heroLayout->addWidget(ctaRow);
     layout->addWidget(hero);
-
-    // ── Feature cards row ─────────────────────────────────────────────────────
-    QWidget* cardsRow = new QWidget(page);
-    QHBoxLayout* cardsLayout = new QHBoxLayout(cardsRow);
-    cardsLayout->setContentsMargins(0, 0, 0, 0);
-    cardsLayout->setSpacing(14);
-
-    struct CardDef { QString icon; QString title; QString desc; };
-    const QList<CardDef> cardDefs = {
-        { QStringLiteral("📝"), QStringLiteral("Daily Entry"),
-          QStringLiteral("Fast keyboard-driven transaction entry with auto-complete party names.") },
-        { QStringLiteral("📈"), QStringLiteral("Reports"),
-          QStringLiteral("Party ledger, day book, P&L, trial balance and more — all live from SQL.") },
-        { QStringLiteral("📦"), QStringLiteral("Inventory"),
-          QStringLiteral("Monthly stock grid with daily quantities, purchases and reorder alerts.") },
-        { QStringLiteral("💰"), QStringLiteral("Dashboard"),
-          QStringLiteral("At-a-glance metrics: sales, receipts, outstanding and cash position.") },
-    };
-    for (const CardDef& def : cardDefs) {
-        QFrame* card = new QFrame(cardsRow);
-        card->setObjectName(QStringLiteral("featureCard"));
-        QVBoxLayout* cardLayout = new QVBoxLayout(card);
-        cardLayout->setContentsMargins(20, 18, 20, 18);
-        cardLayout->setSpacing(6);
-        QLabel* icon  = new QLabel(def.icon, card);
-        QLabel* title = new QLabel(def.title, card);
-        QLabel* desc  = new QLabel(def.desc, card);
-        icon->setObjectName(QStringLiteral("featureIcon"));
-        title->setObjectName(QStringLiteral("featureTitle"));
-        desc->setObjectName(QStringLiteral("featureDesc"));
-        desc->setWordWrap(true);
-        cardLayout->addWidget(icon);
-        cardLayout->addSpacing(4);
-        cardLayout->addWidget(title);
-        cardLayout->addWidget(desc);
-        cardLayout->addStretch(1);
-        cardsLayout->addWidget(card, 1);
-    }
-    layout->addWidget(cardsRow);
 
     // ── Onboarding / quick-start steps ───────────────────────────────────────
     QFrame* onboard = createPanel(page);
@@ -1062,8 +994,7 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
 
     // ── Staggered entrance animations ─────────────────────────────────────────
     animatePanel(*hero,     0);
-    animatePanel(*cardsRow, 120);
-    animatePanel(*onboard,  240);
+    animatePanel(*onboard,  150);
 
     return page;
 }
