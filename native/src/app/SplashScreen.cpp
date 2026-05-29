@@ -152,24 +152,22 @@ void SplashScreen::buildUi() {
 
     outer->addWidget(card_);
 
-    // --- Entry animations ---
-    // Staggered tile slide-in from below with OutBack easing (subtle bounce)
-    animateTileEntry(*tileLeft, 0, QPoint(150, 72), QPoint(150, 42));
-    animateTileEntry(*tileMid, 120, QPoint(218, 68), QPoint(218, 38));
-    animateTileEntry(*tileRight, 240, QPoint(310, 102), QPoint(310, 72));
-    animateTileEntry(*core, 80, QPoint(212, 56), QPoint(212, 26));
+    // --- Entry animation ---
+    // Use a single window-level opacity fade for reliability. Per-widget
+    // QGraphicsOpacityEffect on a translucent window with a shadowed card
+    // causes rendering glitches, so we avoid stacking effects.
+    setWindowOpacity(0.0);
+    QPropertyAnimation* windowFade = new QPropertyAnimation(this, "windowOpacity", this);
+    windowFade->setDuration(420);
+    windowFade->setStartValue(0.0);
+    windowFade->setEndValue(1.0);
+    windowFade->setEasingCurve(QEasingCurve::OutCubic);
+    windowFade->start(QAbstractAnimation::DeleteWhenStopped);
 
-    // Logo breathe pulse (starts after tiles settle)
+    // Logo breathe pulse (gentle, runs continuously)
     animateLogoPulse(*logoWrap);
 
-    // Brand, tagline, status, progress fade in sequentially
-    animateFadeIn(*brand, 380, 450);
-    animateFadeIn(*tagline, 520, 400);
-    animateFadeIn(*statusLabel_, 650, 350);
-    animateFadeIn(*progress_, 700, 350);
-    animateFadeIn(*version, 800, 350);
-
-    // Aura glow pulse (continuous)
+    // Aura glow pulse (continuous, single effect on one widget is safe)
     animateAuraPulse(*aura);
 }
 
