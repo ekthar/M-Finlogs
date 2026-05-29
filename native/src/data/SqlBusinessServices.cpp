@@ -15,9 +15,11 @@
 #include <QJsonObject>
 #include <QHash>
 #include <QHostInfo>
+#include <QPageLayout>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfWriter>
+#include <QPen>
 #include <QRegularExpression>
 #include <QSslSocket>
 #include <QSqlError>
@@ -1363,6 +1365,7 @@ public:
 
         QPdfWriter writer(&buffer);
         writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setPageOrientation(QPageLayout::Landscape);
         writer.setResolution(96);
         writer.setTitle(QStringLiteral("M-Finlogs Inventory Report"));
 
@@ -1371,99 +1374,320 @@ public:
             throw domain::DomainError("Could not start PDF painter for inventory report");
         }
 
-        QFont titleFont(QStringLiteral("Inter Tight"), 20, QFont::Bold);
-        QFont headingFont(QStringLiteral("Inter Tight"), 10, QFont::Bold);
-        QFont bodyFont(QStringLiteral("Inter Tight"), 9);
-        const QColor ink(QStringLiteral("#24342e"));
-        const QColor muted(QStringLiteral("#667268"));
-        const QColor border(QStringLiteral("#d8cdb7"));
-        const QColor band(QStringLiteral("#f5efe3"));
-        const int left = 44;
-        const int right = 750;
+        // Fonts
+        QFont titleFont(QStringLiteral("Inter Tight"), 15, QFont::Bold);
+        QFont subtitleFont(QStringLiteral("Inter Tight"), 8);
+        QFont headingFont(QStringLiteral("Inter Tight"), 7, QFont::Bold);
+        QFont bodyFont(QStringLiteral("Inter Tight"), 7);
+        QFont metricValueFont(QStringLiteral("Inter Tight"), 13, QFont::Bold);
+        QFont metricLabelFont(QStringLiteral("Inter Tight"), 7);
+        QFont chipFont(QStringLiteral("Inter Tight"), 8, QFont::Bold);
+
+        // Colors matching the Python PDF design
+        const QColor ink(QStringLiteral("#111827"));
+        const QColor muted(QStringLiteral("#6B7280"));
+        const QColor headerBg(QStringLiteral("#F3F4F6"));
+        const QColor headerFg(QStringLiteral("#374151"));
+        const QColor gridColor(QStringLiteral("#D1D5DB"));
+        const QColor altRowBg(QStringLiteral("#F8FAFC"));
+        const QColor cardBg(QStringLiteral("#F8FAFC"));
+        const QColor cardBorder(QStringLiteral("#CBD5E1"));
+        const QColor chipBg(QStringLiteral("#1f2937"));
+        const QColor currentDayBg(QStringLiteral("#DBEAFE"));
+        const QColor currentDayFg(QStringLiteral("#1E3A8A"));
+        const QColor reorderBg(QStringLiteral("#FEF2F2"));
+        const QColor reorderFg(QStringLiteral("#B91C1C"));
+        const QColor purchaseGreenBg(QStringLiteral("#ECFDF3"));
+        const QColor purchaseGreenFg(QStringLiteral("#047857"));
+
+        const int pageWidth = 1100;  // landscape A4 at 96dpi
+        const int left = 18;
+        const int right = pageWidth - 18;
+
+        // Determine day range (last 7 days like the Python backend)
+        const int today = QDate::currentDate().day();
+        int maxDays = 0;
+        for (const auto& row : request.rows) {
+            maxDays = qMax(maxDays, row.quantities.size());
+            maxDays = qMax(maxDays, row.purchaseQuantities.size());
+        }
+        if (maxDays <= 0) maxDays = 31;
+        const int endDay = qMin(today, maxDays);
+        const int startDay = qMax(1, endDay - 6);
+        QVector<int> days;
+        for (int d = startDay; d <= endDay; ++d) days.append(d);
+
+        // Pre-compute metrics (matching Python backend logic)
+        double grandTotal = 0.0;
+        double grandPurchaseIn = 0.0;
+        double totalOutflow = 0.0;
+        int outflowDaysUsed = 0;
+        int reorderCount = 0;
+
+        struct ReportRow {
+            QString name;
+            double openingQty;
+            double closingQty;
+            double purchaseTotal;
+            double cost;
+            double minStock;
+            bool isReorder;
+            QVector<double> dayQty;
+            QVector<double> dayPurchase;
+        };
+        QVector<ReportRow> reportRows;
+
+        for (const auto& row : request.rows) {
+            if (row.name.trimmed().isEmpty()) continue;
+
+            const int closingIdx = qMin(qMax(endDay - 1, 0), row.quantities.size() - 1);
+            const double closingQty = closingIdx >= 0 ? row.quantities[closingIdx] : 0.0;
+            const int openingIdx = qMax(startDay - 1, 0);
+            const double openingQty = openingIdx < row.quantities.size() ? row.quantities[openingIdx] : 0.0;
+
+            double purchaseTotal = 0.0;
+            for (int d : days) {
+                const int idx = d - 1;
+                if (idx < row.purchaseQuantities.size()) {
+                    purchaseTotal += row.purchaseQuantities[idx];
+                }
+            }
+
+            // Outflow calculation
+            QVector<double> outflowDeltas;
+            for (int i = 1; i < row.quantities.size(); ++i) {
+                outflowDeltas.append(qMax(row.quantities[i - 1] - row.quantities[i], 0.0));
+            }
+            double rowOutflow = 0.0;
+            for (double v : outflowDeltas) rowOutflow += v;
+            totalOutflow += rowOutflow;
+            outflowDaysUsed = qMax(outflowDaysUsed, qMax(static_cast<int>(row.quantities.size()) - 1, 1));
+
+            const double threshold = row.minStock > 0 ? row.minStock : 0.0;
+            const bool isReorder = threshold > 0 && closingQty < threshold;
+            if (isReorder) reorderCount++;
+
+            grandTotal += closingQty;
+            grandPurchaseIn += purchaseTotal;
+
+            QVector<double> dayQty, dayPurchase;
+            for (int d : days) {
+                const int idx = d - 1;
+                dayQty.append(idx < row.quantities.size() ? row.quantities[idx] : 0.0);
+                dayPurchase.append(idx < row.purchaseQuantities.size() ? row.purchaseQuantities[idx] : 0.0);
+            }
+
+            if (request.onlyReorder && !isReorder) continue;
+
+            reportRows.append(ReportRow{row.name, openingQty, closingQty, purchaseTotal, row.cost, row.minStock, isReorder, dayQty, dayPurchase});
+        }
+
+        const double avgDaily = outflowDaysUsed > 0 ? totalOutflow / outflowDaysUsed : 0.0;
+
+        // --- RENDER PDF ---
+        int y = 20;
+
+        // Header: Title + Month chip
         painter.setFont(titleFont);
         painter.setPen(ink);
-        painter.fillRect(QRect(0, 0, 794, 96), QColor(QStringLiteral("#fbf5e8")));
-        painter.drawText(QRect(left, 28, 500, 34), Qt::AlignLeft, QStringLiteral("M-Finlogs Inventory Report"));
-        painter.setFont(bodyFont);
+        painter.drawText(QRect(left, y, 400, 22), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("M-Finlogs Inventory Report"));
+
+        // Month chip (dark pill)
+        const QString monthChipText = QStringLiteral("MONTH: %1").arg(request.month.toUpper());
+        painter.setFont(chipFont);
+        const int chipW = 160;
+        const int chipH = 22;
+        const int chipX = right - chipW;
+        painter.fillRect(QRect(chipX, y, chipW, chipH), chipBg);
+        painter.setPen(Qt::white);
+        painter.drawText(QRect(chipX, y, chipW, chipH), Qt::AlignCenter, monthChipText);
+        y += 30;
+
+        // Subtitle line
+        painter.setFont(subtitleFont);
         painter.setPen(muted);
-        painter.drawText(QRect(left, 64, 700, 24), Qt::AlignLeft, QStringLiteral("%1 | %2 | %3").arg(request.financialYear, request.month, request.averageMode));
-        if (!request.notes.trimmed().isEmpty()) {
-            painter.drawText(QRect(left, 88, 700, 32), Qt::AlignLeft | Qt::TextWordWrap, request.notes.trimmed());
-        }
+        const QString avgLabel = request.averageMode == QStringLiteral("last7") ? QStringLiteral("Last 7 Days") : QStringLiteral("Monthly Average");
+        painter.drawText(QRect(left, y, 700, 14), Qt::AlignLeft,
+            QStringLiteral("%1 | Products: %2 | Current Qty: %3 | Days: %4-%5 | Rule: %6")
+                .arg(request.financialYear)
+                .arg(reportRows.size())
+                .arg(grandTotal, 0, 'f', 2)
+                .arg(startDay)
+                .arg(endDay)
+                .arg(avgLabel));
+        y += 14;
+        painter.drawText(QRect(left, y, 400, 14), Qt::AlignLeft,
+            QStringLiteral("Generated: %1").arg(QDateTime::currentDateTime().toString(QStringLiteral("dd MMM yyyy, HH:mm"))));
+        y += 22;
 
-        int y = request.notes.trimmed().isEmpty() ? 124 : 150;
-        auto drawHeader = [&]() {
-            painter.fillRect(QRect(left, y - 16, right - left, 26), band);
-            painter.setPen(border);
-            painter.drawLine(left, y + 12, right, y + 12);
+        // Metric cards row
+        const int cardW = (right - left) / 4 - 4;
+        const int cardH = 42;
+        auto drawCard = [&](int x, const QString& value, const QString& label) {
+            painter.fillRect(QRect(x, y, cardW, cardH), cardBg);
+            painter.setPen(cardBorder);
+            painter.drawRect(QRect(x, y, cardW, cardH));
             painter.setPen(ink);
-            painter.setFont(headingFont);
-            painter.drawText(left + 8, y, QStringLiteral("Product"));
-            painter.drawText(330, y, QStringLiteral("Qty"));
-            painter.drawText(420, y, QStringLiteral("Purchase"));
-            painter.drawText(530, y, QStringLiteral("Cost"));
-            if (request.includeStockValue) {
-                painter.drawText(620, y, QStringLiteral("Value"));
-            }
-            painter.setFont(bodyFont);
-            y += 34;
+            painter.setFont(metricValueFont);
+            painter.drawText(QRect(x + 8, y + 4, cardW - 16, 20), Qt::AlignCenter, value);
+            painter.setFont(metricLabelFont);
+            painter.setPen(muted);
+            painter.drawText(QRect(x + 8, y + 24, cardW - 16, 14), Qt::AlignCenter, label);
         };
-        drawHeader();
+        drawCard(left, QString::number(grandTotal, 'f', 2), QStringLiteral("Current Quantity"));
+        drawCard(left + cardW + 4, QString::number(grandPurchaseIn, 'f', 2), QStringLiteral("Purchase In"));
+        drawCard(left + (cardW + 4) * 2, QString::number(avgDaily, 'f', 1), QStringLiteral("Avg Daily Movement"));
+        drawCard(left + (cardW + 4) * 3, QString::number(reorderCount), QStringLiteral("Reorder Products"));
+        y += cardH + 16;
 
-        double grandValue = 0.0;
-        double grandQuantity = 0.0;
-        double grandPurchase = 0.0;
-        int rowNumber = 0;
-        for (const domain::InventoryProductRow& row : request.rows) {
-            if (row.name.trimmed().isEmpty()) {
-                continue;
-            }
-            double quantity = 0.0;
-            for (double value : row.quantities) {
-                quantity += value;
-            }
-            double purchaseQuantity = 0.0;
-            for (double value : row.purchaseQuantities) {
-                purchaseQuantity += value;
-            }
-            if (request.onlyReorder && quantity >= row.minStock) {
-                continue;
-            }
-            const double stockValue = quantity * row.cost;
-            grandQuantity += quantity;
-            grandPurchase += purchaseQuantity;
-            grandValue += stockValue;
-            if (rowNumber % 2 == 1) {
-                painter.fillRect(QRect(left, y - 14, right - left, 24), QColor(QStringLiteral("#fbfaf6")));
-            }
-            painter.setPen(ink);
-            painter.drawText(left + 8, y, row.name.left(42));
-            painter.drawText(330, y, QString::number(quantity, 'f', 2));
-            painter.drawText(420, y, QString::number(purchaseQuantity, 'f', 2));
-            painter.drawText(530, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(row.cost, 0, 'f', 2));
-            if (request.includeStockValue) {
-                painter.drawText(620, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(stockValue, 0, 'f', 2));
-            }
-            rowNumber += 1;
-            y += 24;
-            if (y > 1040) {
-                writer.newPage();
-                y = 70;
-                drawHeader();
-            }
-        }
-        y += 8;
-        painter.setPen(border);
-        painter.drawLine(left, y, right, y);
-        y += 24;
+        // Section title
         painter.setFont(headingFont);
-        painter.setPen(ink);
-        painter.drawText(left + 8, y, QStringLiteral("Totals"));
-        painter.drawText(330, y, QString::number(grandQuantity, 'f', 2));
-        painter.drawText(420, y, QString::number(grandPurchase, 'f', 2));
-        if (request.includeStockValue) {
-            painter.drawText(620, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(grandValue, 0, 'f', 2));
+        painter.setPen(QColor(QStringLiteral("#334155")));
+        painter.drawText(QRect(left, y, 400, 14), Qt::AlignLeft,
+            QStringLiteral("Daily Stock (Days %1-%2)").arg(startDay).arg(endDay));
+        y += 18;
+
+        // Table header
+        const int nameColW = 120;
+        const int openColW = 52;
+        const int purchColW = 52;
+        const int closeColW = 52;
+        const int fixedW = nameColW + openColW + purchColW + closeColW;
+        const int dayColW = qMin(38, qMax(28, (right - left - fixedW) / qMax(days.size(), 1)));
+        const int rowH = 20;
+
+        auto drawTableHeader = [&]() {
+            painter.fillRect(QRect(left, y, right - left, rowH), headerBg);
+            painter.setPen(headerFg);
+            painter.setFont(headingFont);
+            int x = left;
+            painter.drawText(QRect(x + 4, y, nameColW - 4, rowH), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Product"));
+            x += nameColW;
+            painter.drawText(QRect(x, y, openColW, rowH), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("Opening"));
+            x += openColW;
+            painter.drawText(QRect(x, y, purchColW, rowH), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("Purchase"));
+            x += purchColW;
+            painter.drawText(QRect(x, y, closeColW, rowH), Qt::AlignRight | Qt::AlignVCenter, QStringLiteral("Closing"));
+            x += closeColW;
+            for (int d : days) {
+                const bool isCurrent = (d == today);
+                if (isCurrent) {
+                    painter.fillRect(QRect(x, y, dayColW, rowH), currentDayBg);
+                    painter.setPen(currentDayFg);
+                }
+                painter.drawText(QRect(x, y, dayColW, rowH), Qt::AlignCenter | Qt::AlignVCenter, QString::number(d));
+                if (isCurrent) painter.setPen(headerFg);
+                x += dayColW;
+            }
+            // Grid line below header
+            painter.setPen(gridColor);
+            painter.drawLine(left, y + rowH, right, y + rowH);
+            y += rowH;
+        };
+        drawTableHeader();
+
+        // Table rows
+        painter.setFont(bodyFont);
+        for (int ri = 0; ri < reportRows.size(); ++ri) {
+            if (y + rowH > 540) {  // page break
+                writer.newPage();
+                y = 20;
+                drawTableHeader();
+                painter.setFont(bodyFont);
+            }
+
+            const ReportRow& rr = reportRows[ri];
+
+            // Alternating row background
+            if (ri % 2 == 1) {
+                painter.fillRect(QRect(left, y, right - left, rowH), altRowBg);
+            }
+
+            // Reorder row background
+            if (rr.isReorder) {
+                painter.fillRect(QRect(left, y, right - left, rowH), reorderBg);
+            }
+
+            int x = left;
+
+            // Product name
+            painter.setPen(rr.isReorder ? reorderFg : ink);
+            if (rr.isReorder) {
+                painter.setFont(headingFont);
+            }
+            painter.drawText(QRect(x + 4, y, nameColW - 4, rowH), Qt::AlignLeft | Qt::AlignVCenter, rr.name.left(20));
+            if (rr.isReorder) {
+                painter.setFont(bodyFont);
+            }
+            x += nameColW;
+
+            // Opening
+            painter.setPen(rr.isReorder ? reorderFg : ink);
+            painter.drawText(QRect(x, y, openColW - 4, rowH), Qt::AlignRight | Qt::AlignVCenter, QString::number(rr.openingQty, 'f', 0));
+            x += openColW;
+
+            // Purchase total
+            painter.drawText(QRect(x, y, purchColW - 4, rowH), Qt::AlignRight | Qt::AlignVCenter, QString::number(rr.purchaseTotal, 'f', 0));
+            x += purchColW;
+
+            // Closing
+            painter.drawText(QRect(x, y, closeColW - 4, rowH), Qt::AlignRight | Qt::AlignVCenter, QString::number(rr.closingQty, 'f', 0));
+            x += closeColW;
+
+            // Day columns
+            for (int di = 0; di < days.size(); ++di) {
+                const int d = days[di];
+                const bool isCurrent = (d == today);
+                const double qty = di < rr.dayQty.size() ? rr.dayQty[di] : 0.0;
+                const double purch = di < rr.dayPurchase.size() ? rr.dayPurchase[di] : 0.0;
+
+                // Cell background
+                if (isCurrent) {
+                    painter.fillRect(QRect(x, y, dayColW, rowH), currentDayBg);
+                } else if (purch > 0) {
+                    painter.fillRect(QRect(x, y, dayColW, rowH), purchaseGreenBg);
+                }
+
+                // Cell text
+                if (isCurrent) {
+                    painter.setPen(currentDayFg);
+                    painter.setFont(headingFont);
+                } else if (purch > 0) {
+                    painter.setPen(purchaseGreenFg);
+                } else {
+                    painter.setPen(ink);
+                }
+
+                QString cellText = qty > 0 ? QString::number(qty, 'f', 0) : QString();
+                if (purch > 0) {
+                    cellText = QStringLiteral("%1\n+%2").arg(
+                        qty > 0 ? QString::number(qty, 'f', 0) : QStringLiteral("0"),
+                        QString::number(purch, 'f', 0));
+                }
+                painter.drawText(QRect(x, y, dayColW, rowH), Qt::AlignCenter | Qt::AlignVCenter, cellText.section(QLatin1Char('\n'), 0, 0));
+
+                if (isCurrent) painter.setFont(bodyFont);
+                painter.setPen(ink);
+                x += dayColW;
+            }
+
+            // Row bottom grid line
+            painter.setPen(gridColor);
+            painter.drawLine(left, y + rowH, x, y + rowH);
+            y += rowH;
         }
+
+        // Current day vertical highlight lines
+        {
+            const int currentDayIdx = days.indexOf(today);
+            if (currentDayIdx >= 0) {
+                const int cdX = left + fixedW + currentDayIdx * dayColW;
+                painter.setPen(QPen(QColor(QStringLiteral("#2563EB")), 1));
+                painter.drawLine(cdX, y - reportRows.size() * rowH - rowH, cdX, y);
+                painter.drawLine(cdX + dayColW, y - reportRows.size() * rowH - rowH, cdX + dayColW, y);
+            }
+        }
+
         painter.end();
         return bytes;
     }
