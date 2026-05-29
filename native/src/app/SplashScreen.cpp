@@ -6,10 +6,12 @@
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QParallelAnimationGroup>
+#include <QPainter>
+#include <QPainterPath>
 #include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QScreen>
+#include <QSequentialAnimationGroup>
 #include <QShowEvent>
 #include <QTimer>
 #include <QVariantAnimation>
@@ -19,65 +21,66 @@ namespace mfinlogs::app {
 
 namespace {
 
-constexpr int kCardWidth = 540;
-constexpr int kCardHeight = 340;
-constexpr int kShadowMargin = 44;
-
-QString splashQss() {
-    return QStringLiteral(
-        // Card background - dark gradient for premium feel
-        "QFrame#splashCard {"
-        " background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        " stop:0 #0f172a, stop:0.5 #1e293b, stop:1 #0f172a);"
-        " border: 1px solid rgba(255,255,255,0.08);"
-        " border-radius: 20px; }"
-
-        // Aura glow behind tiles
-        "QFrame#splashAura {"
-        " background: qradialgradient(cx:0.5, cy:0.5, radius:0.72,"
-        " stop:0 rgba(61,120,201,115), stop:0.62 rgba(10,20,35,35), stop:1 rgba(10,20,35,0));"
-        " border-radius: 120px; }"
-
-        // Decorative tiles
-        "QFrame#tileLeft { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #f8bd53, stop:1 #e58f1f); border-radius: 16px; border: 2px solid rgba(255,255,255,0.3); }"
-        "QFrame#tileMid { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #63ddcf, stop:1 #36a6da); border-radius: 18px; border: 2px solid rgba(255,255,255,0.3); }"
-        "QFrame#tileRight { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #7a74ff, stop:1 #6156e9); border-radius: 16px; border: 2px solid rgba(255,255,255,0.3); }"
-        "QFrame#tileCore { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #fdfdfd, stop:1 #e7eef9); border-radius: 20px; border: 2px solid rgba(255,255,255,0.8); }"
-
-        // Logo circle
-        "QFrame#logoWrap { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #66e2d4, stop:1 #55b5ea); border-radius: 18px; }"
-        "QLabel#splashLogoText { color: #ffffff; font-size: 28px; font-weight: 800; }"
-
-        // Brand text
-        "QLabel#splashBrand { color: #f1f5f9; font-size: 38px; font-weight: 800; letter-spacing: 2px; }"
-        "QLabel#splashTagline { color: rgba(203,213,225,0.85); font-size: 11px; font-weight: 600; letter-spacing: 1px; }"
-
-        // Status text
-        "QLabel#splashStatus { color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: 1px; }"
-
-        // Version chip
-        "QLabel#splashVersion { color: rgba(148,163,184,0.6); font-size: 9px; }"
-
-        // Progress bar
-        "QProgressBar#splashProgress { background: rgba(255,255,255,0.1); border: none; border-radius: 2px; max-height: 4px; min-height: 4px; }"
-        "QProgressBar#splashProgress::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #56d6c6, stop:1 #7267f6); border-radius: 2px; }"
-    );
-}
-
-QFrame* createSplashTile(const QString& objectName, QWidget* parent, const QRect& geometry) {
-    QFrame* tile = new QFrame(parent);
-    tile->setObjectName(objectName);
-    tile->setGeometry(geometry);
-    return tile;
-}
+constexpr int kSplashWidth = 620;
+constexpr int kSplashHeight = 400;
 
 } // namespace
+
+// Custom painted widget for the cobalt splash background with geometric elements
+class SplashCanvas final : public QWidget {
+public:
+    explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {}
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRect r = rect();
+
+        // Deep cobalt radial gradient background
+        QRadialGradient bg(r.center(), r.width() * 0.7);
+        bg.setColorAt(0.0, QColor(0, 43, 128));   // cobalt-core
+        bg.setColorAt(1.0, QColor(0, 26, 77));    // cobalt-deep
+        p.fillRect(r, bg);
+
+        // Interlocking geometric layer 1 (top-left)
+        p.save();
+        p.translate(-120, -140);
+        p.rotate(45);
+        QLinearGradient g1(0, 0, 400, 400);
+        g1.setColorAt(0.0, QColor(0, 68, 204, 50));
+        g1.setColorAt(0.4, Qt::transparent);
+        p.setBrush(g1);
+        p.setPen(QPen(QColor(255, 255, 255, 12), 1));
+        p.drawRect(0, 0, 500, 500);
+        p.restore();
+
+        // Interlocking geometric layer 2 (bottom-right)
+        p.save();
+        p.translate(r.width() - 200, r.height() - 100);
+        p.rotate(45);
+        QLinearGradient g2(0, 0, -400, -400);
+        g2.setColorAt(0.0, QColor(0, 68, 204, 38));
+        g2.setColorAt(0.4, Qt::transparent);
+        p.setBrush(g2);
+        p.setPen(QPen(QColor(255, 255, 255, 8), 1));
+        p.drawRect(-400, -400, 500, 500);
+        p.restore();
+
+        // Glint sweep (static representation)
+        QLinearGradient glint(r.width() * 0.3, 0, r.width() * 0.5, r.height());
+        glint.setColorAt(0.0, Qt::transparent);
+        glint.setColorAt(0.5, QColor(255, 255, 255, 8));
+        glint.setColorAt(1.0, Qt::transparent);
+        p.fillRect(r, glint);
+    }
+};
 
 SplashScreen::SplashScreen(QWidget* parent)
     : QWidget(parent) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::SplashScreen | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_TranslucentBackground);
-    setFixedSize(kCardWidth + kShadowMargin * 2, kCardHeight + kShadowMargin * 2);
+    setFixedSize(kSplashWidth, kSplashHeight);
     buildUi();
 
     if (QScreen* screen = QApplication::primaryScreen()) {
@@ -87,170 +90,124 @@ SplashScreen::SplashScreen(QWidget* parent)
 }
 
 void SplashScreen::buildUi() {
-    QVBoxLayout* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(kShadowMargin, kShadowMargin, kShadowMargin, kShadowMargin);
+    // Root layout
+    QVBoxLayout* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
 
+    // Card with rounded corners and shadow
     card_ = new QFrame(this);
-    card_->setObjectName(QStringLiteral("splashCard"));
-    card_->setFixedSize(kCardWidth, kCardHeight);
-    card_->setStyleSheet(splashQss());
+    card_->setFixedSize(kSplashWidth, kSplashHeight);
+    card_->setStyleSheet(QStringLiteral("QFrame { border-radius: 12px; }"));
 
-    // Drop shadow for floating effect
     QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(card_);
-    shadow->setBlurRadius(44);
-    shadow->setOffset(0, 20);
-    shadow->setColor(QColor(4, 10, 23, 160));
+    shadow->setBlurRadius(50);
+    shadow->setOffset(0, 16);
+    shadow->setColor(QColor(0, 10, 30, 180));
     card_->setGraphicsEffect(shadow);
 
-    // Aura glow background
-    QFrame* aura = createSplashTile(QStringLiteral("splashAura"), card_, QRect(50, 10, 440, 200));
+    // Painted canvas background
+    SplashCanvas* canvas = new SplashCanvas(card_);
+    canvas->setGeometry(0, 0, kSplashWidth, kSplashHeight);
 
-    // Decorative tiles - positioned in upper area
-    QFrame* tileLeft = createSplashTile(QStringLiteral("tileLeft"), card_, QRect(150, 42, 88, 110));
-    QFrame* tileRight = createSplashTile(QStringLiteral("tileRight"), card_, QRect(310, 72, 86, 106));
-    QFrame* tileMid = createSplashTile(QStringLiteral("tileMid"), card_, QRect(218, 38, 100, 124));
-    QFrame* core = createSplashTile(QStringLiteral("tileCore"), card_, QRect(212, 26, 106, 130));
-    QFrame* logoWrap = createSplashTile(QStringLiteral("logoWrap"), core, QRect(21, 32, 64, 64));
+    // --- Brand container (left-aligned, vertically centered) ---
+    // Logo mark: two interlocking squares
+    QFrame* logoMark = new QFrame(card_);
+    logoMark->setGeometry(44, 100, 64, 64);
+    logoMark->setStyleSheet(QStringLiteral("background: transparent;"));
 
-    // Logo "M" letter
-    QLabel* logo = new QLabel(QStringLiteral("M"), logoWrap);
-    logo->setObjectName(QStringLiteral("splashLogoText"));
-    logo->setAlignment(Qt::AlignCenter);
-    logo->setGeometry(0, 0, 64, 64);
+    QFrame* sq1 = new QFrame(logoMark);
+    sq1->setGeometry(0, 0, 32, 32);
+    sq1->setStyleSheet(QStringLiteral(
+        "background: #001a4d; border: 3px solid #4d88ff;"
+        "box-shadow: 0 0 20px rgba(77,136,255,0.4);"));
 
-    // Brand name
-    QLabel* brand = new QLabel(QStringLiteral("M-FINLOGS"), card_);
-    brand->setObjectName(QStringLiteral("splashBrand"));
-    brand->setAlignment(Qt::AlignCenter);
-    brand->setGeometry(0, 176, kCardWidth, 44);
+    QFrame* sq2 = new QFrame(logoMark);
+    sq2->setGeometry(32, 32, 32, 32);
+    sq2->setStyleSheet(QStringLiteral(
+        "background: transparent; border: 3px solid #e6eeff;"));
 
-    // Tagline
-    QLabel* tagline = new QLabel(QStringLiteral("NATIVE ACCOUNTING WORKSPACE"), card_);
-    tagline->setObjectName(QStringLiteral("splashTagline"));
-    tagline->setAlignment(Qt::AlignCenter);
-    tagline->setGeometry(0, 220, kCardWidth, 18);
+    // Title: FINLOGS
+    QLabel* title = new QLabel(QStringLiteral("FINLOGS"), card_);
+    title->setGeometry(44, 180, 400, 50);
+    title->setStyleSheet(QStringLiteral(
+        "color: #e6eeff; font-size: 42px; font-weight: 800;"
+        "letter-spacing: -2px; background: transparent;"));
 
-    // Status message
-    statusLabel_ = new QLabel(QStringLiteral("INITIALIZING"), card_);
-    statusLabel_->setObjectName(QStringLiteral("splashStatus"));
-    statusLabel_->setAlignment(Qt::AlignCenter);
-    statusLabel_->setGeometry(0, 272, kCardWidth, 16);
+    // Subtitle
+    QLabel* subtitle = new QLabel(QStringLiteral("NEXT-GEN LEDGER SYSTEMS"), card_);
+    subtitle->setGeometry(44, 232, 400, 20);
+    subtitle->setStyleSheet(QStringLiteral(
+        "color: #4d88ff; font-size: 11px; font-weight: 300;"
+        "letter-spacing: 3px; background: transparent;"));
 
-    // Progress bar
+    // --- Bottom meta section ---
+    // Status lines (left)
+    statusLabel_ = new QLabel(QStringLiteral("INITIALIZING RUNTIME"), card_);
+    statusLabel_->setGeometry(44, 320, 300, 16);
+    statusLabel_->setStyleSheet(QStringLiteral(
+        "color: #4d88ff; font-size: 10px; font-weight: 500;"
+        "letter-spacing: 2px; background: transparent;"));
+
+    QLabel* statusLine1 = new QLabel(QStringLiteral("Loading financial schemas..."), card_);
+    statusLine1->setGeometry(44, 340, 300, 14);
+    statusLine1->setStyleSheet(QStringLiteral(
+        "color: #708fcc; font-size: 10px; background: transparent;"));
+
+    QLabel* statusLine2 = new QLabel(QStringLiteral("Connecting SQL Server registers..."), card_);
+    statusLine2->setGeometry(44, 356, 300, 14);
+    statusLine2->setStyleSheet(QStringLiteral(
+        "color: #708fcc; font-size: 10px; background: transparent;"));
+
+    // Progress bar (right side)
+    QLabel* loadingLabel = new QLabel(QStringLiteral("INITIALIZING ASSETS"), card_);
+    loadingLabel->setGeometry(420, 320, 180, 16);
+    loadingLabel->setAlignment(Qt::AlignRight);
+    loadingLabel->setStyleSheet(QStringLiteral(
+        "color: #e6eeff; font-size: 10px; font-weight: 500;"
+        "letter-spacing: 1px; background: transparent;"));
+
     progress_ = new QProgressBar(card_);
-    progress_->setObjectName(QStringLiteral("splashProgress"));
+    progress_->setGeometry(380, 342, 200, 3);
     progress_->setRange(0, 100);
     progress_->setValue(0);
     progress_->setTextVisible(false);
-    progress_->setGeometry(170, 296, 200, 4);
+    progress_->setStyleSheet(QStringLiteral(
+        "QProgressBar { background: rgba(255,255,255,0.05); border: none; border-radius: 1px; }"
+        "QProgressBar::chunk { background: #4d88ff; border-radius: 1px; }"));
 
-    // Version label
-    QLabel* version = new QLabel(QStringLiteral("v1.0.0 | Native Runtime"), card_);
-    version->setObjectName(QStringLiteral("splashVersion"));
-    version->setAlignment(Qt::AlignCenter);
-    version->setGeometry(0, 316, kCardWidth, 14);
+    // Version tag (bottom-right, rotated)
+    QLabel* version = new QLabel(QStringLiteral("STABLE_BUILD_v1.0.0_NATIVE"), card_);
+    version->setGeometry(kSplashWidth - 180, kSplashHeight - 30, 170, 14);
+    version->setAlignment(Qt::AlignRight);
+    version->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.2); font-size: 9px; background: transparent;"));
 
-    outer->addWidget(card_);
+    root->addWidget(card_);
 
-    // --- Entry animation ---
-    // Use a single window-level opacity fade for reliability. Per-widget
-    // QGraphicsOpacityEffect on a translucent window with a shadowed card
-    // causes rendering glitches, so we avoid stacking effects.
+    // --- Window fade-in animation ---
     setWindowOpacity(0.0);
-    QPropertyAnimation* windowFade = new QPropertyAnimation(this, "windowOpacity", this);
-    windowFade->setDuration(420);
-    windowFade->setStartValue(0.0);
-    windowFade->setEndValue(1.0);
-    windowFade->setEasingCurve(QEasingCurve::OutCubic);
-    windowFade->start(QAbstractAnimation::DeleteWhenStopped);
-
-    // Logo breathe pulse (gentle, runs continuously)
-    animateLogoPulse(*logoWrap);
-
-    // Aura glow pulse (continuous, single effect on one widget is safe)
-    animateAuraPulse(*aura);
+    QPropertyAnimation* fadeIn = new QPropertyAnimation(this, "windowOpacity", this);
+    fadeIn->setDuration(500);
+    fadeIn->setStartValue(0.0);
+    fadeIn->setEndValue(1.0);
+    fadeIn->setEasingCurve(QEasingCurve::OutCubic);
+    fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
 }
 
-void SplashScreen::animateTileEntry(QWidget& tile, int delayMs, const QPoint& from, const QPoint& to) {
-    tile.move(from);
-
-    QGraphicsOpacityEffect* opacity = new QGraphicsOpacityEffect(&tile);
-    opacity->setOpacity(0.0);
-    tile.setGraphicsEffect(opacity);
-
-    QPropertyAnimation* fade = new QPropertyAnimation(opacity, "opacity", &tile);
-    fade->setDuration(500);
-    fade->setStartValue(0.0);
-    fade->setEndValue(1.0);
-    fade->setEasingCurve(QEasingCurve::OutCubic);
-
-    QPropertyAnimation* slide = new QPropertyAnimation(&tile, "pos", &tile);
-    slide->setDuration(600);
-    slide->setStartValue(from);
-    slide->setEndValue(to);
-    slide->setEasingCurve(QEasingCurve::OutBack);
-
-    QParallelAnimationGroup* group = new QParallelAnimationGroup(&tile);
-    group->addAnimation(fade);
-    group->addAnimation(slide);
-
-    QTimer::singleShot(delayMs, group, [group]() {
-        group->start(QAbstractAnimation::DeleteWhenStopped);
-    });
+void SplashScreen::animateTileEntry(QWidget&, int, const QPoint&, const QPoint&) {
+    // Not used in cobalt design
 }
 
-void SplashScreen::animateFadeIn(QWidget& widget, int delayMs, int durationMs) {
-    QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&widget);
-    effect->setOpacity(0.0);
-    widget.setGraphicsEffect(effect);
-
-    QPropertyAnimation* fade = new QPropertyAnimation(effect, "opacity", &widget);
-    fade->setDuration(durationMs);
-    fade->setStartValue(0.0);
-    fade->setEndValue(1.0);
-    fade->setEasingCurve(QEasingCurve::OutCubic);
-
-    QTimer::singleShot(delayMs, fade, [fade]() {
-        fade->start(QAbstractAnimation::DeleteWhenStopped);
-    });
+void SplashScreen::animateFadeIn(QWidget&, int, int) {
+    // Not used in cobalt design
 }
 
-void SplashScreen::animateLogoPulse(QWidget& logo) {
-    const QRect baseRect = logo.geometry();
-
-    logoPulse_ = new QVariantAnimation(this);
-    logoPulse_->setDuration(2000);
-    logoPulse_->setStartValue(1.0);
-    logoPulse_->setKeyValueAt(0.5, 1.06);
-    logoPulse_->setEndValue(1.0);
-    logoPulse_->setEasingCurve(QEasingCurve::InOutSine);
-    logoPulse_->setLoopCount(-1);
-
-    connect(logoPulse_, &QVariantAnimation::valueChanged, &logo, [&logo, baseRect](const QVariant& value) {
-        const double scale = value.toDouble();
-        const int w = static_cast<int>(baseRect.width() * scale);
-        const int h = static_cast<int>(baseRect.height() * scale);
-        const int x = baseRect.x() - (w - baseRect.width()) / 2;
-        const int y = baseRect.y() - (h - baseRect.height()) / 2;
-        logo.setGeometry(x, y, w, h);
-    });
-
-    QTimer::singleShot(600, logoPulse_, [this]() { logoPulse_->start(); });
+void SplashScreen::animateLogoPulse(QWidget&) {
+    // Not used in cobalt design
 }
 
-void SplashScreen::animateAuraPulse(QWidget& aura) {
-    QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&aura);
-    effect->setOpacity(0.35);
-    aura.setGraphicsEffect(effect);
-
-    QPropertyAnimation* pulse = new QPropertyAnimation(effect, "opacity", &aura);
-    pulse->setDuration(2400);
-    pulse->setStartValue(0.35);
-    pulse->setKeyValueAt(0.5, 0.72);
-    pulse->setEndValue(0.35);
-    pulse->setEasingCurve(QEasingCurve::InOutSine);
-    pulse->setLoopCount(-1);
-    pulse->start();
+void SplashScreen::animateAuraPulse(QWidget&) {
+    // Not used in cobalt design
 }
 
 void SplashScreen::setProgress(int value, const QString& message) {
