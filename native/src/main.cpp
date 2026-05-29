@@ -4,6 +4,47 @@
 
 #include <QCoreApplication>
 #include <QStringList>
+// ekthar/m-finlogs/M-Finlogs-C/native/src/main.cpp
+#include <QApplication>
+#include <QTimer>
+#include "app/SplashScreen.h"
+#include "app/AuthWindow.h"
+#include "app/DesktopApplication.h"
+
+int main(int argc, char *argv[]) {
+    QApplication app(argc, argv);
+
+    // 1. Show the modern fade-in splash
+    auto *splash = new SplashScreen();
+    splash->startFadeIn();
+
+    // 2. Simulate core loading steps securely
+    QTimer::singleShot(1000, [=]() { splash->setProgress(30, "Loading runtime DLL context..."); });
+    QTimer::singleShot(2000, [=]() { splash->setProgress(65, "Connecting local SQL Server registers..."); });
+    QTimer::singleShot(3000, [=]() { splash->setProgress(90, "Applying workspace configuration presets..."); });
+
+    // 3. Chain splash termination to login launch
+    QTimer::singleShot(3800, [=]() {
+        splash->setProgress(100, "Done.");
+        splash->startFadeOut([=]() {
+            splash->deleteLater();
+
+            // Launch custom modern Auth screen
+            auto *auth = new AuthWindow();
+            auth->show();
+
+            // Once user passes login, launch the rest of your system
+            QObject::connect(auth, &AuthWindow::authenticated, [=]() {
+                auth->deleteLater();
+                
+                auto *mainWindow = new DesktopApplication();
+                mainWindow->show();
+            });
+        });
+    });
+
+    return app.exec();
+}
 
 namespace {
 
