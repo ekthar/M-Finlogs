@@ -34,6 +34,7 @@ after_build:
       copy native\build\Release\mfinlogs-native.exe "%PACKAGE_DIR%\"
       copy db_config.json "%PACKAGE_DIR%\"
       copy fonts\SpaceMono-*.ttf "%PACKAGE_DIR%\fonts\"
+      copy fonts\InterTight-*.ttf "%PACKAGE_DIR%\fonts\"
       windeployqt --release --compiler-runtime "%PACKAGE_DIR%\mfinlogs-native.exe"
 
 artifacts:

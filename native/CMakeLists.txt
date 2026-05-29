@@ -45,6 +45,7 @@ set(MFINLOGS_NATIVE_SOURCES
     src/domain/ServiceRegistry.h
     src/domain/ServiceRegistry.cpp
     src/domain/Types.h
+    resources/native_resources.qrc
 )
 
 qt_add_executable(mfinlogs-native

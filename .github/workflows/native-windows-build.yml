@@ -49,6 +49,7 @@ jobs:
           Copy-Item -LiteralPath "native\build\Release\mfinlogs-native.exe" -Destination $packageDir -Force
           Copy-Item -LiteralPath "db_config.json" -Destination $packageDir -Force
           Copy-Item -Path "fonts\SpaceMono-*.ttf" -Destination "$packageDir\fonts" -Force
+          Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
       - name: Upload native executable

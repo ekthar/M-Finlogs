@@ -24,6 +24,7 @@
 #include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
 #include <QKeyEvent>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -45,7 +46,6 @@
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringList>
-#include <QStyle>
 #include <QTableWidget>
 #include <QToolBar>
 #include <QVariant>
@@ -267,9 +267,13 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
     return item;
 }
 
-QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex, QStyle::StandardPixmap icon) {
+QIcon appIcon(const QString& name) {
+    return QIcon(QStringLiteral(":/icons/%1.svg").arg(name));
+}
+
+QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex, const QString& iconName) {
     QListWidgetItem* item = addNavItem(nav, label, pageIndex);
-    item->setIcon(qApp->style()->standardIcon(icon));
+    item->setIcon(appIcon(iconName));
     return item;
 }
 
@@ -512,35 +516,35 @@ void focusEntryWidget(QWidget& widget) {
 
 static QString buildModernQss(bool darkMode = false) {
     // Mac-grade minimalist design — Tailwind palette, flat, borderless
-    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#eeeeee");
+    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#f3f4f6");
     const QString surface      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #d9f2f6, stop:0.55 #cfe4df, stop:1 #ead8bd)");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("rgba(105, 126, 142, 0.20)");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #dff2f4, stop:0.58 #dbe9e2, stop:1 #eee2c9)");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("rgba(48, 111, 159, 0.18)");
     const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#0c0c0c");
     const QString sidebarHover = darkMode ? QStringLiteral("#374151") : QStringLiteral("rgba(255, 255, 255, 0.35)");
     const QString textPrimary  = darkMode ? QStringLiteral("#f9fafb") : QStringLiteral("#0c0c0c");
     const QString textSecondary= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#777777");
-    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#d9d9d9");
-    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d7d7d7");
+    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#d7dce2");
+    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#cfd6dd");
     const QString tableHeaderBg= darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
     const QString tableHeaderTx= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#111111");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#f1f1f1");
-    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8e8e8");
-    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#dfe9ef");
-    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#147de8");
-    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#0f6fd0");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#f7f8fa");
+    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8ebef");
+    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#e7f0f8");
+    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#1f7bd8");
+    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#166fc6");
     const QString accentPanelBg= darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eef6ff");
     const QString inputBg      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
     const QString scrollHandle = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#c7c7c7");
-    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8e8e8");
-    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#dcdcdc");
+    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#edf0f3");
+    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#e1e6eb");
     const QString heroGrad     = darkMode
         ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
         : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3b82f6, stop:1 #60a5fa)");
 
     return QStringLiteral(
         // 1. Universal font reset — normal weight baseline
-        "* { font-family: 'Segoe UI', '-apple-system', 'Helvetica Neue', sans-serif;"
+        "* { font-family: 'Inter Tight', 'Segoe UI', '-apple-system', 'Helvetica Neue', sans-serif;"
         " font-weight: 400; }"
 
         // 2. Workspace
@@ -555,17 +559,17 @@ static QString buildModernQss(bool darkMode = false) {
     // 4. Sidebar list
     + QStringLiteral(
         "QListWidget#sidebar { background: transparent; border: none; color: %1;"
-        " font-size: 13px; font-weight: 400; outline: none; }"
+        " font-size: 13px; font-weight: 500; outline: none; padding: 8px 0; }"
     ).arg(textPrimary)
 
     // 5. Sidebar items
     + QStringLiteral(
-        "QListWidget#sidebar::item { padding: 5px 10px; border-radius: 4px; min-height: 20px; }"
+        "QListWidget#sidebar::item { padding: 7px 12px; border-radius: 7px; min-height: 24px; margin: 1px 8px; }"
     )
 
     // 6. Sidebar selected — vibrant blue with white bold text
     + QStringLiteral(
-        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 400; }"
+        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 700; }"
     ).arg(sidebarSel, sidebarSelTx)
 
     // 7. Sidebar hover
@@ -586,7 +590,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 10. Page title
     + QStringLiteral(
-        "QLabel#pageTitle { color: %1; font-size: 28px; font-weight: 700; letter-spacing: 0px; }"
+        "QLabel#pageTitle { color: %1; font-size: 30px; font-weight: 800; letter-spacing: 0px; }"
     ).arg(textPrimary)
 
     // 11. Page meta
@@ -596,7 +600,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 12. Section title
     + QStringLiteral(
-        "QLabel#sectionTitle { color: %1; font-size: 14px; font-weight: 600; }"
+        "QLabel#sectionTitle { color: %1; font-size: 15px; font-weight: 800; }"
     ).arg(textPrimary)
 
     + QStringLiteral(
@@ -619,12 +623,12 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 15. Panel — no border, just white space
     + QStringLiteral(
-        "QFrame#panel { background: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QFrame#panel { background: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(surface, border)
 
     // 15b. Form panel — visible border
     + QStringLiteral(
-        "QFrame#formPanel { background: %1; border: 1px solid %2; border-radius: 8px; }"
+        "QFrame#formPanel { background: %1; border: 1px solid %2; border-radius: 12px; }"
     ).arg(surface, border)
 
     // 16. Accent panel
@@ -643,7 +647,7 @@ static QString buildModernQss(bool darkMode = false) {
         " background: %1; alternate-background-color: %2;"
         " border: none; border-radius: 0px;"
         " selection-background-color: %3; selection-color: %4;"
-        " gridline-color: %5; color: %4; font-size: 12px; font-weight: 400;"
+        " gridline-color: %5; color: %4; font-size: 13px; font-weight: 500;"
         " outline: none; }"
     ).arg(surface, tableAltRow, tableSelBg, textPrimary, tableGrid)
 
@@ -652,7 +656,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QHeaderView::section {"
         " background-color: %1; color: %2;"
         " border: none; border-bottom: 1px solid %3;"
-        " padding: 5px 8px; font-weight: 700; font-size: 11px;"
+        " padding: 8px 10px; font-weight: 800; font-size: 12px;"
         " letter-spacing: 0px; }"
     ).arg(tableHeaderBg, tableHeaderTx, border)
 
@@ -663,15 +667,15 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 21. Table items — tight padding, thin bottom border
     + QStringLiteral(
-        "QTableWidget::item { padding: 3px 8px; border-bottom: 1px solid %1; color: %2; }"
+        "QTableWidget::item { padding: 6px 10px; border-bottom: 1px solid %1; color: %2; }"
         "QTableWidget#inventoryTable::item { padding: 4px 6px; border-right: 1px solid %1; }"
     ).arg(tableGrid, textPrimary)
 
     // 22. Primary button — solid blue, white bold text
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
-        " border-radius: 6px; min-height: 24px; padding: 2px 16px;"
-        " font-weight: 600; font-size: 12px; }"
+        " border-radius: 8px; min-height: 30px; padding: 2px 18px;"
+        " font-weight: 800; font-size: 13px; }"
     ).arg(accent)
 
     // 23. Button hover
@@ -685,13 +689,16 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton#secondaryButton { background: %1; color: %2;"
         " border: none; }"
         "QPushButton#secondaryButton:hover { background: %3; }"
+        "QPushButton#dangerButton { background: #fff1f0; color: #b42318; border: 1px solid #ffd0cc; }"
+        "QPushButton#dangerButton:hover { background: #ffe4e0; }"
+        "QPushButton:disabled { background: #edf0f3; color: #9aa3ad; }"
     ).arg(secondaryBg, textPrimary, secondaryHover)
 
     // 25. Inputs — 32px height, light border, 5px radius
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
         " background: %1; border: 1px solid %2; border-radius: 5px;"
-        " min-height: 23px; padding: 0 8px; color: %3; font-size: 12px; }"
+        " min-height: 30px; padding: 0 10px; color: %3; font-size: 13px; }"
     ).arg(inputBg, inputBorder, textPrimary)
 
     // 26. Focus states
@@ -725,26 +732,26 @@ static QString buildModernQss(bool darkMode = false) {
 
     // Toolbar
     + QStringLiteral(
-        "QToolBar { background: %1; border-bottom: 1px solid %2; spacing: 8px; padding: 0 12px; min-height: 38px; }"
-        "QToolBar QLabel { color: %3; font-size: 12px; }"
-        "QLabel#toolbarTitle { color: %3; font-size: 13px; font-weight: 400; }"
-        "QToolButton { background: transparent; color: %3; border: none; padding: 4px 2px; font-size: 12px; }"
-        "QToolButton:hover { background: rgba(0,0,0,0.04); border-radius: 4px; }"
+        "QToolBar { background: %1; border-bottom: 1px solid %2; spacing: 10px; padding: 0 14px; min-height: 44px; }"
+        "QToolBar QLabel { color: %3; font-size: 13px; }"
+        "QLabel#toolbarTitle { color: %3; font-size: 14px; font-weight: 700; }"
+        "QToolButton { background: transparent; color: %3; border: none; padding: 6px 4px; font-size: 13px; }"
+        "QToolButton:hover { background: rgba(0,0,0,0.05); border-radius: 7px; }"
     ).arg(surface, border, textPrimary)
 
     // 30. Welcome hero — accent blue gradient
     + QStringLiteral(
         "QFrame#welcomeHero {"
         " background: %1;"
-        " border-radius: 8px; border: none; }"
+        " border-radius: 14px; border: none; }"
     ).arg(heroGrad)
 
     + QStringLiteral(
         "QLabel#welcomeKicker {"
-        " color: rgba(255,255,255,0.7); font-size: 10px; font-weight: 600; letter-spacing: 2px; }"
+        " color: rgba(255,255,255,0.72); font-size: 11px; font-weight: 700; letter-spacing: 1px; }"
 
         "QLabel#welcomeTitle {"
-        " color: #ffffff; font-size: 28px; font-weight: 700; }"
+        " color: #ffffff; font-size: 32px; font-weight: 800; }"
 
         "QLabel#welcomeSubtitle {"
         " color: rgba(255,255,255,0.8); font-size: 13px; }"
@@ -755,8 +762,8 @@ static QString buildModernQss(bool darkMode = false) {
         "QLabel#welcomeStat {"
         " color: #ffffff; background: rgba(255,255,255,0.15);"
         " border: 1px solid rgba(255,255,255,0.2);"
-        " border-radius: 12px; padding: 4px 12px;"
-        " font-size: 11px; font-weight: 500; }"
+        " border-radius: 14px; padding: 6px 12px;"
+        " font-size: 12px; font-weight: 700; }"
     )
 
     // 32. Feature cards — clean, no border
@@ -774,7 +781,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 33. Onboarding steps — clean, minimal
     + QStringLiteral(
-        "QFrame#onboardStep { background: %1; border: none; border-radius: 6px; }"
+        "QFrame#onboardStep { background: transparent; border: none; border-radius: 8px; }"
     ).arg(surface)
 
     + QStringLiteral(
@@ -786,7 +793,7 @@ static QString buildModernQss(bool darkMode = false) {
     ).arg(accent)
 
     + QStringLiteral(
-        "QLabel#stepTitle { color: %1; font-size: 13px; font-weight: 600; }"
+        "QLabel#stepTitle { color: %1; font-size: 14px; font-weight: 800; }"
         "QLabel#stepDesc { color: %2; font-size: 12px; }"
     ).arg(textPrimary, textSecondary)
 
@@ -797,7 +804,7 @@ static QString buildModernQss(bool darkMode = false) {
     + QStringLiteral(
         "QPushButton#heroCta {"
         " background: #ffffff; color: %1; border: none; border-radius: 6px;"
-        " min-height: 28px; padding: 4px 18px; font-weight: 500; font-size: 13px; }"
+        " min-height: 32px; padding: 4px 20px; font-weight: 800; font-size: 13px; }"
         "QPushButton#heroCta:hover { background: #f0f0f0; }"
         "QPushButton#heroCta:pressed { background: #e0e0e0; }"
     ).arg(accent)
@@ -806,9 +813,10 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton#heroGhost {"
         " background: transparent; color: #ffffff;"
         " border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;"
-        " min-height: 28px; padding: 4px 18px; font-weight: 500; font-size: 13px; }"
+        " min-height: 32px; padding: 4px 20px; font-weight: 700; font-size: 13px; }"
         "QPushButton#heroGhost:hover { background: rgba(255,255,255,0.18); }"
         "QPushButton#heroGhost:pressed { background: rgba(255,255,255,0.25); }"
+        "QLabel#formStatus { color: #64748b; font-size: 12px; font-weight: 700; }"
     );
 }
 
@@ -830,11 +838,9 @@ DesktopApplication::DesktopApplication(AppContext& context)
 
 void DesktopApplication::applyTheme(bool darkMode) {
     const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Regular.ttf"));
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Bold.ttf"));
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
-    qApp->setFont(QFont(QStringLiteral("Segoe UI"), 13));
+    qApp->setFont(QFont(QStringLiteral("Inter Tight"), 10));
     qApp->setStyleSheet(buildModernQss(darkMode));
 }
 
@@ -862,61 +868,61 @@ void DesktopApplication::buildNavigation() {
     QStackedWidget* pages = new QStackedWidget(root);
     int pageIndex = 0;
     pages->addWidget(buildWelcomePage(*pages, *nav));
-    addNavItem(*nav, QStringLiteral("Welcome"), pageIndex, QStyle::SP_DirHomeIcon);
+    addNavItem(*nav, QStringLiteral("Welcome"), pageIndex, QStringLiteral("welcome"));
     pageIndex += 1;
     pages->addWidget(buildDailyEntryPage());
-    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex, QStyle::SP_FileDialogDetailedView);
+    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex, QStringLiteral("entry"));
     pageIndex += 1;
     pages->addWidget(buildDashboardPage());
-    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex, QStyle::SP_ComputerIcon);
+    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex, QStringLiteral("dashboard"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Reports"), QStringLiteral("Report overview and transaction analysis.")));
-    addNavItem(*nav, QStringLiteral("Reports"), pageIndex, QStyle::SP_FileDialogListView);
+    addNavItem(*nav, QStringLiteral("Reports"), pageIndex, QStringLiteral("reports"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Party Ledger"), QStringLiteral("Party ledger with date filters and running balances.")));
-    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex, QStyle::SP_FileIcon);
+    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex, QStringLiteral("ledger"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Day Book"), QStringLiteral("Daily transaction register for selected dates.")));
-    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex, QStyle::SP_FileIcon);
+    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex, QStringLiteral("daybook"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Daily Summary"), QStringLiteral("Daily sales, returns, receipts, and expenses.")));
-    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex, QStyle::SP_FileDialogContentsView);
+    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex, QStringLiteral("summary"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Short / Excess"), QStringLiteral("Cash-in-hand snapshots by day.")));
-    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex, QStyle::SP_DriveFDIcon);
+    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex, QStringLiteral("cash"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Purchase Report"), QStringLiteral("Purchase summary and supplier analysis.")));
-    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex, QStyle::SP_FileDialogContentsView);
+    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex, QStringLiteral("reports"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Expenses"), QStringLiteral("Expense transactions and totals.")));
-    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex, QStyle::SP_DirIcon);
+    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex, QStringLiteral("expenses"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Outstanding"), QStringLiteral("Customer balances for the selected financial year.")));
-    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex, QStyle::SP_DialogHelpButton);
+    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex, QStringLiteral("outstanding"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Trial Balance"), QStringLiteral("Account debit and credit balances.")));
-    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex, QStyle::SP_ArrowUp);
+    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex, QStringLiteral("trend"));
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Profit & Loss"), QStringLiteral("Sales, expenses, and net profit summary.")));
-    addNavItem(*nav, QStringLiteral("P & L"), pageIndex, QStyle::SP_ArrowUp);
+    addNavItem(*nav, QStringLiteral("P & L"), pageIndex, QStringLiteral("trend"));
     pageIndex += 1;
     pages->addWidget(buildInventoryPage());
-    addNavItem(*nav, QStringLiteral("Inventory"), pageIndex, QStyle::SP_DirIcon);
+    addNavItem(*nav, QStringLiteral("Inventory"), pageIndex, QStringLiteral("inventory"));
     pageIndex += 1;
     pages->addWidget(buildInventoryPage());
-    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex, QStyle::SP_FileDialogDetailedView);
+    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex, QStringLiteral("inventory"));
     pageIndex += 1;
     pages->addWidget(buildInventoryValuePage());
-    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex, QStyle::SP_FileDialogListView);
+    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex, QStringLiteral("stock"));
     pageIndex += 1;
     pages->addWidget(buildPartiesPage());
-    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex, QStyle::SP_FileDialogNewFolder);
+    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex, QStringLiteral("party"));
     pageIndex += 1;
     pages->addWidget(buildAuditPage());
-    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex, QStyle::SP_MessageBoxInformation);
+    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex, QStringLiteral("audit"));
     pageIndex += 1;
     pages->addWidget(buildSettingsPage());
-    addNavItem(*nav, QStringLiteral("Settings"), pageIndex, QStyle::SP_FileDialogInfoView);
+    addNavItem(*nav, QStringLiteral("Settings"), pageIndex, QStringLiteral("settings"));
     sidebarLayout->addWidget(nav, 1);
 
     connect(nav, &QListWidget::currentRowChanged, this, [nav, pages](int row) {
@@ -1003,63 +1009,56 @@ bool DesktopApplication::showAuthDialog() {
 QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget& nav) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 20);
-    layout->setSpacing(14);
+    layout->setContentsMargins(20, 18, 20, 20);
+    layout->setSpacing(16);
 
-    // ── Hero panel ────────────────────────────────────────────────────────────
     QFrame* hero = new QFrame(page);
     hero->setObjectName(QStringLiteral("welcomeHero"));
-    hero->setMinimumHeight(220);
+    hero->setMinimumHeight(210);
     QVBoxLayout* heroLayout = new QVBoxLayout(hero);
-    heroLayout->setContentsMargins(28, 24, 28, 24);
+    heroLayout->setContentsMargins(30, 26, 30, 26);
     heroLayout->setSpacing(0);
 
-    // Kicker
-    QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS  ·  NATIVE ACCOUNTING WORKSPACE"), hero);
-    kicker->setObjectName(QStringLiteral("welcomeKicker"));
-
-    // Headline
+    QLabel* kicker = new QLabel(QStringLiteral("M-FINLOGS - NATIVE ACCOUNTING WORKSPACE"), hero);
     QLabel* headline = new QLabel(QStringLiteral("Welcome back."), hero);
+    QLabel* subline = new QLabel(currentCompanyText(context_) + QStringLiteral(" - ") + currentFinancialYearText(), hero);
+    kicker->setObjectName(QStringLiteral("welcomeKicker"));
     headline->setObjectName(QStringLiteral("welcomeTitle"));
-
-    // Sub-headline
-    QLabel* subline = new QLabel(
-        currentCompanyText(context_) + QStringLiteral("   ·   ") + currentFinancialYearText(),
-        hero
-    );
     subline->setObjectName(QStringLiteral("welcomeSubtitle"));
 
-    // Stat chips row
     QWidget* chipsRow = new QWidget(hero);
     QHBoxLayout* chipsLayout = new QHBoxLayout(chipsRow);
     chipsLayout->setContentsMargins(0, 18, 0, 0);
     chipsLayout->setSpacing(10);
     const QStringList chips = {
-        QStringLiteral("⚡  Keyboard-first entry"),
-        QStringLiteral("🗄  SQL Server backed"),
-        QStringLiteral("📦  Native runtime"),
-        QStringLiteral("📊  Live reports")
+        QStringLiteral("Keyboard-first entry"),
+        QStringLiteral("SQL Server backed"),
+        QStringLiteral("Native runtime"),
+        QStringLiteral("Live reports")
     };
     for (const QString& chip : chips) {
-        QLabel* c = new QLabel(chip, chipsRow);
-        c->setObjectName(QStringLiteral("welcomeStat"));
-        chipsLayout->addWidget(c);
+        QLabel* label = new QLabel(chip, chipsRow);
+        label->setObjectName(QStringLiteral("welcomeStat"));
+        chipsLayout->addWidget(label);
     }
     chipsLayout->addStretch(1);
 
-    // CTA buttons row
     QWidget* ctaRow = new QWidget(hero);
     QHBoxLayout* ctaLayout = new QHBoxLayout(ctaRow);
     ctaLayout->setContentsMargins(0, 22, 0, 0);
     ctaLayout->setSpacing(12);
-    QPushButton* ctaEntry    = new QPushButton(QStringLiteral("Open Daily Entry"), hero);
-    QPushButton* ctaReports  = new QPushButton(QStringLiteral("View Reports"), hero);
-    QPushButton* ctaInv      = new QPushButton(QStringLiteral("Inventory"), hero);
+    QPushButton* ctaEntry = new QPushButton(QStringLiteral("Open Daily Entry"), hero);
+    QPushButton* ctaReports = new QPushButton(QStringLiteral("View Reports"), hero);
+    QPushButton* ctaInv = new QPushButton(QStringLiteral("Inventory"), hero);
     QPushButton* ctaSettings = new QPushButton(QStringLiteral("Settings"), hero);
     ctaEntry->setObjectName(QStringLiteral("heroCta"));
     ctaReports->setObjectName(QStringLiteral("heroGhost"));
     ctaInv->setObjectName(QStringLiteral("heroGhost"));
     ctaSettings->setObjectName(QStringLiteral("heroGhost"));
+    ctaEntry->setIcon(appIcon(QStringLiteral("entry")));
+    ctaReports->setIcon(appIcon(QStringLiteral("reports")));
+    ctaInv->setIcon(appIcon(QStringLiteral("inventory")));
+    ctaSettings->setIcon(appIcon(QStringLiteral("settings")));
     ctaLayout->addWidget(ctaEntry);
     ctaLayout->addWidget(ctaReports);
     ctaLayout->addWidget(ctaInv);
@@ -1075,7 +1074,6 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     heroLayout->addWidget(ctaRow);
     layout->addWidget(hero);
 
-    // ── Onboarding / quick-start steps ───────────────────────────────────────
     QFrame* onboard = createPanel(page);
     QVBoxLayout* onboardLayout = new QVBoxLayout(onboard);
     onboardLayout->setContentsMargins(24, 20, 24, 20);
@@ -1089,7 +1087,7 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     struct StepDef { QString num; QString title; QString desc; };
     const QList<StepDef> steps = {
         { QStringLiteral("1"), QStringLiteral("Connect to SQL Server"),
-          QStringLiteral("Go to Settings → enter your server, database, username and password, then click Save.") },
+          QStringLiteral("Go to Settings, enter your server, database, username and password, then click Save.") },
         { QStringLiteral("2"), QStringLiteral("Add your parties"),
           QStringLiteral("Open Add Party to create customer and supplier names before entering transactions.") },
         { QStringLiteral("3"), QStringLiteral("Enter daily transactions"),
@@ -1098,12 +1096,12 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
           QStringLiteral("Party Ledger, Day Book, P&L and Trial Balance update instantly from your entries.") },
     };
 
-    for (int i = 0; i < steps.size(); ++i) {
-        const StepDef& step = steps[i];
+    for (int stepIndex = 0; stepIndex < steps.size(); stepIndex += 1) {
+        const StepDef& step = steps[stepIndex];
         QFrame* stepRow = new QFrame(onboard);
         stepRow->setObjectName(QStringLiteral("onboardStep"));
         QHBoxLayout* stepLayout = new QHBoxLayout(stepRow);
-        stepLayout->setContentsMargins(16, 14, 16, 14);
+        stepLayout->setContentsMargins(16, 12, 16, 12);
         stepLayout->setSpacing(16);
 
         QLabel* badge = new QLabel(step.num, stepRow);
@@ -1114,7 +1112,7 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
         QVBoxLayout* textLayout = new QVBoxLayout();
         textLayout->setSpacing(3);
         QLabel* stepTitle = new QLabel(step.title, stepRow);
-        QLabel* stepDesc  = new QLabel(step.desc, stepRow);
+        QLabel* stepDesc = new QLabel(step.desc, stepRow);
         stepTitle->setObjectName(QStringLiteral("stepTitle"));
         stepDesc->setObjectName(QStringLiteral("stepDesc"));
         stepDesc->setWordWrap(true);
@@ -1125,28 +1123,24 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
         stepLayout->addLayout(textLayout, 1);
         onboardLayout->addWidget(stepRow);
 
-        // Thin divider between steps (not after last)
-        if (i < steps.size() - 1) {
-            QFrame* div = new QFrame(onboard);
-            div->setObjectName(QStringLiteral("divider"));
-            div->setFrameShape(QFrame::HLine);
-            div->setFixedHeight(1);
-            onboardLayout->addWidget(div);
+        if (stepIndex < steps.size() - 1) {
+            QFrame* divider = new QFrame(onboard);
+            divider->setObjectName(QStringLiteral("divider"));
+            divider->setFrameShape(QFrame::HLine);
+            divider->setFixedHeight(1);
+            onboardLayout->addWidget(divider);
         }
     }
     layout->addWidget(onboard);
 
-    // ── Tip label ─────────────────────────────────────────────────────────────
     QLabel* tipLabel = new QLabel(QStringLiteral("Press Ctrl+1..9 to jump between pages"), page);
     tipLabel->setObjectName(QStringLiteral("pageMeta"));
     tipLabel->setAlignment(Qt::AlignCenter);
     layout->addWidget(tipLabel);
-
     layout->addStretch(1);
 
-    // ── Navigation wiring ─────────────────────────────────────────────────────
     auto goToPage = [&pages, &nav](int targetIndex) {
-        for (int row = 0; row < nav.count(); ++row) {
+        for (int row = 0; row < nav.count(); row += 1) {
             QListWidgetItem* item = nav.item(row);
             if (item && item->data(Qt::UserRole).toInt() == targetIndex) {
                 nav.setCurrentRow(row);
@@ -1155,56 +1149,18 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
         }
         pages.setCurrentIndex(targetIndex);
     };
-    connect(ctaEntry,    &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
-    connect(ctaReports,  &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
-    connect(ctaInv,      &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
+    connect(ctaEntry, &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
+    connect(ctaReports, &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
+    connect(ctaInv, &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
     connect(ctaSettings, &QPushButton::clicked, this, [goToPage, &pages]() { goToPage(pages.count() - 1); });
 
-    // ── Staggered entrance animations ─────────────────────────────────────────
-    animatePanel(*hero,     0);
-    animatePanel(*onboard,  300);
-
-    // Animate hero children individually for cascade effect
-    animatePanel(*kicker, 100);
-    animatePanel(*headline, 250);
-    animatePanel(*subline, 350);
-    animatePanel(*chipsRow, 450);
-    animatePanel(*ctaRow, 550);
-
-    // ── Variable font weight animation — headline starts thin, animates to bold ──
-    QFont headlineFont = headline->font();
-    headlineFont.setPointSize(28);
-    headlineFont.setWeight(QFont::Thin);  // Start at weight 100
-    headline->setFont(headlineFont);
-
-    QVariantAnimation* weightAnim = new QVariantAnimation(headline);
-    weightAnim->setStartValue(100);
-    weightAnim->setEndValue(800);
-    weightAnim->setDuration(800);
-    weightAnim->setEasingCurve(QEasingCurve::OutCubic);
-    connect(weightAnim, &QVariantAnimation::valueChanged, headline, [headline](const QVariant& value) {
-        QFont f = headline->font();
-        f.setWeight(static_cast<QFont::Weight>(value.toInt()));
-        headline->setFont(f);
-    });
-    QTimer::singleShot(200, weightAnim, [weightAnim]() { weightAnim->start(QAbstractAnimation::DeleteWhenStopped); });
-
-    // Subtler weight animation on kicker text (300 → 600 over 600ms)
-    QFont kickerFont = kicker->font();
-    kickerFont.setWeight(QFont::Light);  // Start at weight 300
-    kicker->setFont(kickerFont);
-
-    QVariantAnimation* kickerWeightAnim = new QVariantAnimation(kicker);
-    kickerWeightAnim->setStartValue(300);
-    kickerWeightAnim->setEndValue(600);
-    kickerWeightAnim->setDuration(600);
-    kickerWeightAnim->setEasingCurve(QEasingCurve::OutCubic);
-    connect(kickerWeightAnim, &QVariantAnimation::valueChanged, kicker, [kicker](const QVariant& value) {
-        QFont f = kicker->font();
-        f.setWeight(static_cast<QFont::Weight>(value.toInt()));
-        kicker->setFont(f);
-    });
-    QTimer::singleShot(100, kickerWeightAnim, [kickerWeightAnim]() { kickerWeightAnim->start(QAbstractAnimation::DeleteWhenStopped); });
+    animatePanel(*hero, 0);
+    animatePanel(*onboard, 180);
+    animatePanel(*kicker, 80);
+    animatePanel(*headline, 160);
+    animatePanel(*subline, 240);
+    animatePanel(*chipsRow, 320);
+    animatePanel(*ctaRow, 400);
 
     return page;
 }
@@ -1277,11 +1233,16 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     amount->setMaximum(999999999.0);
     amount->setDecimals(2);
     QPushButton* save = new QPushButton(QStringLiteral("Save Entry"), entryPanel);
+    save->setIcon(appIcon(QStringLiteral("save")));
     QPushButton* deleteButton = new QPushButton(QStringLiteral("Delete"), entryPanel);
-    deleteButton->setObjectName(QStringLiteral("secondaryButton"));
-    deleteButton->hide();
+    deleteButton->setObjectName(QStringLiteral("dangerButton"));
+    deleteButton->setIcon(appIcon(QStringLiteral("delete")));
+    deleteButton->setEnabled(false);
     QPushButton* clear = new QPushButton(QStringLiteral("Clear"), entryPanel);
     clear->setObjectName(QStringLiteral("secondaryButton"));
+    clear->setIcon(appIcon(QStringLiteral("clear")));
+    QLabel* formStatus = new QLabel(QStringLiteral("Ready for a new entry"), entryPanel);
+    formStatus->setObjectName(QStringLiteral("formStatus"));
 
     form->addWidget(new QLabel(QStringLiteral("Date"), entryPanel), 0, 0);
     form->addWidget(date, 1, 0);
@@ -1297,12 +1258,15 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 3, 2);
     form->addWidget(amount, 4, 2);
     form->addWidget(save, 4, 3);
-    form->addWidget(clear, 4, 4);
+    form->addWidget(deleteButton, 4, 4);
+    form->addWidget(clear, 4, 5);
+    form->addWidget(formStatus, 5, 0, 1, 6);
     form->setColumnStretch(0, 1);
     form->setColumnStretch(1, 2);
     form->setColumnStretch(2, 2);
     form->setColumnStretch(3, 1);
     form->setColumnStretch(4, 1);
+    form->setColumnStretch(5, 1);
     layout->addWidget(entryPanel);
 
     createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusEntryWidget(*bill); });
@@ -1346,6 +1310,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     transactionSearch->setFixedWidth(200);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), tablePanel);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
+    refresh->setIcon(appIcon(QStringLiteral("refresh")));
     tableHeader->addWidget(transactionSearch);
     tableHeader->addWidget(refresh);
     tableLayout->addLayout(tableHeader);
@@ -1361,7 +1326,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     createShortcut(*page, QKeySequence(QStringLiteral("Alt+N")), [date]() { focusEntryWidget(*date); });
     createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+K")), [transactionSearch]() { focusEntryWidget(*transactionSearch); });
     const std::shared_ptr<int> editingId = std::make_shared<int>(0);
-    connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, editingId]() {
+    connect(clear, &QPushButton::clicked, this, [date, bill, party, type, mode, amount, save, deleteButton, formStatus, editingId]() {
         *editingId = 0;
         date->setDate(QDate::currentDate());
         bill->clear();
@@ -1370,9 +1335,11 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
         mode->setCurrentIndex(0);
         amount->setValue(0.0);
         save->setText(QStringLiteral("Save Entry"));
+        deleteButton->setEnabled(false);
+        formStatus->setText(QStringLiteral("Ready for a new entry"));
         focusEntryWidget(*bill);
     });
-    connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, date, bill, party, type, mode, amount, save, editingId]() {
+    connect(table, &QTableWidget::itemSelectionChanged, this, [this, table, date, bill, party, type, mode, amount, save, deleteButton, formStatus, editingId]() {
         const QList<QTableWidgetItem*> selected = table->selectedItems();
         if (selected.isEmpty()) {
             return;
@@ -1396,11 +1363,13 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             mode->setCurrentText(paymentModeText(row.mode));
             amount->setValue(row.amount);
             save->setText(QStringLiteral("Update Entry"));
+            deleteButton->setEnabled(true);
+            formStatus->setText(QStringLiteral("Editing selected transaction"));
         } catch (const std::exception& err) {
             showError(QStringLiteral("Load Entry"), err);
         }
     });
-    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save, transactionSearch]() {
+    connect(save, &QPushButton::clicked, this, [this, date, bill, party, type, mode, amount, table, editingId, save, deleteButton, formStatus, transactionSearch]() {
         try {
             const QString typedPartyName = party->text().trimmed();
             if (typedPartyName.isEmpty() || typedPartyName == QStringLiteral("Customer")) {
@@ -1426,6 +1395,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                 context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("payment_mode"), mode->currentText(), adminUser});
                 context_.services().transactions->editTransaction(domain::TransactionEditRequest{*editingId, QStringLiteral("amount"), QString::number(amount->value(), 'f', 2), adminUser});
                 statusBar()->showMessage(QStringLiteral("Transaction updated"), 5000);
+                formStatus->setText(QStringLiteral("Transaction updated"));
             } else {
                 context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
                     date->date(),
@@ -1436,6 +1406,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
                     amount->value()
                 });
                 statusBar()->showMessage(QStringLiteral("Transaction saved"), 5000);
+                formStatus->setText(QStringLiteral("Transaction saved"));
                 bill->setText(incrementBillNumber(currentBill));
                 party->setText(QStringLiteral("Customer"));
                 type->setCurrentText(QStringLiteral("Sale"));
@@ -1447,11 +1418,13 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             applyTableSearch(*table, transactionSearch->text());
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
+            deleteButton->setEnabled(false);
         } catch (const std::exception& err) {
+            formStatus->setText(QString::fromUtf8(err.what()));
             showError(QStringLiteral("Save Entry"), err);
         }
     });
-    connect(deleteButton, &QPushButton::clicked, this, [this, table, editingId, save, transactionSearch]() {
+    connect(deleteButton, &QPushButton::clicked, this, [this, table, editingId, save, deleteButton, formStatus, transactionSearch]() {
         if (*editingId <= 0) {
             statusBar()->showMessage(QStringLiteral("Select a transaction to delete"), 5000);
             return;
@@ -1469,9 +1442,11 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
             context_.services().transactions->deleteTransaction(domain::TransactionDeleteRequest{*editingId, QStringLiteral("native-admin")});
             *editingId = 0;
             save->setText(QStringLiteral("Save Entry"));
+            deleteButton->setEnabled(false);
             loadTransactions(*table);
             applyTableSearch(*table, transactionSearch->text());
             statusBar()->showMessage(QStringLiteral("Transaction deleted"), 5000);
+            formStatus->setText(QStringLiteral("Transaction deleted"));
         } catch (const std::exception& err) {
             showError(QStringLiteral("Delete Entry"), err);
         }
@@ -2068,12 +2043,16 @@ void DesktopApplication::loadTransactions(QTableWidget& table) {
             data.append(transactionToJson(row));
         }
         setTableRows(table, headers, data);
+        table.horizontalHeader()->setStretchLastSection(false);
+        for (int columnIndex = 0; columnIndex < table.columnCount(); columnIndex += 1) {
+            table.horizontalHeader()->setSectionResizeMode(columnIndex, QHeaderView::Interactive);
+        }
+        table.horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
         table.setColumnWidth(0, 120);
-        table.setColumnWidth(1, 150);
-        table.setColumnWidth(2, 260);
+        table.setColumnWidth(1, 140);
         table.setColumnWidth(3, 120);
         table.setColumnWidth(4, 120);
-        table.setColumnWidth(5, 120);
+        table.setColumnWidth(5, 140);
     } catch (const std::exception& err) {
         showError(QStringLiteral("Transactions"), err);
     }
@@ -2438,6 +2417,8 @@ void DesktopApplication::wireActions() {
     toolbar->addWidget(spacer);
     QAction* updateAction = toolbar->addAction(QStringLiteral("Check Updates"));
     QAction* backupAction = toolbar->addAction(QStringLiteral("Backup"));
+    updateAction->setIcon(appIcon(QStringLiteral("refresh")));
+    backupAction->setIcon(appIcon(QStringLiteral("database")));
 
     connect(updateAction, &QAction::triggered, this, [this]() {
         try {
