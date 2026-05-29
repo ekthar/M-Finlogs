@@ -28,6 +28,8 @@ set(MFINLOGS_NATIVE_SOURCES
     src/app/ApplicationMode.h
     src/app/DesktopApplication.h
     src/app/DesktopApplication.cpp
+    src/app/SplashScreen.h
+    src/app/SplashScreen.cpp
     src/app/ServerApplication.h
     src/app/ServerApplication.cpp
     src/data/ConfigService.h
