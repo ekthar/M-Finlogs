@@ -8,6 +8,8 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
+#include <QSaveFile>
 #include <QSqlError>
 
 namespace mfinlogs::data {
@@ -62,7 +64,18 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
         throw domain::DomainError(QStringLiteral("Could not read database config at %1: %2").arg(path, file.errorString()).toStdString());
     }
 
-    const QJsonObject payload = QJsonDocument::fromJson(file.readAll()).object();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        const QString detail = parseError.error == QJsonParseError::NoError
+            ? QStringLiteral("expected a JSON object")
+            : parseError.errorString();
+        throw domain::DomainError(QStringLiteral("Invalid database config JSON at %1: %2")
+            .arg(path, detail)
+            .toStdString());
+    }
+
+    const QJsonObject payload = document.object();
     const QString authType = payload.value(QStringLiteral("auth_type")).toString();
     const bool useWindowsAuth = authType.isEmpty()
         ? payload.value(QStringLiteral("windows_auth")).toBool(true)
@@ -81,6 +94,11 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
 }
 
 void JsonConfigService::writeDatabaseConfig(const domain::DatabaseConfig& config) {
+    QDir directory(appDataDir_);
+    if (!directory.exists() && !directory.mkpath(QStringLiteral("."))) {
+        throw domain::DomainError(QStringLiteral("Could not create config directory: %1").arg(appDataDir_).toStdString());
+    }
+
     QJsonObject payload;
     payload.insert(QStringLiteral("server"), config.server);
     payload.insert(QStringLiteral("database"), config.database);
@@ -92,14 +110,27 @@ void JsonConfigService::writeDatabaseConfig(const domain::DatabaseConfig& config
     payload.insert(QStringLiteral("windows_auth"), config.useWindowsAuth);
     payload.insert(QStringLiteral("auth_type"), config.useWindowsAuth ? QStringLiteral("windows") : QStringLiteral("sql"));
 
-    QFile file(configPath());
+    QSaveFile file(configPath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         throw domain::DomainError(QStringLiteral("Could not write database config: %1").arg(file.errorString()).toStdString());
     }
     file.write(QJsonDocument(payload).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        throw domain::DomainError(QStringLiteral("Could not commit database config: %1").arg(file.errorString()).toStdString());
+    }
 }
 
 bool JsonConfigService::testDatabaseConfig(const domain::DatabaseConfig& config) {
+    if (config.server.trimmed().isEmpty()) {
+        throw domain::DomainError("SQL Server instance is required");
+    }
+    if (config.database.trimmed().isEmpty()) {
+        throw domain::DomainError("SQL database name is required");
+    }
+    if (!config.useWindowsAuth && config.username.trimmed().isEmpty()) {
+        throw domain::DomainError("SQL username is required when SQL Server Authentication is selected");
+    }
+
     SqlDatabase database(config);
     if (database.open()) {
         return true;

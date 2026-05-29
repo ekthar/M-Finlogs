@@ -37,6 +37,10 @@ private:
     void loadInventoryValue(QTableWidget& table, const QString& financialYear, int month);
     void loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range);
     void loadTransactions(QTableWidget& table);
+    void exportTableToExcel(QTableWidget& table, const QString& title);
+    void exportTableToPdf(QTableWidget& table, const QString& title);
+    void printTable(QTableWidget& table, const QString& title);
+    int importTransactionsFromCsv(const QString& path);
     QJsonArray inventoryRowsFromTable(QTableWidget& table);
     void applyTableSearch(QTableWidget& table, const QString& query);
     QStringList partyNames();

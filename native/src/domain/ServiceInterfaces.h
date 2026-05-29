@@ -69,6 +69,9 @@ public:
     virtual QJsonArray dailySummary(const ReportRange& range) = 0;
     virtual QJsonArray shortExcess(const ReportRange& range) = 0;
     virtual void saveCashInHand(const QDate& date, double amount) = 0;
+    virtual void resetCashInHand(const QDate& date) = 0;
+    virtual double openingCashSeed() = 0;
+    virtual void saveOpeningCashSeed(double amount) = 0;
     virtual QJsonObject outstanding() = 0;
     virtual QJsonArray trialBalance() = 0;
     virtual QJsonObject profitAndLoss() = 0;
