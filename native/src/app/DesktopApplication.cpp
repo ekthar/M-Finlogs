@@ -41,9 +41,11 @@
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QScrollBar>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStringList>
+#include <QStyle>
 #include <QTableWidget>
 #include <QToolBar>
 #include <QVariant>
@@ -265,6 +267,12 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
     return item;
 }
 
+QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex, QStyle::StandardPixmap icon) {
+    QListWidgetItem* item = addNavItem(nav, label, pageIndex);
+    item->setIcon(qApp->style()->standardIcon(icon));
+    return item;
+}
+
 QFrame* createMetricTile(const QString& label, const QString& value, QWidget* parent) {
     QFrame* tile = createPanel(parent);
     QVBoxLayout* layout = new QVBoxLayout(tile);
@@ -333,7 +341,7 @@ void animatePanel(QWidget& widget, int delayMs, int durationMs = 500) {
 }
 
 QString moneyText(double value) {
-    return QStringLiteral("%1").arg(value, 0, 'f', 2);
+    return QStringLiteral("$%1").arg(value, 0, 'f', 2);
 }
 
 QString humanizeHeaderKey(const QString& key) {
@@ -504,28 +512,28 @@ void focusEntryWidget(QWidget& widget) {
 
 static QString buildModernQss(bool darkMode = false) {
     // Mac-grade minimalist design — Tailwind palette, flat, borderless
-    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#f9fafb");
+    const QString bg           = darkMode ? QStringLiteral("#111827") : QStringLiteral("#eeeeee");
     const QString surface      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#f3f4f6");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#3b82f6");
-    const QString sidebarSelTx = QStringLiteral("#ffffff");
-    const QString sidebarHover = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
-    const QString textPrimary  = darkMode ? QStringLiteral("#f9fafb") : QStringLiteral("#111827");
-    const QString textSecondary= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#6b7280");
-    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
-    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #d9f2f6, stop:0.55 #cfe4df, stop:1 #ead8bd)");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("rgba(105, 126, 142, 0.20)");
+    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#0c0c0c");
+    const QString sidebarHover = darkMode ? QStringLiteral("#374151") : QStringLiteral("rgba(255, 255, 255, 0.35)");
+    const QString textPrimary  = darkMode ? QStringLiteral("#f9fafb") : QStringLiteral("#0c0c0c");
+    const QString textSecondary= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#777777");
+    const QString border       = darkMode ? QStringLiteral("#374151") : QStringLiteral("#d9d9d9");
+    const QString inputBorder  = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d7d7d7");
     const QString tableHeaderBg= darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString tableHeaderTx= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#6b7280");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#ffffff");
-    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#f3f4f6");
-    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eff6ff");
-    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#3b82f6");
-    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#2563eb");
-    const QString accentPanelBg= darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eff6ff");
+    const QString tableHeaderTx= darkMode ? QStringLiteral("#9ca3af") : QStringLiteral("#111111");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#1a2230") : QStringLiteral("#f1f1f1");
+    const QString tableGrid    = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8e8e8");
+    const QString tableSelBg   = darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#dfe9ef");
+    const QString accent       = darkMode ? QStringLiteral("#3b82f6") : QStringLiteral("#147de8");
+    const QString accentHover  = darkMode ? QStringLiteral("#2563eb") : QStringLiteral("#0f6fd0");
+    const QString accentPanelBg= darkMode ? QStringLiteral("#1e3a5f") : QStringLiteral("#eef6ff");
     const QString inputBg      = darkMode ? QStringLiteral("#1f2937") : QStringLiteral("#ffffff");
-    const QString scrollHandle = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
-    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e5e7eb");
-    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#d1d5db");
+    const QString scrollHandle = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#c7c7c7");
+    const QString secondaryBg  = darkMode ? QStringLiteral("#374151") : QStringLiteral("#e8e8e8");
+    const QString secondaryHover = darkMode ? QStringLiteral("#4b5563") : QStringLiteral("#dcdcdc");
     const QString heroGrad     = darkMode
         ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
         : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3b82f6, stop:1 #60a5fa)");
@@ -541,7 +549,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 3. Sidebar container
     + QStringLiteral(
-        "QWidget#sidebarWrap { background: %1; border-right: 1px solid %2; }"
+        "QWidget#sidebarWrap { background: %1; border-right: 1px solid rgba(0,0,0,0.14); }"
     ).arg(sidebarBg, border)
 
     // 4. Sidebar list
@@ -552,12 +560,12 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 5. Sidebar items
     + QStringLiteral(
-        "QListWidget#sidebar::item { padding: 8px 12px; border-radius: 4px; }"
+        "QListWidget#sidebar::item { padding: 5px 10px; border-radius: 4px; min-height: 20px; }"
     )
 
     // 6. Sidebar selected — vibrant blue with white bold text
     + QStringLiteral(
-        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 600; }"
+        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 400; }"
     ).arg(sidebarSel, sidebarSelTx)
 
     // 7. Sidebar hover
@@ -567,18 +575,18 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 8. Brand label
     + QStringLiteral(
-        "QLabel#brandLabel { color: %1; font-size: 14px; font-weight: 600;"
-        " padding: 14px 10px 4px 10px; }"
+        "QLabel#brandLabel { color: %1; font-size: 13px; font-weight: 400;"
+        " padding: 11px 14px 10px 14px; }"
     ).arg(textPrimary)
 
     // 9. Brand sub
     + QStringLiteral(
-        "QLabel#brandSub { color: %1; font-size: 11px; padding: 0 10px 10px 10px; }"
+        "QLabel#brandSub { color: %1; font-size: 11px; padding: 0 14px 10px 14px; }"
     ).arg(textSecondary)
 
     // 10. Page title
     + QStringLiteral(
-        "QLabel#pageTitle { color: %1; font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }"
+        "QLabel#pageTitle { color: %1; font-size: 28px; font-weight: 700; letter-spacing: 0px; }"
     ).arg(textPrimary)
 
     // 11. Page meta
@@ -611,8 +619,8 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 15. Panel — no border, just white space
     + QStringLiteral(
-        "QFrame#panel { background: %1; border: none; border-radius: 6px; }"
-    ).arg(surface)
+        "QFrame#panel { background: %1; border: 1px solid %2; border-radius: 8px; }"
+    ).arg(surface, border)
 
     // 15b. Form panel — visible border
     + QStringLiteral(
@@ -635,7 +643,7 @@ static QString buildModernQss(bool darkMode = false) {
         " background: %1; alternate-background-color: %2;"
         " border: none; border-radius: 0px;"
         " selection-background-color: %3; selection-color: %4;"
-        " gridline-color: %5; color: %4; font-size: 13px; font-weight: 400;"
+        " gridline-color: %5; color: %4; font-size: 12px; font-weight: 400;"
         " outline: none; }"
     ).arg(surface, tableAltRow, tableSelBg, textPrimary, tableGrid)
 
@@ -644,8 +652,8 @@ static QString buildModernQss(bool darkMode = false) {
         "QHeaderView::section {"
         " background-color: %1; color: %2;"
         " border: none; border-bottom: 1px solid %3;"
-        " padding: 8px 8px; font-weight: 600; font-size: 11px;"
-        " text-transform: uppercase; letter-spacing: 0.5px; }"
+        " padding: 5px 8px; font-weight: 700; font-size: 11px;"
+        " letter-spacing: 0px; }"
     ).arg(tableHeaderBg, tableHeaderTx, border)
 
     // 20. Header background fill
@@ -655,15 +663,15 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 21. Table items — tight padding, thin bottom border
     + QStringLiteral(
-        "QTableWidget::item { padding: 4px 8px; border-bottom: 1px solid %1; color: %2; }"
+        "QTableWidget::item { padding: 3px 8px; border-bottom: 1px solid %1; color: %2; }"
         "QTableWidget#inventoryTable::item { padding: 4px 6px; border-right: 1px solid %1; }"
     ).arg(tableGrid, textPrimary)
 
     // 22. Primary button — solid blue, white bold text
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
-        " border-radius: 6px; min-height: 32px; padding: 4px 16px;"
-        " font-weight: 600; font-size: 13px; }"
+        " border-radius: 6px; min-height: 24px; padding: 2px 16px;"
+        " font-weight: 600; font-size: 12px; }"
     ).arg(accent)
 
     // 23. Button hover
@@ -683,7 +691,7 @@ static QString buildModernQss(bool darkMode = false) {
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
         " background: %1; border: 1px solid %2; border-radius: 5px;"
-        " min-height: 32px; padding: 0 8px; color: %3; font-size: 13px; }"
+        " min-height: 23px; padding: 0 8px; color: %3; font-size: 12px; }"
     ).arg(inputBg, inputBorder, textPrimary)
 
     // 26. Focus states
@@ -717,8 +725,12 @@ static QString buildModernQss(bool darkMode = false) {
 
     // Toolbar
     + QStringLiteral(
-        "QToolBar { background: %1; border-bottom: 1px solid %2; }"
-    ).arg(surface, border)
+        "QToolBar { background: %1; border-bottom: 1px solid %2; spacing: 8px; padding: 0 12px; min-height: 38px; }"
+        "QToolBar QLabel { color: %3; font-size: 12px; }"
+        "QLabel#toolbarTitle { color: %3; font-size: 13px; font-weight: 400; }"
+        "QToolButton { background: transparent; color: %3; border: none; padding: 4px 2px; font-size: 12px; }"
+        "QToolButton:hover { background: rgba(0,0,0,0.04); border-radius: 4px; }"
+    ).arg(surface, border, textPrimary)
 
     // 30. Welcome hero — accent blue gradient
     + QStringLiteral(
@@ -835,24 +847,14 @@ void DesktopApplication::buildNavigation() {
 
     QWidget* sidebar = new QWidget(root);
     sidebar->setObjectName(QStringLiteral("sidebarWrap"));
-    sidebar->setFixedWidth(200);
+    sidebar->setFixedWidth(240);
     QVBoxLayout* sidebarLayout = new QVBoxLayout(sidebar);
     sidebarLayout->setContentsMargins(0, 0, 0, 0);
     sidebarLayout->setSpacing(0);
 
-    QLabel* brand = new QLabel(QStringLiteral("M-Finlogs"), sidebar);
-    QLabel* brandSub = new QLabel(QStringLiteral("Native accounting workspace"), sidebar);
-    brand->setObjectName(QStringLiteral("brandLabel"));
-    brandSub->setObjectName(QStringLiteral("brandSub"));
-    sidebarLayout->addWidget(brand);
-    sidebarLayout->addWidget(brandSub);
-
-    // Thin separator between brand area and nav items
-    QFrame* sidebarSep = new QFrame(sidebar);
-    sidebarSep->setObjectName(QStringLiteral("divider"));
-    sidebarSep->setFrameShape(QFrame::HLine);
-    sidebarSep->setFixedHeight(1);
-    sidebarLayout->addWidget(sidebarSep);
+    QWidget* sidebarTopInset = new QWidget(sidebar);
+    sidebarTopInset->setFixedHeight(44);
+    sidebarLayout->addWidget(sidebarTopInset);
 
     QListWidget* nav = new QListWidget(sidebar);
     nav->setObjectName(QStringLiteral("sidebar"));
@@ -860,61 +862,61 @@ void DesktopApplication::buildNavigation() {
     QStackedWidget* pages = new QStackedWidget(root);
     int pageIndex = 0;
     pages->addWidget(buildWelcomePage(*pages, *nav));
-    addNavItem(*nav, QStringLiteral("Welcome"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Welcome"), pageIndex, QStyle::SP_DirHomeIcon);
     pageIndex += 1;
     pages->addWidget(buildDailyEntryPage());
-    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex, QStyle::SP_FileDialogDetailedView);
     pageIndex += 1;
     pages->addWidget(buildDashboardPage());
-    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex, QStyle::SP_ComputerIcon);
     pageIndex += 1;
-
-    addGroupItem(*nav, QStringLiteral("Reports"));
+    pages->addWidget(buildReportPage(QStringLiteral("Reports"), QStringLiteral("Report overview and transaction analysis.")));
+    addNavItem(*nav, QStringLiteral("Reports"), pageIndex, QStyle::SP_FileDialogListView);
+    pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Party Ledger"), QStringLiteral("Party ledger with date filters and running balances.")));
-    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex, QStyle::SP_FileIcon);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Day Book"), QStringLiteral("Daily transaction register for selected dates.")));
-    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex, QStyle::SP_FileIcon);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Daily Summary"), QStringLiteral("Daily sales, returns, receipts, and expenses.")));
-    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex, QStyle::SP_FileDialogContentsView);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Short / Excess"), QStringLiteral("Cash-in-hand snapshots by day.")));
-    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex, QStyle::SP_DriveFDIcon);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Purchase Report"), QStringLiteral("Purchase summary and supplier analysis.")));
-    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex, QStyle::SP_FileDialogContentsView);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Expenses"), QStringLiteral("Expense transactions and totals.")));
-    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex, QStyle::SP_DirIcon);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Outstanding"), QStringLiteral("Customer balances for the selected financial year.")));
-    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex, QStyle::SP_DialogHelpButton);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Trial Balance"), QStringLiteral("Account debit and credit balances.")));
-    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex, QStyle::SP_ArrowUp);
     pageIndex += 1;
     pages->addWidget(buildReportPage(QStringLiteral("Profit & Loss"), QStringLiteral("Sales, expenses, and net profit summary.")));
-    addNavItem(*nav, QStringLiteral("P & L"), pageIndex);
+    addNavItem(*nav, QStringLiteral("P & L"), pageIndex, QStyle::SP_ArrowUp);
     pageIndex += 1;
-
-    addGroupItem(*nav, QStringLiteral("Inventory"));
     pages->addWidget(buildInventoryPage());
-    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Inventory"), pageIndex, QStyle::SP_DirIcon);
+    pageIndex += 1;
+    pages->addWidget(buildInventoryPage());
+    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex, QStyle::SP_FileDialogDetailedView);
     pageIndex += 1;
     pages->addWidget(buildInventoryValuePage());
-    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex, QStyle::SP_FileDialogListView);
     pageIndex += 1;
-
-    addGroupItem(*nav, QStringLiteral("Management"));
     pages->addWidget(buildPartiesPage());
-    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex, QStyle::SP_FileDialogNewFolder);
     pageIndex += 1;
     pages->addWidget(buildAuditPage());
-    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex, QStyle::SP_MessageBoxInformation);
     pageIndex += 1;
     pages->addWidget(buildSettingsPage());
-    addNavItem(*nav, QStringLiteral("Settings"), pageIndex);
+    addNavItem(*nav, QStringLiteral("Settings"), pageIndex, QStyle::SP_FileDialogInfoView);
     sidebarLayout->addWidget(nav, 1);
 
     connect(nav, &QListWidget::currentRowChanged, this, [nav, pages](int row) {
@@ -1210,15 +1212,36 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
 QWidget* DesktopApplication::buildDailyEntryPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
-    layout->setSpacing(6);
+    layout->setContentsMargins(18, 16, 18, 14);
+    layout->setSpacing(10);
 
-    layout->addWidget(createPageHeader(
-        QStringLiteral("Daily Transactions"),
-        QStringLiteral("Enter transactions quickly and review the current register."),
-        page
-    ));
-    layout->addWidget(createContextBar(context_, page));
+    QWidget* header = new QWidget(page);
+    QHBoxLayout* headerLayout = new QHBoxLayout(header);
+    headerLayout->setContentsMargins(0, 0, 0, 0);
+    headerLayout->setSpacing(12);
+    QWidget* titleBlock = new QWidget(header);
+    QVBoxLayout* titleLayout = new QVBoxLayout(titleBlock);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
+    titleLayout->setSpacing(2);
+    QLabel* title = new QLabel(QStringLiteral("Daily Transactions"), titleBlock);
+    QLabel* subtitle = new QLabel(QStringLiteral("%1 - %2").arg(currentCompanyText(context_), currentFinancialYearText()), titleBlock);
+    title->setObjectName(QStringLiteral("pageTitle"));
+    subtitle->setObjectName(QStringLiteral("pageMeta"));
+    titleLayout->addWidget(title);
+    titleLayout->addWidget(subtitle);
+    headerLayout->addWidget(titleBlock, 1);
+    const QStringList statusLabels = {
+        QStringLiteral("Keyboard-Optimized"),
+        QStringLiteral("SQL Server Connected"),
+        QStringLiteral("Native Runtime Active"),
+        QStringLiteral("Live Reports")
+    };
+    for (const QString& statusLabel : statusLabels) {
+        QLabel* label = new QLabel(statusLabel, header);
+        label->setObjectName(QStringLiteral("contextChip"));
+        headerLayout->addWidget(label);
+    }
+    layout->addWidget(header);
 
     QFrame* entryPanel = new QFrame(page);
     entryPanel->setObjectName(QStringLiteral("formPanel"));
@@ -1230,6 +1253,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
 
     QDateEdit* date = new QDateEdit(QDate::currentDate(), entryPanel);
     date->setCalendarPopup(true);
+    date->setDisplayFormat(QStringLiteral("dd-MM-yyyy"));
     QLineEdit* bill = new QLineEdit(entryPanel);
     bill->setPlaceholderText(QStringLiteral("Bill No."));
     QLineEdit* party = new QLineEdit(QStringLiteral("Customer"), entryPanel);
@@ -1255,6 +1279,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QPushButton* save = new QPushButton(QStringLiteral("Save Entry"), entryPanel);
     QPushButton* deleteButton = new QPushButton(QStringLiteral("Delete"), entryPanel);
     deleteButton->setObjectName(QStringLiteral("secondaryButton"));
+    deleteButton->hide();
     QPushButton* clear = new QPushButton(QStringLiteral("Clear"), entryPanel);
     clear->setObjectName(QStringLiteral("secondaryButton"));
 
@@ -1272,14 +1297,12 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     form->addWidget(new QLabel(QStringLiteral("Amount"), entryPanel), 3, 2);
     form->addWidget(amount, 4, 2);
     form->addWidget(save, 4, 3);
-    form->addWidget(deleteButton, 4, 4);
-    form->addWidget(clear, 4, 5);
+    form->addWidget(clear, 4, 4);
     form->setColumnStretch(0, 1);
     form->setColumnStretch(1, 2);
     form->setColumnStretch(2, 2);
     form->setColumnStretch(3, 1);
     form->setColumnStretch(4, 1);
-    form->setColumnStretch(5, 1);
     layout->addWidget(entryPanel);
 
     createShortcut(*date, QKeySequence(Qt::Key_Return), [bill]() { focusEntryWidget(*bill); });
@@ -1312,12 +1335,15 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
 
     QFrame* tablePanel = createPanel(page);
     QVBoxLayout* tableLayout = new QVBoxLayout(tablePanel);
+    tableLayout->setContentsMargins(0, 0, 0, 0);
+    tableLayout->setSpacing(0);
     QHBoxLayout* tableHeader = new QHBoxLayout();
+    tableHeader->setContentsMargins(14, 10, 12, 6);
     tableHeader->addWidget(createSectionTitle(QStringLiteral("Recent Entries"), tablePanel));
     tableHeader->addStretch(1);
     QLineEdit* transactionSearch = new QLineEdit(tablePanel);
-    transactionSearch->setPlaceholderText(QStringLiteral("Search transactions..."));
-    transactionSearch->setFixedWidth(280);
+    transactionSearch->setPlaceholderText(QStringLiteral("Search"));
+    transactionSearch->setFixedWidth(200);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), tablePanel);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
     tableHeader->addWidget(transactionSearch);
@@ -2042,6 +2068,12 @@ void DesktopApplication::loadTransactions(QTableWidget& table) {
             data.append(transactionToJson(row));
         }
         setTableRows(table, headers, data);
+        table.setColumnWidth(0, 120);
+        table.setColumnWidth(1, 150);
+        table.setColumnWidth(2, 260);
+        table.setColumnWidth(3, 120);
+        table.setColumnWidth(4, 120);
+        table.setColumnWidth(5, 120);
     } catch (const std::exception& err) {
         showError(QStringLiteral("Transactions"), err);
     }
@@ -2398,6 +2430,12 @@ void DesktopApplication::showError(const QString& title, const std::exception& e
 void DesktopApplication::wireActions() {
     QToolBar* toolbar = addToolBar(QStringLiteral("Main"));
     toolbar->setMovable(false);
+    QLabel* title = new QLabel(QStringLiteral("M-Finlogs Native"), toolbar);
+    title->setObjectName(QStringLiteral("toolbarTitle"));
+    QWidget* spacer = new QWidget(toolbar);
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    toolbar->addWidget(title);
+    toolbar->addWidget(spacer);
     QAction* updateAction = toolbar->addAction(QStringLiteral("Check Updates"));
     QAction* backupAction = toolbar->addAction(QStringLiteral("Backup"));
 
