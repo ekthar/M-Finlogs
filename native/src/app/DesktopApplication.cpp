@@ -2104,7 +2104,7 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QVBoxLayout* layout = new QVBoxLayout(page);
     layout->setContentsMargins(20, 14, 20, 22);
     layout->setSpacing(6);
-    layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities, purchases, cost, and reorder levels."), page));
+    layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities and purchases per day. Tab between Qty and Purchase fields."), page));
     layout->addWidget(createContextBar(context_, page));
 
     const QString financialYear = currentFinancialYearValue();
@@ -2137,7 +2137,7 @@ QWidget* DesktopApplication::buildInventoryPage() {
     includeValue->setChecked(true);
     QComboBox* viewMode = new QComboBox(toolbar);
     viewMode->addItems({QStringLiteral("Stock Quantities"), QStringLiteral("Purchase Entries"), QStringLiteral("Both")});
-    viewMode->setCurrentIndex(0);
+    viewMode->setCurrentIndex(2);
     QPushButton* addPurchase = new QPushButton(QStringLiteral("Record Purchase"), toolbar);
     addPurchase->setObjectName(QStringLiteral("secondaryButton"));
     QLabel* periodChip = new QLabel(inventoryDateRangeText(financialYear, month->currentIndex() + 1), toolbar);
@@ -2250,7 +2250,8 @@ QWidget* DesktopApplication::buildInventoryPage() {
         }
         outflowDays = qMax(today - 1, 1);
         const double avgDaily = outflowDays > 0 ? totalOutflow / outflowDays : 0.0;
-        tableSummary->setText(QStringLiteral("%1 products | Edit quantities directly | Enter moves to next cell").arg(productCount));
+        tableSummary->setText(QStringLiteral("%1 products | %2 days | Edit quantities directly | Tab between Qty and Purchase")
+            .arg(productCount).arg(daysInInventoryMonth(month->currentIndex() + 1)));
         periodChip->setText(inventoryDateRangeText(financialYear, month->currentIndex() + 1));
         totalQtyValue->setText(QStringLiteral("%1").arg(grandTotal, 0, 'f', 2));
         purchaseInValue->setText(QStringLiteral("%1").arg(grandPurchaseToday, 0, 'f', 2));
@@ -2613,16 +2614,17 @@ void DesktopApplication::loadParties(QTableWidget& table) {
 }
 
 void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QString& financialYear, int month) {
-    // Step 1 - Build 66-element header list
+    // Step 1 - Build 66-element header list with date-formatted day headers (matching Electron: "1.05", "2.05")
     const int visibleDays = daysInInventoryMonth(month);
+    const QString monthPad = QString::number(month).rightJustified(2, QLatin1Char('0'));
     QStringList headers;
     headers.reserve(66);
     headers << QStringLiteral("row_id") << QStringLiteral("Product") << QStringLiteral("Cost") << QStringLiteral("Min Stock");
     for (int day = 1; day <= 31; ++day) {
-        headers.append(QString::asprintf("%02d Qty", day));
+        headers.append(QStringLiteral("%1.%2").arg(day).arg(monthPad));
     }
     for (int day = 1; day <= 31; ++day) {
-        headers.append(QString::asprintf("%02d In", day));
+        headers.append(QStringLiteral("%1.%2 P").arg(day).arg(monthPad));
     }
 
     // Step 2 - Reset table state BEFORE setting headers
@@ -2636,16 +2638,16 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
 
     // Step 4 - Configure column visibility and widths
     table.setColumnHidden(0, true);   // hide row_id
-    table.setColumnWidth(1, 230);     // Product
-    table.setColumnWidth(2, 95);      // Cost
-    table.setColumnWidth(3, 100);     // Min Stock
+    table.setColumnWidth(1, 200);     // Product
+    table.setColumnWidth(2, 80);      // Cost
+    table.setColumnWidth(3, 80);      // Min Stock
     for (int day = 1; day <= 31; ++day) {
         const bool visible = (day <= visibleDays);
         table.setColumnHidden(3 + day, !visible);
         table.setColumnHidden(34 + day, !visible);
         if (visible) {
-            table.setColumnWidth(3 + day, 78);
-            table.setColumnWidth(34 + day, 72);
+            table.setColumnWidth(3 + day, 64);   // Qty column (compact)
+            table.setColumnWidth(34 + day, 58);  // Purchase column (compact)
         }
     }
 
