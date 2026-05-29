@@ -2671,7 +2671,17 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         return;
     }
 
-    // Step 7 - Populate rows
+    // Step 7 - Populate rows with PDF-style visual enhancements
+    const int today = QDate::currentDate().day();
+    const int currentDayQtyCol = 3 + today;   // current day qty column
+    const int currentDayPurchaseCol = 34 + today; // current day purchase column
+    const QColor highlightBlueBg(QStringLiteral("#dbeafe"));
+    const QColor highlightBlueFg(QStringLiteral("#1e3a8a"));
+    const QColor reorderBg(QStringLiteral("#fef2f2"));
+    const QColor reorderFg(QStringLiteral("#b91c1c"));
+    const QColor purchaseGreenBg(QStringLiteral("#ecfdf3"));
+    const QColor purchaseGreenFg(QStringLiteral("#047857"));
+
     table.setRowCount(rows.size());
     for (int r = 0; r < rows.size(); ++r) {
         const QJsonObject row = rows[r].toObject();
@@ -2693,6 +2703,10 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
         minItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
         minItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         table.setItem(r, 3, minItem);
+
+        double currentQty = 0.0;
+        const double minStock = row[QStringLiteral("min_stock")].toDouble();
+
         // cols 4..34: Qty per day
         for (int day = 1; day <= 31; ++day) {
             const QString key = QString::asprintf("qty_%02d", day);
@@ -2701,6 +2715,18 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
             auto* item = new QTableWidgetItem(text);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
             item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            // Highlight current day column (blue) - matches PDF design
+            if (day == today && day <= visibleDays) {
+                item->setBackground(highlightBlueBg);
+                item->setForeground(highlightBlueFg);
+                QFont boldFont = item->font();
+                boldFont.setBold(true);
+                item->setFont(boldFont);
+                currentQty = qty;
+            }
+            if (day == today) {
+                currentQty = qty;
+            }
             table.setItem(r, 3 + day, item);
         }
         // cols 35..65: Purchase/In per day
@@ -2711,7 +2737,31 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
             auto* item = new QTableWidgetItem(text);
             item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
             item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            // Highlight purchase cells with value (green) - matches PDF design
+            if (purchase > 0.0) {
+                item->setBackground(purchaseGreenBg);
+                item->setForeground(purchaseGreenFg);
+            }
+            // Current day purchase column also gets blue highlight
+            if (day == today && day <= visibleDays) {
+                item->setBackground(highlightBlueBg);
+                item->setForeground(highlightBlueFg);
+            }
             table.setItem(r, 34 + day, item);
+        }
+
+        // Reorder row highlighting (red) - matches PDF design
+        const bool isReorder = minStock > 0.0 && currentQty < minStock;
+        if (isReorder) {
+            nameItem->setBackground(reorderBg);
+            nameItem->setForeground(reorderFg);
+            QFont boldFont = nameItem->font();
+            boldFont.setBold(true);
+            nameItem->setFont(boldFont);
+            costItem->setBackground(reorderBg);
+            costItem->setForeground(reorderFg);
+            minItem->setBackground(reorderBg);
+            minItem->setForeground(reorderFg);
         }
     }
 
@@ -2988,14 +3038,24 @@ int runDesktopApplication(int argc, char** argv) {
     QApplication::setOrganizationName(QStringLiteral("M-Finlogs"));
     QApplication::setApplicationName(QStringLiteral("M-Finlogs"));
 
-    // Show the modern frameless splash first. Close it before constructing
-    // the main window because the constructor may show the modal sign-in dialog.
+    // Show the modern frameless branded splash first.
     auto splash = std::make_unique<SplashScreen>();
     std::unique_ptr<AppContext> context;
     std::unique_ptr<DesktopApplication> window;
 
     splash->show();
-    splash->setProgress(20, QStringLiteral("Loading services..."));
+    splash->setProgress(10, QStringLiteral("Loading runtime..."));
+
+    // Simulate staged loading with status messages
+    QTimer::singleShot(300, splash.get(), [&splash]() {
+        splash->setProgress(25, QStringLiteral("Connecting SQL Server..."));
+    });
+    QTimer::singleShot(600, splash.get(), [&splash]() {
+        splash->setProgress(50, QStringLiteral("Loading workspace configuration..."));
+    });
+    QTimer::singleShot(900, splash.get(), [&splash]() {
+        splash->setProgress(75, QStringLiteral("Preparing interface..."));
+    });
 
     QObject::connect(splash.get(), &SplashScreen::finished, &qtApp, [&]() {
         splash->close();
@@ -3005,7 +3065,7 @@ int runDesktopApplication(int argc, char** argv) {
         window->raise();
         window->activateWindow();
     });
-    splash->runIndeterminate(1400);
+    splash->runIndeterminate(1600);
 
     return qtApp.exec();
 }
