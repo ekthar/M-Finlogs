@@ -1,5 +1,5 @@
 #include "app/ApplicationMode.h"
-#include "app/DesktopApplication.h"
+#include "app/QmlApplication.h"
 #include "app/ServerApplication.h"
 
 #include <QCoreApplication>
@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
         return mfinlogs::app::stopServerMode();
     }
     case mfinlogs::app::ApplicationMode::Desktop:
-        return mfinlogs::app::runDesktopApplication(argc, argv);
+        return mfinlogs::app::runQmlApplication(argc, argv);
     }
 
     return 1;
