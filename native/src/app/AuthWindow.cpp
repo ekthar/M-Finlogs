@@ -1,4 +1,5 @@
-#include "AuthWindow.h"
+#include "app/AuthWindow.h"
+#include <QFrame>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPainter>
