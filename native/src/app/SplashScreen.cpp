@@ -3,12 +3,16 @@
 #include <QApplication>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QParallelAnimationGroup>
 #include <QProgressBar>
+#include <QPropertyAnimation>
 #include <QScreen>
 #include <QShowEvent>
 #include <QTimer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 
 namespace mfinlogs::app {
@@ -76,10 +80,13 @@ void SplashScreen::buildUi() {
     shadow->setColor(QColor(4, 10, 23, 130));
     card_->setGraphicsEffect(shadow);
 
-    createSplashTile(QStringLiteral("splashAura"), card_, QRect(40, 20, 420, 220));
-    createSplashTile(QStringLiteral("tileLeft"), card_, QRect(140, 52, 98, 122));
-    createSplashTile(QStringLiteral("tileRight"), card_, QRect(276, 88, 96, 118));
-    createSplashTile(QStringLiteral("tileMid"), card_, QRect(204, 48, 110, 136));
+    // Aura glow background
+    QFrame* aura = createSplashTile(QStringLiteral("splashAura"), card_, QRect(40, 20, 420, 220));
+
+    // Decorative tiles - will animate in from below
+    QFrame* tileLeft = createSplashTile(QStringLiteral("tileLeft"), card_, QRect(140, 52, 98, 122));
+    QFrame* tileRight = createSplashTile(QStringLiteral("tileRight"), card_, QRect(276, 88, 96, 118));
+    QFrame* tileMid = createSplashTile(QStringLiteral("tileMid"), card_, QRect(204, 48, 110, 136));
     QFrame* core = createSplashTile(QStringLiteral("tileCore"), card_, QRect(196, 34, 114, 142));
     QFrame* logoWrap = createSplashTile(QStringLiteral("logoWrap"), core, QRect(23, 36, 68, 68));
 
@@ -106,6 +113,110 @@ void SplashScreen::buildUi() {
     progress_->setGeometry(162, 274, 176, 4);
 
     outer->addWidget(card_);
+
+    // --- Entry animations ---
+    // Staggered tile slide-in from below with fade (OutBack for subtle bounce)
+    animateTileEntry(*tileLeft, 0, QPoint(140, 82), QPoint(140, 52));
+    animateTileEntry(*tileMid, 120, QPoint(204, 78), QPoint(204, 48));
+    animateTileEntry(*tileRight, 240, QPoint(276, 118), QPoint(276, 88));
+    animateTileEntry(*core, 80, QPoint(196, 64), QPoint(196, 34));
+
+    // Logo breathe pulse
+    animateLogoPulse(*logoWrap);
+
+    // Brand and status text fade in after tiles settle
+    animateFadeIn(*brand, 400);
+    animateFadeIn(*statusLabel_, 550);
+    animateFadeIn(*progress_, 650, 400);
+
+    // Aura glow pulse (continuous)
+    animateAuraPulse(*aura);
+}
+
+void SplashScreen::animateTileEntry(QWidget& tile, int delayMs, const QPoint& from, const QPoint& to) {
+    // Start tile at the "from" position (below final)
+    tile.move(from);
+
+    // Opacity fade-in
+    QGraphicsOpacityEffect* opacity = new QGraphicsOpacityEffect(&tile);
+    opacity->setOpacity(0.0);
+    tile.setGraphicsEffect(opacity);
+
+    QPropertyAnimation* fade = new QPropertyAnimation(opacity, "opacity", &tile);
+    fade->setDuration(500);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(QEasingCurve::OutCubic);
+
+    // Position slide upward with slight overshoot
+    QPropertyAnimation* slide = new QPropertyAnimation(&tile, "pos", &tile);
+    slide->setDuration(600);
+    slide->setStartValue(from);
+    slide->setEndValue(to);
+    slide->setEasingCurve(QEasingCurve::OutBack);
+
+    QParallelAnimationGroup* group = new QParallelAnimationGroup(&tile);
+    group->addAnimation(fade);
+    group->addAnimation(slide);
+
+    QTimer::singleShot(delayMs, group, [group]() {
+        group->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+}
+
+void SplashScreen::animateFadeIn(QWidget& widget, int delayMs, int durationMs) {
+    QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&widget);
+    effect->setOpacity(0.0);
+    widget.setGraphicsEffect(effect);
+
+    QPropertyAnimation* fade = new QPropertyAnimation(effect, "opacity", &widget);
+    fade->setDuration(durationMs);
+    fade->setStartValue(0.0);
+    fade->setEndValue(1.0);
+    fade->setEasingCurve(QEasingCurve::OutCubic);
+
+    QTimer::singleShot(delayMs, fade, [fade]() {
+        fade->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+}
+
+void SplashScreen::animateLogoPulse(QWidget& logo) {
+    const QRect baseRect = logo.geometry();
+
+    logoPulse_ = new QVariantAnimation(this);
+    logoPulse_->setDuration(1800);
+    logoPulse_->setStartValue(1.0);
+    logoPulse_->setKeyValueAt(0.5, 1.08);
+    logoPulse_->setEndValue(1.0);
+    logoPulse_->setEasingCurve(QEasingCurve::InOutSine);
+    logoPulse_->setLoopCount(-1);
+
+    connect(logoPulse_, &QVariantAnimation::valueChanged, &logo, [&logo, baseRect](const QVariant& value) {
+        const double scale = value.toDouble();
+        const int w = static_cast<int>(baseRect.width() * scale);
+        const int h = static_cast<int>(baseRect.height() * scale);
+        const int x = baseRect.x() - (w - baseRect.width()) / 2;
+        const int y = baseRect.y() - (h - baseRect.height()) / 2;
+        logo.setGeometry(x, y, w, h);
+    });
+
+    // Start after tiles have mostly settled
+    QTimer::singleShot(500, logoPulse_, [this]() { logoPulse_->start(); });
+}
+
+void SplashScreen::animateAuraPulse(QWidget& aura) {
+    QGraphicsOpacityEffect* effect = new QGraphicsOpacityEffect(&aura);
+    effect->setOpacity(0.4);
+    aura.setGraphicsEffect(effect);
+
+    QPropertyAnimation* pulse = new QPropertyAnimation(effect, "opacity", &aura);
+    pulse->setDuration(2200);
+    pulse->setStartValue(0.4);
+    pulse->setKeyValueAt(0.5, 0.78);
+    pulse->setEndValue(0.4);
+    pulse->setEasingCurve(QEasingCurve::InOutSine);
+    pulse->setLoopCount(-1);
+    pulse->start();
 }
 
 void SplashScreen::setProgress(int value, const QString& message) {

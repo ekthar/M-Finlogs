@@ -49,10 +49,12 @@
 #include <QSignalBlocker>
 #include <QScrollBar>
 #include <QSizePolicy>
+#include <QSpinBox>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QStyle>
 #include <QStyleHints>
 #include <QTableWidget>
 #include <QToolBar>
@@ -591,14 +593,19 @@ static QString buildModernQss(bool darkMode = false) {
     // 3. Sidebar container
     + QStringLiteral(
         "QWidget#sidebarWrap { background: %1; border-right: 1px solid rgba(0,0,0,0.14); }"
-    ).arg(sidebarBg, border)
+        "QWidget#sidebarWrapCollapsed { background: %2; border-right: 1px solid rgba(0,0,0,0.14); }"
+    ).arg(sidebarBg, darkMode ? QStringLiteral("#151d2b") : QStringLiteral("#eee4d0"))
 
     + QStringLiteral(
         "QPushButton#sidebarToggle { background: transparent; color: %1;"
         " border: 1px solid %2; border-radius: 7px; min-height: 28px;"
         " padding: 0 8px; font-weight: 800; }"
         "QPushButton#sidebarToggle:hover { background: %3; }"
-    ).arg(textPrimary, border, sidebarHover)
+        "QPushButton#sidebarToggleCollapsed { background: %4; color: #ffffff;"
+        " border: none; border-radius: 7px; min-height: 28px;"
+        " padding: 0 8px; font-weight: 900; }"
+        "QPushButton#sidebarToggleCollapsed:hover { background: %5; }"
+    ).arg(textPrimary, border, sidebarHover, accent, accentHover)
 
     // 4. Sidebar list
     + QStringLiteral(
@@ -1080,7 +1087,13 @@ void DesktopApplication::buildNavigation() {
     const std::shared_ptr<bool> sidebarCollapsed = std::make_shared<bool>(false);
     auto applySidebarState = [sidebar, nav, sidebarBrand, sidebarToggle, sidebarCollapsed]() {
         sidebar->setFixedWidth(*sidebarCollapsed ? 64 : 240);
+        sidebar->setObjectName(*sidebarCollapsed ? QStringLiteral("sidebarWrapCollapsed") : QStringLiteral("sidebarWrap"));
+        sidebar->style()->unpolish(sidebar);
+        sidebar->style()->polish(sidebar);
         sidebarBrand->setVisible(!*sidebarCollapsed);
+        sidebarToggle->setObjectName(*sidebarCollapsed ? QStringLiteral("sidebarToggleCollapsed") : QStringLiteral("sidebarToggle"));
+        sidebarToggle->style()->unpolish(sidebarToggle);
+        sidebarToggle->style()->polish(sidebarToggle);
         sidebarToggle->setText(*sidebarCollapsed ? QStringLiteral(">") : QStringLiteral("<"));
         sidebarToggle->setToolTip(*sidebarCollapsed ? QStringLiteral("Expand sidebar") : QStringLiteral("Collapse sidebar"));
         for (int row = 0; row < nav->count(); row += 1) {
@@ -2122,6 +2135,11 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QCheckBox* onlyReorder = new QCheckBox(QStringLiteral("Reorder only"), toolbar);
     QCheckBox* includeValue = new QCheckBox(QStringLiteral("Include stock value"), toolbar);
     includeValue->setChecked(true);
+    QComboBox* viewMode = new QComboBox(toolbar);
+    viewMode->addItems({QStringLiteral("Stock Quantities"), QStringLiteral("Purchase Entries"), QStringLiteral("Both")});
+    viewMode->setCurrentIndex(0);
+    QPushButton* addPurchase = new QPushButton(QStringLiteral("Record Purchase"), toolbar);
+    addPurchase->setObjectName(QStringLiteral("secondaryButton"));
     QLabel* periodChip = new QLabel(inventoryDateRangeText(financialYear, month->currentIndex() + 1), toolbar);
     QLabel* tableSummary = new QLabel(QStringLiteral("No inventory loaded"), toolbar);
     periodChip->setObjectName(QStringLiteral("contextChip"));
@@ -2130,6 +2148,7 @@ QWidget* DesktopApplication::buildInventoryPage() {
     toolbarLayout->addWidget(month);
     toolbarLayout->addWidget(product, 1);
     toolbarLayout->addWidget(add);
+    toolbarLayout->addWidget(addPurchase);
     toolbarLayout->addWidget(addGap);
     toolbarLayout->addWidget(cleanEmpty);
     toolbarLayout->addWidget(refresh);
@@ -2139,6 +2158,8 @@ QWidget* DesktopApplication::buildInventoryPage() {
     QHBoxLayout* toolbarMeta = new QHBoxLayout();
     toolbarMeta->setSpacing(10);
     toolbarMeta->addWidget(periodChip);
+    toolbarMeta->addWidget(new QLabel(QStringLiteral("View"), toolbar));
+    toolbarMeta->addWidget(viewMode);
     toolbarMeta->addWidget(onlyReorder);
     toolbarMeta->addWidget(includeValue);
     toolbarMeta->addWidget(tableSummary, 1);
@@ -2146,22 +2167,179 @@ QWidget* DesktopApplication::buildInventoryPage() {
     toolbarOuter->addLayout(toolbarMeta);
     layout->addWidget(toolbar);
 
+    // Inventory metrics panel (mirrors the PDF report header cards)
+    QFrame* metricsRow = createAccentPanel(page);
+    QHBoxLayout* metricsLayout = new QHBoxLayout(metricsRow);
+    metricsLayout->setContentsMargins(16, 12, 16, 12);
+    metricsLayout->setSpacing(20);
+    QLabel* totalQtyValue = new QLabel(QStringLiteral("0.00"), metricsRow);
+    QLabel* totalQtyLabel = new QLabel(QStringLiteral("Current Quantity"), metricsRow);
+    QLabel* purchaseInValue = new QLabel(QStringLiteral("0.00"), metricsRow);
+    QLabel* purchaseInLabel = new QLabel(QStringLiteral("Purchase In (Today)"), metricsRow);
+    QLabel* avgDailyValue = new QLabel(QStringLiteral("0.0"), metricsRow);
+    QLabel* avgDailyLabel = new QLabel(QStringLiteral("Avg Daily Movement"), metricsRow);
+    QLabel* reorderValue = new QLabel(QStringLiteral("0"), metricsRow);
+    QLabel* reorderLabel = new QLabel(QStringLiteral("Reorder Products"), metricsRow);
+    totalQtyValue->setObjectName(QStringLiteral("metricValue"));
+    totalQtyLabel->setObjectName(QStringLiteral("metricLabel"));
+    purchaseInValue->setObjectName(QStringLiteral("metricValue"));
+    purchaseInLabel->setObjectName(QStringLiteral("metricLabel"));
+    avgDailyValue->setObjectName(QStringLiteral("metricValue"));
+    avgDailyLabel->setObjectName(QStringLiteral("metricLabel"));
+    reorderValue->setObjectName(QStringLiteral("metricValue"));
+    reorderLabel->setObjectName(QStringLiteral("metricLabel"));
+    auto addMetricTileToLayout = [&metricsLayout](QLabel* value, QLabel* label) {
+        QVBoxLayout* tile = new QVBoxLayout();
+        tile->setSpacing(2);
+        tile->addWidget(value);
+        tile->addWidget(label);
+        metricsLayout->addLayout(tile);
+    };
+    addMetricTileToLayout(totalQtyValue, totalQtyLabel);
+    addMetricTileToLayout(purchaseInValue, purchaseInLabel);
+    addMetricTileToLayout(avgDailyValue, avgDailyLabel);
+    addMetricTileToLayout(reorderValue, reorderLabel);
+    metricsLayout->addStretch(1);
+    layout->addWidget(metricsRow);
+
     QTableWidget* table = createInventoryTable(page);
     loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
     layout->addWidget(table, 1);
 
-    auto refreshSummary = [table, tableSummary, periodChip, financialYear, month]() {
+    auto refreshSummary = [table, tableSummary, periodChip, financialYear, month,
+                           totalQtyValue, purchaseInValue, avgDailyValue, reorderValue]() {
         int productCount = 0;
+        double grandTotal = 0.0;
+        double grandPurchaseToday = 0.0;
+        double totalOutflow = 0.0;
+        int outflowDays = 0;
+        int reorderCount = 0;
+        const int today = QDate::currentDate().day();
         for (int rowIndex = 0; rowIndex < table->rowCount(); rowIndex += 1) {
-            const QTableWidgetItem* item = table->item(rowIndex, 1);
-            if (item && !item->text().trimmed().isEmpty() && !item->text().startsWith(QStringLiteral("No inventory rows yet"))) {
-                productCount += 1;
+            const QTableWidgetItem* nameItem = table->item(rowIndex, 1);
+            if (!nameItem || nameItem->text().trimmed().isEmpty() || nameItem->text().startsWith(QStringLiteral("No inventory rows yet"))) {
+                continue;
+            }
+            productCount += 1;
+            // Current qty = today's qty column (col 3 + today)
+            const int todayCol = 3 + today;
+            const double currentQty = (todayCol < table->columnCount() && table->item(rowIndex, todayCol))
+                ? table->item(rowIndex, todayCol)->text().toDouble() : 0.0;
+            grandTotal += currentQty;
+            // Today's purchase (col 34 + today)
+            const int purchaseTodayCol = 34 + today;
+            const double purchaseToday = (purchaseTodayCol < table->columnCount() && table->item(rowIndex, purchaseTodayCol))
+                ? table->item(rowIndex, purchaseTodayCol)->text().toDouble() : 0.0;
+            grandPurchaseToday += purchaseToday;
+            // Avg daily outflow: sum of stock drops across days
+            double prevQty = 0.0;
+            for (int day = 1; day <= today; day += 1) {
+                const int col = 3 + day;
+                const double qty = (col < table->columnCount() && table->item(rowIndex, col))
+                    ? table->item(rowIndex, col)->text().toDouble() : 0.0;
+                if (day > 1 && prevQty > qty) {
+                    totalOutflow += (prevQty - qty);
+                }
+                prevQty = qty;
+            }
+            // Reorder check: min_stock vs current qty
+            const double minStock = table->item(rowIndex, 3) ? table->item(rowIndex, 3)->text().toDouble() : 0.0;
+            if (minStock > 0.0 && currentQty < minStock) {
+                reorderCount += 1;
             }
         }
+        outflowDays = qMax(today - 1, 1);
+        const double avgDaily = outflowDays > 0 ? totalOutflow / outflowDays : 0.0;
         tableSummary->setText(QStringLiteral("%1 products | Edit quantities directly | Enter moves to next cell").arg(productCount));
         periodChip->setText(inventoryDateRangeText(financialYear, month->currentIndex() + 1));
+        totalQtyValue->setText(QStringLiteral("%1").arg(grandTotal, 0, 'f', 2));
+        purchaseInValue->setText(QStringLiteral("%1").arg(grandPurchaseToday, 0, 'f', 2));
+        avgDailyValue->setText(QStringLiteral("%1").arg(avgDaily, 0, 'f', 1));
+        reorderValue->setText(QString::number(reorderCount));
     };
     refreshSummary();
+
+    // View mode toggle: show/hide qty vs purchase columns
+    connect(viewMode, &QComboBox::currentIndexChanged, this, [table, month](int index) {
+        const int visibleDays = daysInInventoryMonth(month->currentIndex() + 1);
+        for (int day = 1; day <= 31; ++day) {
+            const bool dayVisible = (day <= visibleDays);
+            // Qty columns (4..34) = col index 3+day
+            table->setColumnHidden(3 + day, !dayVisible || index == 1);
+            // Purchase columns (35..65) = col index 34+day
+            table->setColumnHidden(34 + day, !dayVisible || index == 0);
+        }
+    });
+
+    // Record Purchase dialog
+    connect(addPurchase, &QPushButton::clicked, this, [this, table, month]() {
+        const int selectedRow = table->currentRow();
+        if (selectedRow < 0 || !table->item(selectedRow, 1) || table->item(selectedRow, 1)->text().trimmed().isEmpty()) {
+            statusBar()->showMessage(QStringLiteral("Select a product row first"), 5000);
+            return;
+        }
+        const QString productName = table->item(selectedRow, 1)->text();
+        const int visibleDays = daysInInventoryMonth(month->currentIndex() + 1);
+
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("Record Purchase - %1").arg(productName));
+        dialog.setModal(true);
+        dialog.resize(420, 220);
+        QVBoxLayout* dlgLayout = new QVBoxLayout(&dialog);
+        dlgLayout->setContentsMargins(20, 18, 20, 18);
+        dlgLayout->setSpacing(12);
+        QLabel* dlgTitle = new QLabel(QStringLiteral("Record Purchase"), &dialog);
+        dlgTitle->setObjectName(QStringLiteral("sectionTitle"));
+        QLabel* dlgProduct = new QLabel(productName, &dialog);
+        dlgProduct->setObjectName(QStringLiteral("pageMeta"));
+        dlgLayout->addWidget(dlgTitle);
+        dlgLayout->addWidget(dlgProduct);
+
+        QGridLayout* form = new QGridLayout();
+        form->setHorizontalSpacing(12);
+        form->setVerticalSpacing(8);
+        QSpinBox* dayInput = new QSpinBox(&dialog);
+        dayInput->setRange(1, visibleDays);
+        dayInput->setValue(qMin(QDate::currentDate().day(), visibleDays));
+        QDoubleSpinBox* qtyInput = new QDoubleSpinBox(&dialog);
+        qtyInput->setMaximum(999999.0);
+        qtyInput->setDecimals(2);
+        qtyInput->setPrefix(QStringLiteral("+ "));
+        form->addWidget(new QLabel(QStringLiteral("Day of Month"), &dialog), 0, 0);
+        form->addWidget(dayInput, 0, 1);
+        form->addWidget(new QLabel(QStringLiteral("Purchase Quantity"), &dialog), 1, 0);
+        form->addWidget(qtyInput, 1, 1);
+        dlgLayout->addLayout(form);
+
+        QHBoxLayout* actions = new QHBoxLayout();
+        actions->addStretch(1);
+        QPushButton* cancel = new QPushButton(QStringLiteral("Cancel"), &dialog);
+        cancel->setObjectName(QStringLiteral("secondaryButton"));
+        QPushButton* apply = new QPushButton(QStringLiteral("Apply"), &dialog);
+        actions->addWidget(cancel);
+        actions->addWidget(apply);
+        dlgLayout->addLayout(actions);
+
+        connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+        connect(qtyInput, &QDoubleSpinBox::editingFinished, apply, [apply]() { apply->setFocus(); });
+        connect(apply, &QPushButton::clicked, &dialog, [&]() {
+            const int day = dayInput->value();
+            const int purchaseCol = 34 + day;
+            QTableWidgetItem* cell = table->item(selectedRow, purchaseCol);
+            if (!cell) {
+                cell = new QTableWidgetItem();
+                cell->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+                cell->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+                table->setItem(selectedRow, purchaseCol, cell);
+            }
+            const double existing = cell->text().toDouble();
+            cell->setText(QString::number(existing + qtyInput->value(), 'f', 2));
+            dialog.accept();
+        });
+
+        QTimer::singleShot(0, qtyInput, [qtyInput]() { qtyInput->setFocus(); qtyInput->selectAll(); });
+        dialog.exec();
+    });
 
     connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month](int) {
         loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);

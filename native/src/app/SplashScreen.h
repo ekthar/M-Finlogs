@@ -6,12 +6,14 @@ class QFrame;
 class QLabel;
 class QProgressBar;
 class QTimer;
+class QVariantAnimation;
 
 namespace mfinlogs::app {
 
 // Modern frameless splash screen shown while the desktop application
 // initialises. Uses a translucent top-level widget so the rounded-corner
-// card floats on the desktop with a soft drop shadow.
+// card floats on the desktop with a soft drop shadow. Tiles animate in
+// with staggered slide+fade, the logo pulses gently, and the aura glows.
 class SplashScreen final : public QWidget {
     Q_OBJECT
 
@@ -35,11 +37,17 @@ protected:
 
 private:
     void buildUi();
+    void startEntryAnimations();
+    void animateTileEntry(QWidget& tile, int delayMs, const QPoint& from, const QPoint& to);
+    void animateFadeIn(QWidget& widget, int delayMs, int durationMs = 500);
+    void animateLogoPulse(QWidget& logo);
+    void animateAuraPulse(QWidget& aura);
 
     QFrame* card_ = nullptr;
     QLabel* statusLabel_ = nullptr;
     QProgressBar* progress_ = nullptr;
     QTimer* tickTimer_ = nullptr;
+    QVariantAnimation* logoPulse_ = nullptr;
     int tickTarget_ = 100;
     int tickStepMs_ = 16;
 };
