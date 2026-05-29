@@ -62,6 +62,8 @@ Item {
                 anchors.margins: Theme.s5
                 emptyText: "No outstanding balances"
                 rows: page.rows
+                totals: ({ balance: page.total })
+                totalsLabel: "Total Outstanding"
                 columns: [
                     { title: "Party", key: "party", weight: 2 },
                     { title: "Type", key: "type", weight: 1.2 },

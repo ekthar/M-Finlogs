@@ -5,8 +5,14 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
+    property var totals: ({})
 
-    function load() { rows = backend.dayBook(dateField.isoText) }
+    function load() {
+        rows = backend.dayBook(dateField.isoText)
+        var sum = 0
+        for (var i = 0; i < rows.length; i++) sum += Number(rows[i].amount || 0)
+        totals = { amount: sum }
+    }
     Component.onCompleted: load()
 
     ColumnLayout {
@@ -46,6 +52,8 @@ Item {
                 anchors.margins: Theme.s5
                 emptyText: "No transactions for this date"
                 rows: page.rows
+                totals: page.totals
+                totalsLabel: "Day Total"
                 columns: [
                     { title: "Bill", key: "bill_no", weight: 1 },
                     { title: "Party", key: "party", weight: 2 },
