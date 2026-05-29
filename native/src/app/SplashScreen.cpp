@@ -37,10 +37,11 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, true);
         const QRect r = rect();
 
-        // Deep cobalt radial gradient background
-        QRadialGradient bg(r.center(), r.width() * 0.7);
-        bg.setColorAt(0.0, QColor(0, 43, 128));   // cobalt-core
-        bg.setColorAt(1.0, QColor(0, 26, 77));    // cobalt-deep
+        // Deep indigo radial gradient background (matches app hero/sidebar)
+        QRadialGradient bg(r.center(), r.width() * 0.75);
+        bg.setColorAt(0.0, QColor(0x37, 0x30, 0xa3));   // indigo-core
+        bg.setColorAt(0.55, QColor(0x1b, 0x24, 0x40));  // deep slate-indigo
+        bg.setColorAt(1.0, QColor(0x0f, 0x17, 0x30));   // near-black indigo
         p.fillRect(r, bg);
 
         // Interlocking geometric layer 1 (top-left)
@@ -48,10 +49,10 @@ protected:
         p.translate(-120, -140);
         p.rotate(45);
         QLinearGradient g1(0, 0, 400, 400);
-        g1.setColorAt(0.0, QColor(0, 68, 204, 50));
+        g1.setColorAt(0.0, QColor(99, 102, 241, 60));
         g1.setColorAt(0.4, Qt::transparent);
         p.setBrush(g1);
-        p.setPen(QPen(QColor(255, 255, 255, 12), 1));
+        p.setPen(QPen(QColor(255, 255, 255, 14), 1));
         p.drawRect(0, 0, 500, 500);
         p.restore();
 
@@ -60,17 +61,24 @@ protected:
         p.translate(r.width() - 200, r.height() - 100);
         p.rotate(45);
         QLinearGradient g2(0, 0, -400, -400);
-        g2.setColorAt(0.0, QColor(0, 68, 204, 38));
+        g2.setColorAt(0.0, QColor(91, 140, 250, 48));
         g2.setColorAt(0.4, Qt::transparent);
         p.setBrush(g2);
         p.setPen(QPen(QColor(255, 255, 255, 8), 1));
         p.drawRect(-400, -400, 500, 500);
         p.restore();
 
+        // Frosted glass brand panel (glassmorphism cue)
+        QPainterPath glass;
+        glass.addRoundedRect(QRectF(28, 80, 392, 196), 20, 20);
+        p.fillPath(glass, QColor(255, 255, 255, 20));
+        p.setPen(QPen(QColor(255, 255, 255, 46), 1));
+        p.drawPath(glass);
+
         // Glint sweep (static representation)
         QLinearGradient glint(r.width() * 0.3, 0, r.width() * 0.5, r.height());
         glint.setColorAt(0.0, Qt::transparent);
-        glint.setColorAt(0.5, QColor(255, 255, 255, 8));
+        glint.setColorAt(0.5, QColor(255, 255, 255, 10));
         glint.setColorAt(1.0, Qt::transparent);
         p.fillRect(r, glint);
     }
@@ -118,8 +126,7 @@ void SplashScreen::buildUi() {
     QFrame* sq1 = new QFrame(logoMark);
     sq1->setGeometry(0, 0, 32, 32);
     sq1->setStyleSheet(QStringLiteral(
-        "background: #001a4d; border: 3px solid #4d88ff;"
-        "box-shadow: 0 0 20px rgba(77,136,255,0.4);"));
+        "background: #1b2440; border: 3px solid #6f8cff;"));
 
     QFrame* sq2 = new QFrame(logoMark);
     sq2->setGeometry(32, 32, 32, 32);
@@ -130,14 +137,14 @@ void SplashScreen::buildUi() {
     QLabel* title = new QLabel(QStringLiteral("FINLOGS"), card_);
     title->setGeometry(44, 180, 400, 50);
     title->setStyleSheet(QStringLiteral(
-        "color: #e6eeff; font-size: 42px; font-weight: 800;"
+        "color: #eef2ff; font-size: 42px; font-weight: 800;"
         "letter-spacing: -2px; background: transparent;"));
 
     // Subtitle
     QLabel* subtitle = new QLabel(QStringLiteral("NEXT-GEN LEDGER SYSTEMS"), card_);
     subtitle->setGeometry(44, 232, 400, 20);
     subtitle->setStyleSheet(QStringLiteral(
-        "color: #4d88ff; font-size: 11px; font-weight: 300;"
+        "color: #8ea2ff; font-size: 11px; font-weight: 300;"
         "letter-spacing: 3px; background: transparent;"));
 
     // --- Bottom meta section ---
@@ -145,7 +152,7 @@ void SplashScreen::buildUi() {
     statusLabel_ = new QLabel(QStringLiteral("INITIALIZING RUNTIME"), card_);
     statusLabel_->setGeometry(44, 320, 300, 16);
     statusLabel_->setStyleSheet(QStringLiteral(
-        "color: #4d88ff; font-size: 10px; font-weight: 500;"
+        "color: #8ea2ff; font-size: 10px; font-weight: 500;"
         "letter-spacing: 2px; background: transparent;"));
 
     QLabel* statusLine1 = new QLabel(QStringLiteral("Loading financial schemas..."), card_);
@@ -172,8 +179,8 @@ void SplashScreen::buildUi() {
     progress_->setValue(0);
     progress_->setTextVisible(false);
     progress_->setStyleSheet(QStringLiteral(
-        "QProgressBar { background: rgba(255,255,255,0.05); border: none; border-radius: 1px; }"
-        "QProgressBar::chunk { background: #4d88ff; border-radius: 1px; }"));
+        "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 1px; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #5b8cfa, stop:1 #8ea2ff); border-radius: 1px; }"));
 
     // Version tag (bottom-right, rotated)
     QLabel* version = new QLabel(QStringLiteral("STABLE_BUILD_v1.0.0_NATIVE"), card_);
