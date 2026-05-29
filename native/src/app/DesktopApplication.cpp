@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateEdit>
+#include <QDesktopServices>
 #include <QDialog>
 #include <QDoubleSpinBox>
 #include <QDir>
@@ -40,8 +41,10 @@
 #include <QListWidgetItem>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QPainter>
 #include <QParallelAnimationGroup>
 #include <QPushButton>
+#include <QPixmap>
 #include <QPropertyAnimation>
 #include <QProcess>
 #include <QScrollArea>
@@ -56,8 +59,10 @@
 #include <QStringList>
 #include <QStyle>
 #include <QStyleHints>
+#include <QSvgRenderer>
 #include <QTableWidget>
 #include <QToolBar>
+#include <QUrl>
 #include <QVariant>
 #include <QVBoxLayout>
 #include <QTimer>
@@ -291,12 +296,64 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
 }
 
 QIcon appIcon(const QString& name) {
-    return QIcon(QStringLiteral(":/icons/%1.svg").arg(name));
+    // Render SVG directly via QSvgRenderer (Qt6::Svg) to avoid depending on the
+    // qsvg image plugin being deployed. Resource path is ":/icons/icons/<name>.svg"
+    // because the qrc prefix is "/icons" and files are listed under "icons/".
+    const QStringList candidates = {
+        QStringLiteral(":/icons/icons/%1.svg").arg(name),
+        QStringLiteral(":/icons/%1.svg").arg(name),
+    };
+    for (const QString& path : candidates) {
+        if (!QFile::exists(path)) {
+            continue;
+        }
+        QSvgRenderer renderer(path);
+        if (!renderer.isValid()) {
+            continue;
+        }
+        QPixmap pixmap(40, 40);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        renderer.render(&painter);
+        painter.end();
+        return QIcon(pixmap);
+    }
+    return QIcon();
+}
+
+// Render an SVG icon tinted to a single color, for display on the dark sidebar.
+QIcon appIconTinted(const QString& name, const QColor& color) {
+    const QStringList candidates = {
+        QStringLiteral(":/icons/icons/%1.svg").arg(name),
+        QStringLiteral(":/icons/%1.svg").arg(name),
+    };
+    for (const QString& path : candidates) {
+        if (!QFile::exists(path)) {
+            continue;
+        }
+        QSvgRenderer renderer(path);
+        if (!renderer.isValid()) {
+            continue;
+        }
+        QPixmap pixmap(40, 40);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        renderer.render(&painter);
+        // Tint: paint color over the icon shape using SourceIn composition
+        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        painter.fillRect(pixmap.rect(), color);
+        painter.end();
+        return QIcon(pixmap);
+    }
+    return QIcon();
 }
 
 QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex, const QString& iconName) {
     QListWidgetItem* item = addNavItem(nav, label, pageIndex);
-    item->setIcon(appIcon(iconName));
+    // Sidebar is dark, so tint icons light for visibility
+    item->setIcon(appIconTinted(iconName, QColor(QStringLiteral("#cdd9d1"))));
     return item;
 }
 
@@ -554,32 +611,35 @@ void focusEntryWidget(QWidget& widget) {
 }
 
 static QString buildModernQss(bool darkMode = false) {
-    // Mac-grade minimalist design - Tailwind palette, flat, borderless
-    const QString bg           = darkMode ? QStringLiteral("#121925") : QStringLiteral("#f4eedf");
-    const QString surface      = darkMode ? QStringLiteral("#182130") : QStringLiteral("#fbf5e8");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#1b2432") : QStringLiteral("#f4ead8");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#e3f0ea");
-    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#2d3a33");
-    const QString sidebarHover = darkMode ? QStringLiteral("#243044") : QStringLiteral("#ece2cf");
-    const QString textPrimary  = darkMode ? QStringLiteral("#edf3ff") : QStringLiteral("#2d3a33");
-    const QString textSecondary= darkMode ? QStringLiteral("#aab8d1") : QStringLiteral("#667268");
-    const QString border       = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#ddd2bb");
-    const QString inputBorder  = darkMode ? QStringLiteral("#344057") : QStringLiteral("#cfc1a5");
-    const QString tableHeaderBg= darkMode ? QStringLiteral("#273246") : QStringLiteral("#6b756f");
-    const QString tableHeaderTx= darkMode ? QStringLiteral("#eaf1ff") : QStringLiteral("#f8f4e8");
+    // Warm professional palette with stronger contrast for a vibrant, non-pale look
+    const QString bg           = darkMode ? QStringLiteral("#121925") : QStringLiteral("#ede4d0");
+    const QString surface      = darkMode ? QStringLiteral("#182130") : QStringLiteral("#ffffff");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1b2432") : QStringLiteral("#2d3a33");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#2f7a65");
+    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#ffffff");
+    const QString sidebarHover = darkMode ? QStringLiteral("#243044") : QStringLiteral("#3a4a40");
+    const QString textPrimary  = darkMode ? QStringLiteral("#edf3ff") : QStringLiteral("#24302a");
+    const QString textSecondary= darkMode ? QStringLiteral("#aab8d1") : QStringLiteral("#5c6b61");
+    const QString border       = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#d4c8b0");
+    const QString inputBorder  = darkMode ? QStringLiteral("#344057") : QStringLiteral("#c4b69b");
+    const QString tableHeaderBg= darkMode ? QStringLiteral("#273246") : QStringLiteral("#2f7a65");
+    const QString tableHeaderTx= darkMode ? QStringLiteral("#eaf1ff") : QStringLiteral("#ffffff");
     const QString tableAltRow  = darkMode ? QStringLiteral("#151e2c") : QStringLiteral("#f7f1e4");
     const QString tableGrid    = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#ddd2bb");
-    const QString tableSelBg   = darkMode ? QStringLiteral("#1b3642") : QStringLiteral("#e3f0ea");
+    const QString tableSelBg   = darkMode ? QStringLiteral("#1b3642") : QStringLiteral("#d6ebe1");
     const QString accent       = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#2f7a65");
     const QString accentHover  = darkMode ? QStringLiteral("#17766d") : QStringLiteral("#296a58");
     const QString accentPanelBg= darkMode ? QStringLiteral("#1b2638") : QStringLiteral("#e3f0ea");
-    const QString inputBg      = darkMode ? QStringLiteral("#121a28") : QStringLiteral("#fffaf0");
+    const QString inputBg      = darkMode ? QStringLiteral("#121a28") : QStringLiteral("#ffffff");
     const QString scrollHandle = darkMode ? QStringLiteral("#344057") : QStringLiteral("#c4b69b");
     const QString secondaryBg  = darkMode ? QStringLiteral("#202b3d") : QStringLiteral("#e8f1ed");
     const QString secondaryHover = darkMode ? QStringLiteral("#2a364c") : QStringLiteral("#dcebe4");
+    // Sidebar text colors (sidebar is dark in light mode, so text must be light)
+    const QString sidebarText  = QStringLiteral("#e8efe9");
+    const QString sidebarMuted = QStringLiteral("#9fb0a6");
     const QString heroGrad     = darkMode
         ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
-        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3b82f6, stop:1 #60a5fa)");
+        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2f7a65, stop:1 #4ba88c)");
 
     return QStringLiteral(
         // 1. Universal font reset - normal weight baseline
@@ -590,33 +650,33 @@ static QString buildModernQss(bool darkMode = false) {
         "QMainWindow, QWidget#workspace { background: %1; color: %2; font-size: 13px; }"
     ).arg(bg, textPrimary)
 
-    // 3. Sidebar container
+    // 3. Sidebar container (dark)
     + QStringLiteral(
-        "QWidget#sidebarWrap { background: %1; border-right: 1px solid rgba(0,0,0,0.14); }"
-        "QWidget#sidebarWrapCollapsed { background: %2; border-right: 1px solid rgba(0,0,0,0.14); }"
-    ).arg(sidebarBg, darkMode ? QStringLiteral("#151d2b") : QStringLiteral("#eee4d0"))
+        "QWidget#sidebarWrap { background: %1; border-right: 1px solid rgba(0,0,0,0.2); }"
+        "QWidget#sidebarWrapCollapsed { background: %2; border-right: 1px solid rgba(0,0,0,0.2); }"
+    ).arg(sidebarBg, darkMode ? QStringLiteral("#151d2b") : QStringLiteral("#26312b"))
 
     + QStringLiteral(
-        "QPushButton#sidebarToggle { background: transparent; color: %1;"
-        " border: 1px solid %2; border-radius: 7px; min-height: 28px;"
+        "QPushButton#sidebarToggle { background: rgba(255,255,255,0.08); color: %1;"
+        " border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; min-height: 28px;"
         " padding: 0 8px; font-weight: 800; }"
-        "QPushButton#sidebarToggle:hover { background: %3; }"
-        "QPushButton#sidebarToggleCollapsed { background: %4; color: #ffffff;"
+        "QPushButton#sidebarToggle:hover { background: rgba(255,255,255,0.16); }"
+        "QPushButton#sidebarToggleCollapsed { background: %2; color: #ffffff;"
         " border: none; border-radius: 7px; min-height: 28px;"
         " padding: 0 8px; font-weight: 900; }"
-        "QPushButton#sidebarToggleCollapsed:hover { background: %5; }"
-    ).arg(textPrimary, border, sidebarHover, accent, accentHover)
+        "QPushButton#sidebarToggleCollapsed:hover { background: %3; }"
+    ).arg(sidebarText, accent, accentHover)
 
-    // 4. Sidebar list
+    // 4. Sidebar list (light text on dark bg)
     + QStringLiteral(
         "QListWidget#sidebar { background: transparent; border: none; color: %1;"
         " font-size: 13px; font-weight: 500; outline: none; padding: 8px 0; }"
-    ).arg(textPrimary)
+    ).arg(sidebarText)
 
     // 5. Sidebar items
     + QStringLiteral(
-        "QListWidget#sidebar::item { padding: 8px 10px; border-radius: 7px; min-height: 22px; margin: 1px 4px; }"
-    )
+        "QListWidget#sidebar::item { padding: 8px 10px; border-radius: 7px; min-height: 22px; margin: 1px 6px; color: %1; }"
+    ).arg(sidebarText)
 
     // 6. Sidebar selected - vibrant blue with white bold text
     + QStringLiteral(
@@ -628,16 +688,16 @@ static QString buildModernQss(bool darkMode = false) {
         "QListWidget#sidebar::item:hover:!selected { background: %1; }"
     ).arg(sidebarHover)
 
-    // 8. Brand label
+    // 8. Brand label (on dark sidebar)
     + QStringLiteral(
-        "QLabel#brandLabel { color: %1; font-size: 13px; font-weight: 400;"
+        "QLabel#brandLabel { color: %1; font-size: 15px; font-weight: 700;"
         " padding: 11px 14px 10px 14px; }"
-    ).arg(textPrimary)
+    ).arg(sidebarText)
 
     // 9. Brand sub
     + QStringLiteral(
         "QLabel#brandSub { color: %1; font-size: 11px; padding: 0 14px 10px 14px; }"
-    ).arg(textSecondary)
+    ).arg(sidebarMuted)
 
     // 10. Page title
     + QStringLiteral(
@@ -1158,6 +1218,21 @@ bool DesktopApplication::showAuthDialog() {
         QDialog dialog(this);
         dialog.setWindowTitle(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("M-Finlogs - Sign In"));
         dialog.setModal(true);
+        // Interactive auth dialog styling with hover/focus states
+        dialog.setStyleSheet(QStringLiteral(
+            "QDialog { background: #ffffff; }"
+            "QLineEdit { background: #f9fafb; border: 1.5px solid #e5e7eb; border-radius: 9px;"
+            " padding: 0 14px; color: #111827; font-size: 13px; }"
+            "QLineEdit:hover { border-color: #cbd5e1; background: #ffffff; }"
+            "QLineEdit:focus { border-color: #2f7a65; background: #ffffff; }"
+            "QLineEdit:disabled { background: #f1f3f5; color: #9aa3ad; }"
+            "QPushButton { background: #2f7a65; color: #ffffff; border: none; border-radius: 9px;"
+            " font-weight: 700; font-size: 14px; padding: 8px 18px; }"
+            "QPushButton:hover { background: #296a58; }"
+            "QPushButton:pressed { background: #225647; }"
+            "QPushButton#secondaryButton { background: #eef2f0; color: #2f7a65; font-weight: 600; }"
+            "QPushButton#secondaryButton:hover { background: #e0e9e5; }"
+        ));
         dialog.resize(440, 380);
 
         QVBoxLayout* layout = new QVBoxLayout(&dialog);
@@ -2475,16 +2550,19 @@ QWidget* DesktopApplication::buildInventoryPage() {
                 QString(), QString(), QString(), QString(), QStringLiteral("smtp.gmail.com"), 587,
                 QStringLiteral("Inventory Report"), QString(), financialYear, month->currentText(), QStringLiteral("monthly"), onlyReorder->isChecked(), includeValue->isChecked(), rows
             });
-            const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save Inventory PDF"), QStringLiteral("Inventory_%1_%2.pdf").arg(financialYear, QString::number(month->currentIndex() + 1)), QStringLiteral("PDF (*.pdf)"));
-            if (path.trimmed().isEmpty()) {
-                return;
+            // Write to a temp file and open it directly so the user always sees the freshly
+            // generated preview (avoids confusion with stale saved files).
+            const QString tempPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+                .filePath(QStringLiteral("MFinlogs_Inventory_Preview_%1.pdf")
+                    .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"))));
+            QFile tempFile(tempPath);
+            if (!tempFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                throw std::runtime_error(QStringLiteral("Could not write preview PDF: %1").arg(tempPath).toStdString());
             }
-            QFile file(path);
-            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                throw std::runtime_error(QStringLiteral("Could not write PDF: %1").arg(path).toStdString());
-            }
-            file.write(pdf);
-            statusBar()->showMessage(QStringLiteral("Inventory PDF saved"), 7000);
+            tempFile.write(pdf);
+            tempFile.close();
+            QDesktopServices::openUrl(QUrl::fromLocalFile(tempPath));
+            statusBar()->showMessage(QStringLiteral("Inventory PDF preview opened"), 7000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Inventory PDF"), err);
         }
