@@ -495,156 +495,300 @@ void focusEntryWidget(QWidget& widget) {
     }
 }
 
-static QString buildModernQss() {
+static QString buildModernQss(bool darkMode = false) {
+    // Notion/Linear-style design system — light and dark modes
+    const QString bg           = darkMode ? QStringLiteral("#191919") : QStringLiteral("#ffffff");
+    const QString surface      = darkMode ? QStringLiteral("#202020") : QStringLiteral("#ffffff");
+    const QString sidebarBg    = darkMode ? QStringLiteral("#1e1e1e") : QStringLiteral("#f7f7f5");
+    const QString sidebarSel   = darkMode ? QStringLiteral("#2f2f2f") : QStringLiteral("#ebebea");
+    const QString sidebarHover = darkMode ? QStringLiteral("#2a2a2a") : QStringLiteral("#f1f1ef");
+    const QString textPrimary  = darkMode ? QStringLiteral("#ffffffcf") : QStringLiteral("#37352f");
+    const QString textSecondary= darkMode ? QStringLiteral("#ffffff73") : QStringLiteral("#787774");
+    const QString textTertiary = darkMode ? QStringLiteral("#ffffff3d") : QStringLiteral("#9b9a97");
+    const QString border       = darkMode ? QStringLiteral("#ffffff14") : QStringLiteral("#e9e9e7");
+    const QString tableHeaderBg= darkMode ? QStringLiteral("#252525") : QStringLiteral("#f7f7f5");
+    const QString tableHeaderTx= darkMode ? QStringLiteral("#ffffffcf") : QStringLiteral("#37352f");
+    const QString tableAltRow  = darkMode ? QStringLiteral("#1c1c1c") : QStringLiteral("#fbfbfa");
+    const QString tableGrid    = darkMode ? QStringLiteral("#ffffff0f") : QStringLiteral("#efefed");
+    const QString accent       = darkMode ? QStringLiteral("#529cca") : QStringLiteral("#2383e2");
+    const QString accentHover  = darkMode ? QStringLiteral("#6db3df") : QStringLiteral("#1b6ec2");
+    const QString danger       = darkMode ? QStringLiteral("#ff6b6b") : QStringLiteral("#eb5757");
+    const QString success      = QStringLiteral("#4dab9a");
+    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffffcf") : QStringLiteral("#37352f");
+    const QString accentPanelBg= darkMode ? QStringLiteral("#1a2a3a") : QStringLiteral("#f0f7ff");
+    const QString inputBg      = darkMode ? QStringLiteral("#252525") : QStringLiteral("#ffffff");
+    const QString scrollTrack  = darkMode ? QStringLiteral("#252525") : QStringLiteral("#f7f7f5");
+    const QString scrollHandle = darkMode ? QStringLiteral("#ffffff26") : QStringLiteral("#d4d4d2");
+    const QString sidebarBorder= darkMode ? QStringLiteral("border-right: 1px solid #ffffff14;") : QStringLiteral("");
+    const QString panelBorder  = darkMode ? QStringLiteral("border: 1px solid #ffffff14;") : QStringLiteral("border: none;");
+    const QString heroGrad     = darkMode
+        ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1a3a5c, stop:0.6 #2a6090, stop:1 #529cca)")
+        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2383e2, stop:0.6 #4a9de8, stop:1 #7ab8f0)");
+
     return QStringLiteral(
-        // Universal font reset — Inter Tight preferred, Inter fallback
-        "* { font-family: 'Inter Tight', 'Inter', 'Segoe UI', sans-serif; }"
+        // 1. Universal font reset
+        "* { font-family: 'Inter', 'SF Pro Display', 'Segoe UI', -apple-system, sans-serif;"
+        " font-weight: 400; }"
 
-        // Workspace
-        "QMainWindow, QWidget#workspace { background: #f0ead8; color: #0f2436; font-size: 12px; }"
+        // 2. Workspace
+        "QMainWindow, QWidget#workspace { background: %1; color: %2; font-size: 13px; }"
+    ).arg(bg, textPrimary)
 
-        // Sidebar container
-        "QWidget#sidebarWrap { background: #082f63; border-right: 1px solid #06264f; }"
+    // 3. Sidebar container
+    + QStringLiteral(
+        "QWidget#sidebarWrap { background: %1; %2 }"
+    ).arg(sidebarBg, sidebarBorder)
 
-        // Sidebar list
-        "QListWidget#sidebar { background: transparent; border: none; color: #dce9f8;"
-        " font-size: 12px; font-weight: 600; outline: none; }"
-        "QListWidget#sidebar::item { padding: 7px 14px; border-radius: 4px; }"
-        "QListWidget#sidebar::item:selected { background: #d7e8ff; color: #082f63; font-weight: 700; }"
-        "QListWidget#sidebar::item:hover:!selected { background: #1a4a8a; color: #ffffff; }"
+    // 4. Sidebar list
+    + QStringLiteral(
+        "QListWidget#sidebar { background: transparent; border: none; color: %1;"
+        " font-size: 13px; font-weight: 500; outline: none; }"
+    ).arg(textPrimary)
 
-        // Brand labels
-        "QLabel#brandLabel { color: #ffffff; font-size: 15px; font-weight: 800;"
+    // 5. Sidebar items
+    + QStringLiteral(
+        "QListWidget#sidebar::item { padding: 6px 12px; border-radius: 4px; }"
+    )
+
+    // 6. Sidebar selected
+    + QStringLiteral(
+        "QListWidget#sidebar::item:selected { background: %1; color: %2; font-weight: 600; }"
+    ).arg(sidebarSel, sidebarSelTx)
+
+    // 7. Sidebar hover
+    + QStringLiteral(
+        "QListWidget#sidebar::item:hover:!selected { background: %1; }"
+    ).arg(sidebarHover)
+
+    // 8. Brand label
+    + QStringLiteral(
+        "QLabel#brandLabel { color: %1; font-size: 15px; font-weight: 700;"
         " padding: 16px 14px 2px 14px; }"
-        "QLabel#brandSub { color: #8fb8ea; font-size: 10px; padding: 0 14px 12px 14px; }"
+    ).arg(textPrimary)
 
-        // Typography labels
-        "QLabel#pageTitle { color: #082f63; font-size: 18px; font-weight: 800; }"
-        "QLabel#pageMeta { color: #58677a; font-size: 11px; }"
-        "QLabel#sectionTitle { color: #082f63; font-size: 13px; font-weight: 700; }"
-        "QLabel#sectionDescription { color: #58677a; font-size: 11px; }"
-        "QLabel#metricLabel { color: #58677a; font-size: 10px; font-weight: 700;"
-        " text-transform: uppercase; }"
-        "QLabel#metricValue { color: #082f63; font-size: 18px; font-weight: 800; }"
-        "QLabel#contextChip { color: #58677a; font-size: 11px; }"
+    // 9. Brand sub
+    + QStringLiteral(
+        "QLabel#brandSub { color: %1; font-size: 11px; padding: 0 14px 12px 14px; }"
+    ).arg(textSecondary)
 
-        // Panels / cards — semi-rounded (6px)
-        "QFrame#panel { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
-        "QFrame#accentPanel { background: #eaf3ff; border: 1px solid #8fb8ea; border-radius: 6px; }"
-        "QFrame#contextBar { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 4px;"
+    // 10. Page title
+    + QStringLiteral(
+        "QLabel#pageTitle { color: %1; font-size: 24px; font-weight: 700; }"
+    ).arg(textPrimary)
+
+    // 11. Page meta
+    + QStringLiteral(
+        "QLabel#pageMeta { color: %1; font-size: 12px; font-weight: 400; }"
+    ).arg(textSecondary)
+
+    // 12. Section title
+    + QStringLiteral(
+        "QLabel#sectionTitle { color: %1; font-size: 14px; font-weight: 600; }"
+    ).arg(textPrimary)
+
+    + QStringLiteral(
+        "QLabel#sectionDescription { color: %1; font-size: 12px; font-weight: 400; }"
+    ).arg(textSecondary)
+
+    // 13. Metric label
+    + QStringLiteral(
+        "QLabel#metricLabel { color: %1; font-size: 11px; font-weight: 600;"
+        " text-transform: uppercase; letter-spacing: 0.5px; }"
+    ).arg(textSecondary)
+
+    // 14. Metric value
+    + QStringLiteral(
+        "QLabel#metricValue { color: %1; font-size: 22px; font-weight: 700; }"
+    ).arg(textPrimary)
+
+    + QStringLiteral(
+        "QLabel#contextChip { color: %1; font-size: 12px; font-weight: 400; }"
+    ).arg(textSecondary)
+
+    // 15. Panel — no border in light, subtle border in dark
+    + QStringLiteral(
+        "QFrame#panel { background: %1; %2 border-radius: 6px; }"
+    ).arg(surface, panelBorder)
+
+    // 16. Accent panel
+    + QStringLiteral(
+        "QFrame#accentPanel { background: %1; %2 border-radius: 6px; }"
+    ).arg(accentPanelBg, panelBorder)
+
+    // 17. Context bar
+    + QStringLiteral(
+        "QFrame#contextBar { background: %1; border: 1px solid %2; border-radius: 4px;"
         " padding: 4px 10px; }"
+    ).arg(surface, border)
 
-        // Tables — tight rows matching Electron build
+    // 18. Tables — flat, clean, no outer border-radius
+    + QStringLiteral(
         "QTableWidget#dataTable, QTableWidget#inventoryTable {"
-        " background: #fffdf5; alternate-background-color: #f5edd8;"
-        " border: 1px solid #d7c8a8; border-radius: 4px;"
-        " selection-background-color: #d7e8ff; selection-color: #082f63;"
-        " gridline-color: #e8dcc4; color: #0f2436; font-size: 12px; }"
+        " background: %1; alternate-background-color: %2;"
+        " border: none; border-radius: 0px;"
+        " selection-background-color: %3; selection-color: %4;"
+        " gridline-color: %5; color: %6; font-size: 13px; font-weight: 400; }"
+    ).arg(surface, tableAltRow, sidebarSel, textPrimary, tableGrid, textPrimary)
 
-        // Header
+    // 19. Header — subtle, uppercase, no border-radius
+    + QStringLiteral(
         "QHeaderView::section {"
-        " background-color: #082f63; color: #fffdf5;"
-        " border: none; border-right: 1px solid #1b4c83; border-bottom: 2px solid #1b4c83;"
-        " padding: 5px 8px; font-weight: 700; font-size: 11px; }"
-        "QHeaderView::section:first { border-top-left-radius: 3px; }"
-        "QHeaderView::section:last { border-top-right-radius: 3px; border-right: none; }"
-        "QHeaderView { background-color: #082f63; }"
+        " background-color: %1; color: %2;"
+        " border: none; border-bottom: 1px solid %3;"
+        " padding: 4px 8px; font-weight: 600; font-size: 12px;"
+        " text-transform: uppercase; letter-spacing: 0.5px; }"
+    ).arg(tableHeaderBg, tableHeaderTx, border)
 
-        // Table items — tight padding like Electron
-        "QTableWidget::item { padding: 3px 8px; border-bottom: 1px solid #ede0c8; color: #0f2436; }"
-        "QTableWidget#inventoryTable::item { padding: 2px 6px; border-right: 1px solid #ede0c8; }"
+    // 20. Header background fill
+    + QStringLiteral(
+        "QHeaderView { background-color: %1; }"
+    ).arg(tableHeaderBg)
 
-        // Buttons — semi-rounded (5px)
-        "QPushButton { background: #0b5cab; color: #fffdf5; border: 1px solid #073f78;"
-        " border-radius: 5px; min-height: 28px; padding: 4px 14px; font-weight: 700; font-size: 12px; }"
-        "QPushButton:hover { background: #074c91; }"
-        "QPushButton:pressed { background: #063d76; }"
-        "QPushButton#secondaryButton { background: #edf5ff; color: #082f63;"
-        " border: 1px solid #8fb8ea; }"
-        "QPushButton#secondaryButton:hover { background: #d7e8ff; }"
+    // 21. Table items — tight padding, thin bottom border
+    + QStringLiteral(
+        "QTableWidget::item { padding: 4px 8px; border-bottom: 1px solid %1; color: %2;"
+        " min-height: 32px; }"
+        "QTableWidget#inventoryTable::item { padding: 4px 6px; border-right: 1px solid %1; }"
+    ).arg(tableGrid, textPrimary)
 
-        // Inputs — semi-rounded (5px), tighter height
+    // 22. Buttons — small, precise
+    + QStringLiteral(
+        "QPushButton { background: %1; color: #ffffff; border: none;"
+        " border-radius: 4px; min-height: 30px; padding: 4px 14px;"
+        " font-weight: 600; font-size: 13px; }"
+    ).arg(accent)
+
+    // 23. Button hover
+    + QStringLiteral(
+        "QPushButton:hover { background: %1; }"
+        "QPushButton:pressed { background: %1; }"
+    ).arg(accentHover)
+
+    // 24. Secondary button
+    + QStringLiteral(
+        "QPushButton#secondaryButton { background: transparent; color: %1;"
+        " border: 1px solid %2; }"
+        "QPushButton#secondaryButton:hover { background: %3; }"
+    ).arg(textPrimary, border, sidebarHover)
+
+    // 25. Inputs — 32px height, subtle border
+    + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
-        " background: #fffdf5; border: 1px solid #c9b68f; border-radius: 5px;"
-        " min-height: 28px; padding: 0 8px; color: #0f2436; font-size: 12px; }"
+        " background: %1; border: 1px solid %2; border-radius: 4px;"
+        " min-height: 32px; padding: 0 8px; color: %3; font-size: 13px; }"
+    ).arg(inputBg, border, textPrimary)
+
+    // 26. Focus states
+    + QStringLiteral(
         "QLineEdit:focus, QDateEdit:focus, QDoubleSpinBox:focus, QComboBox:focus {"
-        " background: #ffffff; border-color: #0b5cab; }"
+        " border-color: %1; }"
         "QComboBox::drop-down { border: none; width: 20px; }"
+    ).arg(accent)
 
-        // Scrollbars
-        "QScrollBar:vertical { background: #ede0c8; width: 6px; border-radius: 3px; margin: 0; }"
-        "QScrollBar::handle:vertical { background: #b8a88a; border-radius: 3px; min-height: 20px; }"
+    // 27. Scrollbars — 6px thin, very subtle
+    + QStringLiteral(
+        "QScrollBar:vertical { background: %1; width: 6px; border-radius: 3px; margin: 0; }"
+        "QScrollBar::handle:vertical { background: %2; border-radius: 3px; min-height: 20px; }"
         "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-        "QScrollBar:horizontal { background: #ede0c8; height: 6px; border-radius: 3px; margin: 0; }"
-        "QScrollBar::handle:horizontal { background: #b8a88a; border-radius: 3px; min-width: 20px; }"
+        "QScrollBar:horizontal { background: %1; height: 6px; border-radius: 3px; margin: 0; }"
+        "QScrollBar::handle:horizontal { background: %2; border-radius: 3px; min-width: 20px; }"
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }"
+    ).arg(scrollTrack, scrollHandle)
 
-        // Status bar
-        "QStatusBar { background: #fffdf5; color: #58677a; border-top: 1px solid #d7c8a8;"
-        " font-size: 11px; }"
+    // 28. Status bar
+    + QStringLiteral(
+        "QStatusBar { background: %1; color: %2; border-top: 1px solid %3;"
+        " font-size: 12px; }"
+    ).arg(surface, textSecondary, border)
 
-        // Dialogs
-        "QDialog { background: #f0ead8; }"
-        "QMessageBox { background: #f0ead8; }"
+    // 29. Dialogs
+    + QStringLiteral(
+        "QDialog { background: %1; }"
+        "QMessageBox { background: %1; }"
+    ).arg(bg)
 
-        // Toolbar
-        "QToolBar { background: #fffdf5; border-bottom: 1px solid #d7c8a8; }"
+    // Toolbar
+    + QStringLiteral(
+        "QToolBar { background: %1; border-bottom: 1px solid %2; }"
+    ).arg(surface, border)
 
-        // ── Welcome / Onboarding ──────────────────────────────────────────────
-
+    // 30. Welcome hero — accent blue gradient
+    + QStringLiteral(
         "QFrame#welcomeHero {"
-        " background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        "   stop:0 #082f63, stop:0.6 #0b5cab, stop:1 #1a6fc4);"
+        " background: %1;"
         " border-radius: 8px; border: none; }"
+    ).arg(heroGrad)
 
+    + QStringLiteral(
         "QLabel#welcomeKicker {"
-        " color: #8fb8ea; font-size: 10px; font-weight: 700; letter-spacing: 2px; }"
+        " color: rgba(255,255,255,0.7); font-size: 10px; font-weight: 600; letter-spacing: 2px; }"
 
         "QLabel#welcomeTitle {"
-        " color: #ffffff; font-size: 28px; font-weight: 800; }"
+        " color: #ffffff; font-size: 28px; font-weight: 700; }"
 
         "QLabel#welcomeSubtitle {"
-        " color: #c8dff5; font-size: 12px; font-weight: 400; }"
+        " color: rgba(255,255,255,0.8); font-size: 13px; font-weight: 400; }"
+    )
 
+    // 31. Welcome stat chips — subtle bg, no heavy border
+    + QStringLiteral(
         "QLabel#welcomeStat {"
         " color: #ffffff; background: rgba(255,255,255,0.12);"
-        " border: 1px solid rgba(255,255,255,0.22);"
+        " border: 1px solid rgba(255,255,255,0.18);"
         " border-radius: 12px; padding: 4px 12px;"
-        " font-size: 11px; font-weight: 600; }"
+        " font-size: 11px; font-weight: 500; }"
+    )
 
+    // 32. Feature cards — clean, no border in light, subtle in dark
+    + QStringLiteral(
         "QFrame#featureCard {"
-        " background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
-        "QFrame#featureCard:hover { background: #ffffff; border-color: #0b5cab; }"
+        " background: %1; %2 border-radius: 6px; }"
+        "QFrame#featureCard:hover { background: %3; }"
+    ).arg(surface, panelBorder, sidebarHover)
 
-        "QLabel#featureIcon { color: #0b5cab; font-size: 22px; }"
-        "QLabel#featureTitle { color: #082f63; font-size: 12px; font-weight: 700; }"
-        "QLabel#featureDesc { color: #58677a; font-size: 11px; }"
+    + QStringLiteral(
+        "QLabel#featureIcon { color: %1; font-size: 22px; }"
+        "QLabel#featureTitle { color: %2; font-size: 13px; font-weight: 600; }"
+        "QLabel#featureDesc { color: %3; font-size: 12px; font-weight: 400; }"
+    ).arg(accent, textPrimary, textSecondary)
 
-        "QFrame#onboardStep { background: #fffdf5; border: 1px solid #d7c8a8; border-radius: 6px; }"
+    // 33. Onboarding steps — clean, minimal
+    + QStringLiteral(
+        "QFrame#onboardStep { background: %1; %2 border-radius: 6px; }"
+    ).arg(surface, panelBorder)
 
+    + QStringLiteral(
         "QLabel#stepBadge {"
-        " background: #0b5cab; color: #ffffff; border-radius: 11px;"
-        " font-size: 11px; font-weight: 800;"
+        " background: %1; color: #ffffff; border-radius: 11px;"
+        " font-size: 11px; font-weight: 700;"
         " min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px;"
         " qproperty-alignment: AlignCenter; }"
+    ).arg(accent)
 
-        "QLabel#stepTitle { color: #082f63; font-size: 12px; font-weight: 700; }"
-        "QLabel#stepDesc { color: #58677a; font-size: 11px; }"
+    + QStringLiteral(
+        "QLabel#stepTitle { color: %1; font-size: 13px; font-weight: 600; }"
+        "QLabel#stepDesc { color: %2; font-size: 12px; font-weight: 400; }"
+    ).arg(textPrimary, textSecondary)
 
-        "QFrame#divider { background: #d7c8a8; border: none; max-height: 1px; }"
+    + QStringLiteral(
+        "QFrame#divider { background: %1; border: none; max-height: 1px; }"
+    ).arg(border)
 
+    + QStringLiteral(
         "QPushButton#heroCta {"
-        " background: #ffffff; color: #082f63; border: none; border-radius: 5px;"
-        " min-height: 32px; padding: 6px 18px; font-weight: 800; font-size: 12px; }"
-        "QPushButton#heroCta:hover { background: #eaf3ff; }"
-        "QPushButton#heroCta:pressed { background: #d7e8ff; }"
+        " background: #ffffff; color: %1; border: none; border-radius: 4px;"
+        " min-height: 30px; padding: 4px 18px; font-weight: 700; font-size: 13px; }"
+        "QPushButton#heroCta:hover { background: #f0f0f0; }"
+        "QPushButton#heroCta:pressed { background: #e0e0e0; }"
+    ).arg(accent)
 
+    + QStringLiteral(
         "QPushButton#heroGhost {"
         " background: rgba(255,255,255,0.10); color: #ffffff;"
-        " border: 1px solid rgba(255,255,255,0.35); border-radius: 5px;"
-        " min-height: 32px; padding: 6px 18px; font-weight: 600; font-size: 12px; }"
-        "QPushButton#heroGhost:hover { background: rgba(255,255,255,0.20); }"
-        "QPushButton#heroGhost:pressed { background: rgba(255,255,255,0.28); }"
+        " border: 1px solid rgba(255,255,255,0.25); border-radius: 4px;"
+        " min-height: 30px; padding: 4px 18px; font-weight: 500; font-size: 13px; }"
+        "QPushButton#heroGhost:hover { background: rgba(255,255,255,0.18); }"
+        "QPushButton#heroGhost:pressed { background: rgba(255,255,255,0.25); }"
     );
 }
 
@@ -664,14 +808,14 @@ DesktopApplication::DesktopApplication(AppContext& context)
     }
 }
 
-void DesktopApplication::applyTheme() {
+void DesktopApplication::applyTheme(bool darkMode) {
     const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Regular.ttf"));
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("Inter-Bold.ttf"));
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
     QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
-    qApp->setFont(QFont(QStringLiteral("Inter Tight"), 12));
-    qApp->setStyleSheet(buildModernQss());
+    qApp->setFont(QFont(QStringLiteral("Inter"), 13));
+    qApp->setStyleSheet(buildModernQss(darkMode));
 }
 
 void DesktopApplication::buildNavigation() {
@@ -1422,6 +1566,25 @@ QWidget* DesktopApplication::buildSettingsPage() {
     layout->setSpacing(12);
     layout->addWidget(createPageHeader(QStringLiteral("Settings"), QStringLiteral("Database configuration, backup paths, and native runtime controls."), page));
     layout->addWidget(createContextBar(context_, page));
+
+    // Theme toggle
+    QFrame* themePanel = createPanel(page);
+    QHBoxLayout* themeLayout = new QHBoxLayout(themePanel);
+    themeLayout->setContentsMargins(14, 12, 14, 12);
+    themeLayout->setSpacing(10);
+    QLabel* themeLabel = new QLabel(QStringLiteral("Appearance"), themePanel);
+    themeLabel->setObjectName(QStringLiteral("sectionTitle"));
+    QComboBox* themeCombo = new QComboBox(themePanel);
+    themeCombo->addItems({QStringLiteral("Light"), QStringLiteral("Dark")});
+    themeCombo->setCurrentIndex(0);
+    themeLayout->addWidget(themeLabel);
+    themeLayout->addWidget(themeCombo);
+    themeLayout->addStretch(1);
+    connect(themeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+        const bool isDark = (index == 1);
+        applyTheme(isDark);
+    });
+    layout->addWidget(themePanel);
 
     QFrame* panel = createPanel(page);
     QGridLayout* form = new QGridLayout(panel);
