@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QHash>
 #include <QHostInfo>
+#include <QMap>
 #include <QPageLayout>
 #include <QPageSize>
 #include <QPainter>
@@ -212,6 +213,19 @@ void executePrepared(QSqlQuery& query, const QString& action) {
     if (!query.exec()) {
         throwSqlError(action, query);
     }
+}
+
+void consumeSqlResults(QSqlQuery& query) {
+    while (query.nextResult()) {
+    }
+}
+
+void executeSqlStatement(QSqlDatabase database, const QString& sql, const QString& action) {
+    QSqlQuery query(database);
+    if (!query.exec(sql)) {
+        throwSqlError(action, query);
+    }
+    consumeSqlResults(query);
 }
 
 class SqlServiceBase {
@@ -819,9 +833,23 @@ public:
             if (!fields.contains(field)) {
                 throw domain::DomainError(QStringLiteral("Invalid transaction field: %1").arg(field).toStdString());
             }
+            if (field == QStringLiteral("txn_type")) {
+                value = transactionTypeToString(transactionTypeFromString(request.newValue));
+            } else if (field == QStringLiteral("payment_mode")) {
+                value = paymentModeToString(paymentModeFromString(request.newValue));
+            } else if (field == QStringLiteral("amount")) {
+                bool ok = false;
+                const double amount = request.newValue.trimmed().toDouble(&ok);
+                if (!ok || amount < 0.0) {
+                    throw domain::DomainError(QStringLiteral("Invalid transaction amount: %1").arg(request.newValue).toStdString());
+                }
+                value = amount;
+            } else {
+                value = request.newValue.trimmed();
+            }
             QSqlQuery query(database.handle());
             query.prepare(QStringLiteral("UPDATE transactions SET %1=? WHERE txn_id=?").arg(fields.value(field)));
-            query.addBindValue(request.newValue);
+            query.addBindValue(value);
             query.addBindValue(request.transactionId);
             executePrepared(query, QStringLiteral("Edit transaction"));
         }
@@ -990,31 +1018,7 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        QSqlQuery query(database.handle());
-        query.prepare(QStringLiteral(
-            "SELECT txn_date, "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type)))='SALE' THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type))) IN ('RECEIPT','RECIEPT') THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type)))='EXPENSE' THEN amount ELSE 0 END) "
-            "FROM transactions WHERE txn_date >= ? AND txn_date <= ? GROUP BY txn_date ORDER BY txn_date"
-        ));
-        query.addBindValue(range.start);
-        query.addBindValue(range.end);
-        executePrepared(query, QStringLiteral("Read daily summary"));
-
-        QJsonArray rows;
-        while (query.next()) {
-            QJsonObject item;
-            item.insert(QStringLiteral("date"), query.value(0).toDate().toString(Qt::ISODate));
-            item.insert(QStringLiteral("sales"), query.value(1).toDouble());
-            item.insert(QStringLiteral("sale_returns"), query.value(2).toDouble());
-            item.insert(QStringLiteral("receipts"), query.value(3).toDouble());
-            item.insert(QStringLiteral("expenses"), query.value(4).toDouble());
-            item.insert(QStringLiteral("net_sales"), query.value(1).toDouble() - query.value(2).toDouble());
-            rows.append(item);
-        }
-        return rows;
+        return cashSummaryRows(database.handle(), range);
     }
 
     QJsonArray shortExcess(const domain::ReportRange& range) override {
@@ -1024,22 +1028,7 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        QSqlQuery query(database.handle());
-        query.prepare(QStringLiteral(
-            "SELECT cash_date, cash_in_hand FROM daily_cash WHERE cash_date >= ? AND cash_date <= ? ORDER BY cash_date"
-        ));
-        query.addBindValue(range.start);
-        query.addBindValue(range.end);
-        executePrepared(query, QStringLiteral("Read short/excess"));
-
-        QJsonArray rows;
-        while (query.next()) {
-            QJsonObject item;
-            item.insert(QStringLiteral("date"), query.value(0).toDate().toString(Qt::ISODate));
-            item.insert(QStringLiteral("cash_in_hand"), query.value(1).toDouble());
-            rows.append(item);
-        }
-        return rows;
+        return cashSummaryRows(database.handle(), range);
     }
 
     void saveCashInHand(const QDate& date, double amount) override {
@@ -1070,6 +1059,44 @@ public:
         executePrepared(query, QStringLiteral("Save cash in hand"));
     }
 
+    void resetCashInHand(const QDate& date) override {
+        if (!date.isValid()) {
+            throw domain::DomainError("Cash date is required");
+        }
+
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while resetting cash in hand");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+
+        QSqlQuery query(database.handle());
+        query.prepare(QStringLiteral("DELETE FROM daily_cash WHERE cash_date=?"));
+        query.addBindValue(date);
+        executePrepared(query, QStringLiteral("Reset cash in hand"));
+    }
+
+    double openingCashSeed() override {
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while reading opening cash");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+        return numericSetting(database.handle(), QStringLiteral("opening_cash_seed"), 0.0);
+    }
+
+    void saveOpeningCashSeed(double amount) override {
+        if (amount < 0.0) {
+            throw domain::DomainError("Opening cash cannot be negative");
+        }
+        SqlDatabase database(readConfig());
+        if (!database.open()) {
+            throw domain::DomainError("Could not open database while saving opening cash");
+        }
+        SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
+        setTextSetting(database.handle(), QStringLiteral("opening_cash_seed"), QString::number(amount, 'f', 2));
+    }
+
     QJsonObject outstanding() override {
         SqlDatabase database(readConfig());
         if (!database.open()) {
@@ -1082,7 +1109,9 @@ public:
         query.prepare(QStringLiteral(
             "SELECT p.name, p.type, "
             "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.amount ELSE 0 END), "
-            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) "
+            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END), "
+            "MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.txn_date END), "
+            "MIN(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.txn_date END) "
             "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id AND t.txn_date >= ? AND t.txn_date <= ? "
             "WHERE p.type IN ('Customer','Credit Customer') GROUP BY p.name, p.type ORDER BY p.name"
         ));
@@ -1092,22 +1121,53 @@ public:
 
         QJsonArray rows;
         double total = 0.0;
+        int highCount = 0;
+        int criticalCount = 0;
+        double highAmount = 0.0;
+        double criticalAmount = 0.0;
+        int maxDaysUnpaid = 0;
+        const QDate today = QDate::currentDate();
         while (query.next()) {
             const double balance = query.value(2).toDouble() - query.value(3).toDouble();
             if (std::abs(balance) < 0.005) {
                 continue;
             }
+            const QDate lastReceipt = query.value(4).toDate();
+            const QDate firstSale = query.value(5).toDate();
+            const QDate anchor = lastReceipt.isValid() ? lastReceipt : firstSale;
+            const int daysUnpaid = anchor.isValid() ? static_cast<int>(anchor.daysTo(today)) : 0;
+            maxDaysUnpaid = qMax(maxDaysUnpaid, daysUnpaid);
+            if (daysUnpaid >= 30) {
+                criticalCount += 1;
+                criticalAmount += balance;
+            }
+            if (daysUnpaid >= 15) {
+                highCount += 1;
+                highAmount += balance;
+            }
+
             QJsonObject item;
             item.insert(QStringLiteral("party"), query.value(0).toString());
             item.insert(QStringLiteral("type"), query.value(1).toString());
+            item.insert(QStringLiteral("status"), riskLabel(daysUnpaid, lastReceipt.isValid()));
+            item.insert(QStringLiteral("days_unpaid"), daysUnpaid);
+            item.insert(QStringLiteral("last_receipt"), lastReceipt.isValid() ? lastReceipt.toString(Qt::ISODate) : QStringLiteral("No receipt"));
             item.insert(QStringLiteral("balance"), balance);
             rows.append(item);
             total += balance;
         }
 
+        QJsonObject stats;
+        stats.insert(QStringLiteral("high_count"), highCount);
+        stats.insert(QStringLiteral("critical_count"), criticalCount);
+        stats.insert(QStringLiteral("high_amount"), highAmount);
+        stats.insert(QStringLiteral("critical_amount"), criticalAmount);
+        stats.insert(QStringLiteral("max_days_unpaid"), maxDaysUnpaid);
+
         QJsonObject result;
         result.insert(QStringLiteral("data"), rows);
         result.insert(QStringLiteral("total"), total);
+        result.insert(QStringLiteral("stats"), stats);
         return result;
     }
 
@@ -1235,6 +1295,124 @@ public:
     }
 
 private:
+    double numericSetting(QSqlDatabase database, const QString& key, double defaultValue) const {
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral("SELECT setting_value FROM app_settings WHERE setting_key=?"));
+        query.addBindValue(key);
+        executePrepared(query, QStringLiteral("Read numeric setting"));
+        if (!query.next() || query.value(0).toString().trimmed().isEmpty()) {
+            return defaultValue;
+        }
+        bool ok = false;
+        const double value = query.value(0).toString().toDouble(&ok);
+        return ok ? value : defaultValue;
+    }
+
+    QString riskLabel(int daysUnpaid, bool hasReceipt) const {
+        if (!hasReceipt) {
+            return QStringLiteral("No receipt");
+        }
+        if (daysUnpaid >= 30) {
+            return QStringLiteral("Critical");
+        }
+        if (daysUnpaid >= 15) {
+            return QStringLiteral("High");
+        }
+        return QStringLiteral("Normal");
+    }
+
+    QJsonArray cashSummaryRows(QSqlDatabase database, const domain::ReportRange& range) const {
+        if (range.start > range.end) {
+            throw domain::DomainError("Report start date must be before end date");
+        }
+
+        struct CashDay final {
+            double cashIn = 0.0;
+            double cashExpense = 0.0;
+            double bank = 0.0;
+            double creditSale = 0.0;
+            double totalSales = 0.0;
+            bool hasCashInHand = false;
+            double cashInHand = 0.0;
+        };
+
+        QMap<QDate, CashDay> byDate;
+        QSqlQuery txnQuery(database);
+        txnQuery.prepare(QStringLiteral(
+            "SELECT txn_date, "
+            "SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN payment_mode='Credit' AND UPPER(LTRIM(RTRIM(txn_type)))='SALE' THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(txn_type)))='SALE' THEN amount ELSE 0 END) "
+            "FROM transactions WHERE txn_date >= ? AND txn_date <= ? GROUP BY txn_date"
+        ));
+        txnQuery.addBindValue(range.start);
+        txnQuery.addBindValue(range.end);
+        executePrepared(txnQuery, QStringLiteral("Read cash summary transactions"));
+        while (txnQuery.next()) {
+            CashDay day;
+            day.cashIn = txnQuery.value(1).toDouble();
+            day.cashExpense = txnQuery.value(2).toDouble();
+            day.bank = txnQuery.value(3).toDouble();
+            day.creditSale = txnQuery.value(4).toDouble();
+            day.totalSales = txnQuery.value(5).toDouble();
+            byDate.insert(txnQuery.value(0).toDate(), day);
+        }
+
+        QSqlQuery cashQuery(database);
+        cashQuery.prepare(QStringLiteral("SELECT cash_date, cash_in_hand FROM daily_cash WHERE cash_date >= ? AND cash_date <= ?"));
+        cashQuery.addBindValue(range.start);
+        cashQuery.addBindValue(range.end);
+        executePrepared(cashQuery, QStringLiteral("Read daily cash entries"));
+        while (cashQuery.next()) {
+            CashDay day = byDate.value(cashQuery.value(0).toDate());
+            day.hasCashInHand = true;
+            day.cashInHand = cashQuery.value(1).toDouble();
+            byDate.insert(cashQuery.value(0).toDate(), day);
+        }
+
+        double previousClosing = openingCashBeforeDate(database, range.start);
+        QJsonArray rows;
+        for (QDate date = range.start; date <= range.end; date = date.addDays(1)) {
+            const CashDay day = byDate.value(date);
+            const double openingCash = previousClosing;
+            const double cashNeeded = openingCash + day.cashIn - day.cashExpense;
+            const double cashInHand = day.hasCashInHand ? day.cashInHand : cashNeeded;
+            const double shortExcess = day.hasCashInHand ? cashInHand - cashNeeded : 0.0;
+
+            QJsonObject item;
+            item.insert(QStringLiteral("date"), date.toString(Qt::ISODate));
+            item.insert(QStringLiteral("opening_cash"), openingCash);
+            item.insert(QStringLiteral("cash_in"), day.cashIn);
+            item.insert(QStringLiteral("cash_expense"), day.cashExpense);
+            item.insert(QStringLiteral("cash_needed"), cashNeeded);
+            item.insert(QStringLiteral("cash_in_hand"), day.hasCashInHand ? QJsonValue(cashInHand) : QJsonValue(QJsonValue::Null));
+            item.insert(QStringLiteral("cash_short_excess"), shortExcess);
+            item.insert(QStringLiteral("bank"), day.bank);
+            item.insert(QStringLiteral("credit_sale"), day.creditSale);
+            item.insert(QStringLiteral("total_sales"), day.totalSales);
+            rows.append(item);
+            previousClosing = day.hasCashInHand ? cashInHand : cashNeeded;
+        }
+        return rows;
+    }
+
+    double openingCashBeforeDate(QSqlDatabase database, const QDate& startDate) const {
+        const double seed = numericSetting(database, QStringLiteral("opening_cash_seed"), 0.0);
+        QSqlQuery query(database);
+        query.prepare(QStringLiteral(
+            "SELECT "
+            "SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN payment_mode='Cash' AND UPPER(LTRIM(RTRIM(txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END) "
+            "FROM transactions WHERE txn_date < ?"
+        ));
+        query.addBindValue(startDate);
+        executePrepared(query, QStringLiteral("Read opening cash before date"));
+        query.next();
+        return seed + query.value(0).toDouble() - query.value(1).toDouble();
+    }
+
     QJsonArray transactionRowsToJson(QSqlQuery& query) const {
         QJsonArray rows;
         while (query.next()) {
@@ -1314,20 +1492,35 @@ public:
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
         const QString company = companyScope(database.handle());
-        for (const QJsonValue& value : rows) {
-            const QJsonObject row = value.toObject();
-            const QString name = row.value(QStringLiteral("name")).toString().trimmed();
-            if (name.isEmpty()) {
-                continue;
-            }
-            const QString rowId = row.value(QStringLiteral("row_id")).toString().trimmed().isEmpty()
-                ? QStringLiteral("inv-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces))
-                : row.value(QStringLiteral("row_id")).toString().trimmed();
-            const int itemId = upsertItem(database.handle(), company, rowId, name, row.value(QStringLiteral("cost")).toDouble(), row.value(QStringLiteral("min_stock")).toDouble());
-            replaceDayValues(database.handle(), QStringLiteral("inventory_quantities"), itemId, company, financialYear, month, QStringLiteral("qty_"), row);
-            replaceDayValues(database.handle(), QStringLiteral("inventory_purchases"), itemId, company, financialYear, month, QStringLiteral("purchase_"), row);
+        if (!database.handle().transaction()) {
+            throw domain::DomainError(QStringLiteral("Could not start inventory save transaction: %1")
+                .arg(database.handle().lastError().text())
+                .toStdString());
         }
-        writeAudit(database.handle(), QStringLiteral("native-admin"), QStringLiteral("Save Inventory"), QStringLiteral("Saved inventory snapshot ") + financialYear + QStringLiteral(" month ") + QString::number(month));
+        try {
+            for (const QJsonValue& value : rows) {
+                const QJsonObject row = value.toObject();
+                const QString name = row.value(QStringLiteral("name")).toString().trimmed();
+                if (name.isEmpty()) {
+                    continue;
+                }
+                const QString rowId = row.value(QStringLiteral("row_id")).toString().trimmed().isEmpty()
+                    ? QStringLiteral("inv-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces))
+                    : row.value(QStringLiteral("row_id")).toString().trimmed();
+                const int itemId = upsertItem(database.handle(), company, rowId, name, row.value(QStringLiteral("cost")).toDouble(), row.value(QStringLiteral("min_stock")).toDouble());
+                replaceDayValues(database.handle(), QStringLiteral("inventory_quantities"), itemId, company, financialYear, month, QStringLiteral("qty_"), row);
+                replaceDayValues(database.handle(), QStringLiteral("inventory_purchases"), itemId, company, financialYear, month, QStringLiteral("purchase_"), row);
+            }
+            writeAudit(database.handle(), QStringLiteral("native-admin"), QStringLiteral("Save Inventory"), QStringLiteral("Saved inventory snapshot ") + financialYear + QStringLiteral(" month ") + QString::number(month));
+        } catch (...) {
+            database.handle().rollback();
+            throw;
+        }
+        if (!database.handle().commit()) {
+            const QString detail = database.handle().lastError().text();
+            database.handle().rollback();
+            throw domain::DomainError(QStringLiteral("Could not commit inventory save transaction: %1").arg(detail).toStdString());
+        }
     }
 
     QJsonArray stockValue(const QString& financialYear, int month) override {
@@ -1950,6 +2143,10 @@ public:
 
     domain::BackupResult backup(const QString& destinationPath) override {
         domain::DatabaseConfig config = readConfig();
+        const QString databaseName = config.database.trimmed();
+        if (databaseName.isEmpty()) {
+            throw domain::DomainError("Backup database name is required");
+        }
         const QString requestedPath = destinationPath.trimmed().isEmpty() ? config.backupDir : destinationPath.trimmed();
         if (requestedPath.isEmpty()) {
             throw domain::DomainError("Backup destination path is required");
@@ -1961,18 +2158,22 @@ public:
         }
 
         const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-        const QString backupPath = directory.filePath(QStringLiteral("%1_%2.bak").arg(config.database, timestamp));
+        const QString backupPath = directory.filePath(QStringLiteral("%1_%2.bak").arg(databaseName, timestamp));
+        config.database = QStringLiteral("master");
         SqlDatabase database(config);
         if (!database.open()) {
-            throw domain::DomainError("Could not open database while backing up");
+            throw domain::DomainError(QStringLiteral("Could not open master database while backing up %1: %2")
+                .arg(databaseName, database.handle().lastError().text())
+                .toStdString());
         }
 
         QSqlQuery query(database.handle());
         const QString sql = QStringLiteral("BACKUP DATABASE [%1] TO DISK = '%2' WITH INIT, COPY_ONLY")
-            .arg(escapeSqlIdentifier(config.database), escapeSqlLiteral(backupPath));
+            .arg(escapeSqlIdentifier(databaseName), escapeSqlLiteral(backupPath));
         if (!query.exec(sql)) {
             throwSqlError(QStringLiteral("Backup database"), query);
         }
+        consumeSqlResults(query);
 
         return domain::BackupResult{QStringLiteral("Backup complete"), backupPath, QString()};
     }
@@ -1993,19 +2194,34 @@ public:
 
         SqlDatabase database(config);
         if (!database.open()) {
-            throw domain::DomainError("Could not open master database while restoring backup");
+            throw domain::DomainError(QStringLiteral("Could not open master database while restoring %1: %2")
+                .arg(databaseName, database.handle().lastError().text())
+                .toStdString());
         }
 
-        QSqlQuery query(database.handle());
         const QString escapedDatabase = escapeSqlIdentifier(databaseName);
         const QString escapedPath = escapeSqlLiteral(backupFile.absoluteFilePath());
-        const QString sql = QStringLiteral(
-            "ALTER DATABASE [%1] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; "
-            "RESTORE DATABASE [%1] FROM DISK = '%2' WITH REPLACE; "
-            "ALTER DATABASE [%1] SET MULTI_USER"
-        ).arg(escapedDatabase, escapedPath);
-        if (!query.exec(sql)) {
-            throwSqlError(QStringLiteral("Restore database"), query);
+        bool singleUserSet = false;
+        try {
+            executeSqlStatement(database.handle(),
+                QStringLiteral("ALTER DATABASE [%1] SET SINGLE_USER WITH ROLLBACK IMMEDIATE").arg(escapedDatabase),
+                QStringLiteral("Set database single-user for restore"));
+            singleUserSet = true;
+            executeSqlStatement(database.handle(),
+                QStringLiteral("RESTORE DATABASE [%1] FROM DISK = '%2' WITH REPLACE").arg(escapedDatabase, escapedPath),
+                QStringLiteral("Restore database"));
+            executeSqlStatement(database.handle(),
+                QStringLiteral("ALTER DATABASE [%1] SET MULTI_USER").arg(escapedDatabase),
+                QStringLiteral("Set database multi-user after restore"));
+        } catch (const std::exception& err) {
+            if (singleUserSet) {
+                QSqlQuery recoverQuery(database.handle());
+                recoverQuery.exec(QStringLiteral("ALTER DATABASE [%1] SET MULTI_USER").arg(escapedDatabase));
+                consumeSqlResults(recoverQuery);
+            }
+            throw domain::DomainError(QStringLiteral("Restore failed for database=%1 backup=%2 error=%3")
+                .arg(databaseName, backupFile.absoluteFilePath(), QString::fromUtf8(err.what()))
+                .toStdString());
         }
     }
 };

@@ -1,5 +1,10 @@
 {
   "name": "mfinlogs-native",
   "version": "0.1.0",
-  "dependencies": []
+  "dependencies": [
+    "qtbase",
+    "qtcharts",
+    "qthttpserver",
+    "qtsvg"
+  ]
 }

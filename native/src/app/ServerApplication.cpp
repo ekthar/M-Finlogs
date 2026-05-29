@@ -13,6 +13,8 @@
 #include <QStandardPaths>
 #include <QStringList>
 
+#include <exception>
+
 namespace {
 
 QString serverPidPath() {
@@ -228,7 +230,7 @@ void ServerApplication::registerRoutes() {
 int ServerApplication::run(quint16 port) {
     const quint16 boundPort = server_.listen(QHostAddress::Any, port);
     if (boundPort == 0) {
-        qCritical("Could not start native server");
+        qCritical("Could not start native server on port %u", port);
         return 1;
     }
     writeServerPid();
@@ -240,9 +242,14 @@ int runServerApplication(int argc, char** argv) {
     QCoreApplication::setOrganizationName(QStringLiteral("M-Finlogs"));
     QCoreApplication::setApplicationName(QStringLiteral("M-Finlogs"));
 
-    AppContext context(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
-    ServerApplication server(context);
-    return server.run(8000);
+    try {
+        AppContext context(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
+        ServerApplication server(context);
+        return server.run(8000);
+    } catch (const std::exception& err) {
+        qCritical("Native server startup failed: %s", err.what());
+        return 1;
+    }
 }
 
 int installServerMode() {

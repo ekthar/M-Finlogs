@@ -40,9 +40,13 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMainWindow>
+#include <QMap>
 #include <QMessageBox>
 #include <QPainter>
 #include <QParallelAnimationGroup>
+#include <QPdfWriter>
+#include <QPrintDialog>
+#include <QPrinter>
 #include <QPushButton>
 #include <QPixmap>
 #include <QPropertyAnimation>
@@ -58,14 +62,17 @@
 #include <QStatusBar>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QStringConverter>
 #include <QStyle>
 #include <QStyleHints>
 #include <QSvgRenderer>
 #include <QTableWidget>
+#include <QTextStream>
 #include <QToolBar>
 #include <QUrl>
 #include <QVariant>
 #include <QVBoxLayout>
+#include <QPointer>
 #include <QTimer>
 #include <QVariantAnimation>
 
@@ -190,8 +197,12 @@ QFrame* createAccentPanel(QWidget* parent) {
 }
 
 QString currentCompanyText(mfinlogs::app::AppContext& context) {
-    const mfinlogs::domain::DatabaseConfig config = context.services().config->readDatabaseConfig();
-    return QStringLiteral("Database: %1").arg(config.database);
+    try {
+        const mfinlogs::domain::DatabaseConfig config = context.services().config->readDatabaseConfig();
+        return QStringLiteral("Database: %1").arg(config.database.trimmed().isEmpty() ? QStringLiteral("Finlogs") : config.database);
+    } catch (const std::exception&) {
+        return QStringLiteral("Database: Not configured");
+    }
 }
 
 QString currentFinancialYearText() {
@@ -436,6 +447,30 @@ QString findExistingPartyName(const QStringList& existingNames, const QString& t
     return QString();
 }
 
+QStringList parseCsvLine(const QString& line) {
+    QStringList values;
+    QString current;
+    bool quoted = false;
+    for (int index = 0; index < line.size(); index += 1) {
+        const QChar character = line.at(index);
+        if (character == QLatin1Char('"')) {
+            if (quoted && index + 1 < line.size() && line.at(index + 1) == QLatin1Char('"')) {
+                current.append(QLatin1Char('"'));
+                index += 1;
+            } else {
+                quoted = !quoted;
+            }
+        } else if (character == QLatin1Char(',') && !quoted) {
+            values.append(current.trimmed());
+            current.clear();
+        } else {
+            current.append(character);
+        }
+    }
+    values.append(current.trimmed());
+    return values;
+}
+
 int daysInInventoryMonth(int month) {
     // Use a fixed non-leap year (2023) for consistent day counts across all financial years.
     // April-December map to 2023; January-March map to 2024 (next calendar year in FY).
@@ -495,7 +530,16 @@ bool isMoneyColumn(const QString& key) {
         || normalized == QStringLiteral("expenses")
         || normalized == QStringLiteral("net_sales")
         || normalized == QStringLiteral("net_profit")
+        || normalized == QStringLiteral("opening_cash")
+        || normalized == QStringLiteral("cash_in")
+        || normalized == QStringLiteral("cash_expense")
+        || normalized == QStringLiteral("cash_needed")
         || normalized == QStringLiteral("cash_in_hand")
+        || normalized == QStringLiteral("cash_short_excess")
+        || normalized == QStringLiteral("bank")
+        || normalized == QStringLiteral("credit_sale")
+        || normalized == QStringLiteral("total_sales")
+        || normalized == QStringLiteral("total_purchase")
         || normalized == QStringLiteral("stock_value");
 }
 
@@ -1196,9 +1240,6 @@ void DesktopApplication::buildNavigation() {
     pages->addWidget(buildInventoryPage());
     addNavItem(*nav, QStringLiteral("Inventory"), pageIndex, QStringLiteral("inventory"));
     pageIndex += 1;
-    pages->addWidget(buildInventoryPage());
-    addNavItem(*nav, QStringLiteral("Inventory Management"), pageIndex, QStringLiteral("inventory"));
-    pageIndex += 1;
     pages->addWidget(buildInventoryValuePage());
     addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex, QStringLiteral("stock"));
     pageIndex += 1;
@@ -1384,7 +1425,16 @@ bool DesktopApplication::showAuthDialog() {
 }
 
 void DesktopApplication::showDatabaseConfigDialog(QWidget* parent) {
-    const domain::DatabaseConfig config = context_.services().config->readDatabaseConfig();
+    domain::DatabaseConfig config{};
+    try {
+        config = context_.services().config->readDatabaseConfig();
+    } catch (const std::exception& err) {
+        QMessageBox::critical(parent ? parent : this,
+            QStringLiteral("Database Configuration"),
+            QStringLiteral("Could not read database configuration.\n\n%1").arg(QString::fromUtf8(err.what())));
+        return;
+    }
+
     QDialog dialog(parent ? parent : this);
     dialog.setWindowTitle(QStringLiteral("Database Configuration"));
     dialog.setModal(true);
@@ -1659,20 +1709,24 @@ QWidget* DesktopApplication::buildWelcomePage(QStackedWidget& pages, QListWidget
     layout->addWidget(tipLabel);
     layout->addStretch(1);
 
-    auto goToPage = [&pages, &nav](int targetIndex) {
-        for (int row = 0; row < nav.count(); row += 1) {
-            QListWidgetItem* item = nav.item(row);
-            if (item && item->data(Qt::UserRole).toInt() == targetIndex) {
-                nav.setCurrentRow(row);
+    QPointer<QStackedWidget> pagesPtr(&pages);
+    QPointer<QListWidget> navPtr(&nav);
+    auto goToPage = [pagesPtr, navPtr](const QString& label) {
+        if (!pagesPtr || !navPtr) {
+            return;
+        }
+        for (int row = 0; row < navPtr->count(); row += 1) {
+            QListWidgetItem* item = navPtr->item(row);
+            if (item && item->data(Qt::UserRole + 1).toString() == label) {
+                navPtr->setCurrentRow(row);
                 return;
             }
         }
-        pages.setCurrentIndex(targetIndex);
     };
-    connect(ctaEntry, &QPushButton::clicked, this, [goToPage]() { goToPage(1); });
-    connect(ctaReports, &QPushButton::clicked, this, [goToPage]() { goToPage(3); });
-    connect(ctaInv, &QPushButton::clicked, this, [goToPage]() { goToPage(12); });
-    connect(ctaSettings, &QPushButton::clicked, this, [goToPage, &pages]() { goToPage(pages.count() - 1); });
+    connect(ctaEntry, &QPushButton::clicked, this, [goToPage]() { goToPage(QStringLiteral("Daily Entry")); });
+    connect(ctaReports, &QPushButton::clicked, this, [goToPage]() { goToPage(QStringLiteral("Reports")); });
+    connect(ctaInv, &QPushButton::clicked, this, [goToPage]() { goToPage(QStringLiteral("Inventory")); });
+    connect(ctaSettings, &QPushButton::clicked, this, [goToPage]() { goToPage(QStringLiteral("Settings")); });
 
     animatePanel(*hero, 0);
     animatePanel(*onboard, 180);
@@ -1833,8 +1887,17 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), tablePanel);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
     refresh->setIcon(appIcon(QStringLiteral("refresh")));
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), tablePanel);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), tablePanel);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), tablePanel);
+    print->setObjectName(QStringLiteral("secondaryButton"));
     tableHeader->addWidget(transactionSearch);
     tableHeader->addWidget(refresh);
+    tableHeader->addWidget(exportExcel);
+    tableHeader->addWidget(exportPdf);
+    tableHeader->addWidget(print);
     tableLayout->addLayout(tableHeader);
     QTableWidget* table = createDataTable(tablePanel);
     loadTransactions(*table);
@@ -1843,6 +1906,27 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
     connect(refresh, &QPushButton::clicked, this, [this, table, transactionSearch]() {
         loadTransactions(*table);
         applyTableSearch(*table, transactionSearch->text());
+    });
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Daily Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Daily Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Daily Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
     });
     createShortcut(*page, QKeySequence(QStringLiteral("Ctrl+S")), [save]() { save->click(); });
     createShortcut(*page, QKeySequence(QStringLiteral("Alt+N")), [date]() { focusEntryWidget(*date); });
@@ -2001,9 +2085,42 @@ QWidget* DesktopApplication::buildDashboardPage() {
 
     QFrame* panel = createPanel(page);
     QVBoxLayout* panelLayout = new QVBoxLayout(panel);
-    panelLayout->addWidget(createSectionTitle(QStringLiteral("Recent Transactions"), panel));
+    QHBoxLayout* panelHeader = new QHBoxLayout();
+    panelHeader->addWidget(createSectionTitle(QStringLiteral("Recent Transactions"), panel));
+    panelHeader->addStretch(1);
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), panel);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), panel);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), panel);
+    print->setObjectName(QStringLiteral("secondaryButton"));
+    panelHeader->addWidget(exportExcel);
+    panelHeader->addWidget(exportPdf);
+    panelHeader->addWidget(print);
+    panelLayout->addLayout(panelHeader);
     QTableWidget* table = createDataTable(panel);
     loadTransactions(*table);
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Dashboard Recent Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Dashboard Recent Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Dashboard Recent Transactions"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
+    });
     panelLayout->addWidget(table);
     layout->addWidget(panel, 1);
     return page;
@@ -2031,6 +2148,20 @@ QWidget* DesktopApplication::buildPartiesPage() {
     form->addWidget(create, 1, 2);
     layout->addWidget(formPanel);
 
+    QHBoxLayout* tableActions = new QHBoxLayout();
+    tableActions->addWidget(createSectionTitle(QStringLiteral("Parties"), page));
+    tableActions->addStretch(1);
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), page);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), page);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), page);
+    print->setObjectName(QStringLiteral("secondaryButton"));
+    tableActions->addWidget(exportExcel);
+    tableActions->addWidget(exportPdf);
+    tableActions->addWidget(print);
+    layout->addLayout(tableActions);
+
     QTableWidget* table = createDataTable(page);
     loadParties(*table);
     connect(create, &QPushButton::clicked, this, [this, name, type, table]() {
@@ -2046,6 +2177,27 @@ QWidget* DesktopApplication::buildPartiesPage() {
             statusBar()->showMessage(QStringLiteral("Party created"), 5000);
         } catch (const std::exception& err) {
             showError(QStringLiteral("Create Party"), err);
+        }
+    });
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Parties"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Parties"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Parties"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
         }
     });
     layout->addWidget(table, 1);
@@ -2082,12 +2234,21 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
     end->setCalendarPopup(true);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), filters);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), filters);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), filters);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), filters);
+    print->setObjectName(QStringLiteral("secondaryButton"));
     filterLayout->addWidget(search, 1);
     filterLayout->addWidget(new QLabel(QStringLiteral("Start"), filters));
     filterLayout->addWidget(start);
     filterLayout->addWidget(new QLabel(QStringLiteral("End"), filters));
     filterLayout->addWidget(end);
     filterLayout->addWidget(refresh);
+    filterLayout->addWidget(exportExcel);
+    filterLayout->addWidget(exportPdf);
+    filterLayout->addWidget(print);
     layout->addWidget(filters);
 
     if (title == QStringLiteral("Short / Excess")) {
@@ -2100,12 +2261,15 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
         cashAmount->setDecimals(2);
         QPushButton* saveCash = new QPushButton(QStringLiteral("Save Cash In Hand"), cashPanel);
         saveCash->setObjectName(QStringLiteral("secondaryButton"));
+        QPushButton* resetCash = new QPushButton(QStringLiteral("Reset Cash"), cashPanel);
+        resetCash->setObjectName(QStringLiteral("secondaryButton"));
         cashLayout->addWidget(new QLabel(QStringLiteral("Cash Date"), cashPanel));
         cashLayout->addWidget(cashDate);
         cashLayout->addWidget(new QLabel(QStringLiteral("Cash In Hand"), cashPanel));
         cashLayout->addWidget(cashAmount);
         cashLayout->addStretch(1);
         cashLayout->addWidget(saveCash);
+        cashLayout->addWidget(resetCash);
         layout->addWidget(cashPanel);
         connect(saveCash, &QPushButton::clicked, this, [this, cashDate, cashAmount, refresh]() {
             try {
@@ -2114,6 +2278,15 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
                 statusBar()->showMessage(QStringLiteral("Cash in hand saved"), 7000);
             } catch (const std::exception& err) {
                 showError(QStringLiteral("Save Cash In Hand"), err);
+            }
+        });
+        connect(resetCash, &QPushButton::clicked, this, [this, cashDate, refresh]() {
+            try {
+                context_.services().reports->resetCashInHand(cashDate->date());
+                refresh->click();
+                statusBar()->showMessage(QStringLiteral("Cash in hand reset"), 7000);
+            } catch (const std::exception& err) {
+                showError(QStringLiteral("Reset Cash In Hand"), err);
             }
         });
     }
@@ -2136,6 +2309,27 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
             applyTableSearch(*table, search->text());
         }
     });
+    connect(exportPdf, &QPushButton::clicked, this, [this, table, title]() {
+        try {
+            exportTableToPdf(*table, title);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table, title]() {
+        try {
+            exportTableToExcel(*table, title);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table, title]() {
+        try {
+            printTable(*table, title);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
+    });
     layout->addWidget(table, 1);
     return page;
 }
@@ -2148,8 +2342,42 @@ QWidget* DesktopApplication::buildAuditPage() {
     layout->addWidget(createPageHeader(QStringLiteral("Audit Logs"), QStringLiteral("Administrative activity and native service events."), page));
     layout->addWidget(createContextBar(context_, page));
 
+    QHBoxLayout* actions = new QHBoxLayout();
+    actions->addStretch(1);
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), page);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), page);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), page);
+    print->setObjectName(QStringLiteral("secondaryButton"));
+    actions->addWidget(exportExcel);
+    actions->addWidget(exportPdf);
+    actions->addWidget(print);
+    layout->addLayout(actions);
+
     QTableWidget* table = createDataTable(page);
     loadAuditLogs(*table);
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Audit Logs"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Audit Logs"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Audit Logs"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
+    });
     layout->addWidget(table, 1);
     return page;
 }
@@ -2183,7 +2411,21 @@ QWidget* DesktopApplication::buildSettingsPage() {
 
     QFrame* panel = createPanel(page);
     QGridLayout* form = new QGridLayout(panel);
-    const domain::DatabaseConfig config = context_.services().config->readDatabaseConfig();
+    domain::DatabaseConfig config{
+        QStringLiteral("localhost"),
+        QStringLiteral("Finlogs"),
+        QString(),
+        QString(),
+        QStringLiteral("{ODBC Driver 17 for SQL Server}"),
+        QStringLiteral("http://127.0.0.1:8000"),
+        QStringLiteral("D:/finlogs"),
+        true
+    };
+    try {
+        config = context_.services().config->readDatabaseConfig();
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Read Database Config"), err);
+    }
     QLineEdit* server = new QLineEdit(config.server, panel);
     QLineEdit* database = new QLineEdit(config.database, panel);
     QComboBox* authType = new QComboBox(panel);
@@ -2198,8 +2440,16 @@ QWidget* DesktopApplication::buildSettingsPage() {
     test->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* backup = new QPushButton(QStringLiteral("Backup Now"), panel);
     backup->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* autoBackup = new QPushButton(QStringLiteral("Auto Backup"), panel);
+    autoBackup->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* openBackupDir = new QPushButton(QStringLiteral("Open Backup Folder"), panel);
+    openBackupDir->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* restore = new QPushButton(QStringLiteral("Restore Backup"), panel);
     restore->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* checkUpdates = new QPushButton(QStringLiteral("Check Updates"), panel);
+    checkUpdates->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* installUpdate = new QPushButton(QStringLiteral("Install Update"), panel);
+    installUpdate->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Config"), panel);
 
     form->addWidget(new QLabel(QStringLiteral("SQL Server Instance"), panel), 0, 0);
@@ -2219,7 +2469,11 @@ QWidget* DesktopApplication::buildSettingsPage() {
     form->addWidget(test, 5, 2);
     form->addWidget(save, 5, 3);
     form->addWidget(backup, 6, 0);
-    form->addWidget(restore, 6, 1);
+    form->addWidget(autoBackup, 6, 1);
+    form->addWidget(openBackupDir, 6, 2);
+    form->addWidget(restore, 6, 3);
+    form->addWidget(checkUpdates, 7, 0);
+    form->addWidget(installUpdate, 7, 1);
 
     auto buildConfig = [server, database, authType, username, password, backupDir, apiBase, config]() {
         return domain::DatabaseConfig{
@@ -2260,6 +2514,22 @@ QWidget* DesktopApplication::buildSettingsPage() {
             showError(QStringLiteral("Backup"), err);
         }
     });
+    connect(autoBackup, &QPushButton::clicked, this, [this]() {
+        try {
+            const domain::BackupResult result = context_.services().backups->autoBackup();
+            QMessageBox::information(this, QStringLiteral("Auto Backup"), result.status + QStringLiteral("\n") + result.path);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Auto Backup"), err);
+        }
+    });
+    connect(openBackupDir, &QPushButton::clicked, this, [this, backupDir]() {
+        const QString path = backupDir->text().trimmed();
+        if (path.isEmpty()) {
+            statusBar()->showMessage(QStringLiteral("Backup directory is empty"), 5000);
+            return;
+        }
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    });
     connect(restore, &QPushButton::clicked, this, [this, backupDir]() {
         try {
             const QString backupPath = QFileDialog::getOpenFileName(this, QStringLiteral("Choose SQL Backup"), backupDir->text().trimmed(), QStringLiteral("SQL Backup (*.bak)"));
@@ -2281,7 +2551,212 @@ QWidget* DesktopApplication::buildSettingsPage() {
             showError(QStringLiteral("Restore Backup"), err);
         }
     });
+    connect(checkUpdates, &QPushButton::clicked, this, [this]() {
+        try {
+            context_.services().updates->checkForUpdates();
+            statusBar()->showMessage(QStringLiteral("Update check completed"), 7000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Check Updates"), err);
+        }
+    });
+    connect(installUpdate, &QPushButton::clicked, this, [this]() {
+        try {
+            context_.services().updates->restartAndInstall();
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Install Update"), err);
+        }
+    });
     layout->addWidget(panel);
+
+    QFrame* cashSettingsPanel = createPanel(page);
+    QHBoxLayout* cashSettingsLayout = new QHBoxLayout(cashSettingsPanel);
+    cashSettingsLayout->setContentsMargins(14, 12, 14, 12);
+    cashSettingsLayout->setSpacing(10);
+    QLabel* cashSettingsTitle = new QLabel(QStringLiteral("Opening Cash"), cashSettingsPanel);
+    cashSettingsTitle->setObjectName(QStringLiteral("sectionTitle"));
+    QDoubleSpinBox* openingCash = new QDoubleSpinBox(cashSettingsPanel);
+    openingCash->setMaximum(999999999.0);
+    openingCash->setDecimals(2);
+    QPushButton* saveOpeningCash = new QPushButton(QStringLiteral("Save Opening Cash"), cashSettingsPanel);
+    saveOpeningCash->setObjectName(QStringLiteral("secondaryButton"));
+    try {
+        openingCash->setValue(context_.services().reports->openingCashSeed());
+    } catch (const std::exception& err) {
+        showError(QStringLiteral("Opening Cash"), err);
+    }
+    cashSettingsLayout->addWidget(cashSettingsTitle);
+    cashSettingsLayout->addWidget(openingCash);
+    cashSettingsLayout->addStretch(1);
+    cashSettingsLayout->addWidget(saveOpeningCash);
+    connect(saveOpeningCash, &QPushButton::clicked, this, [this, openingCash]() {
+        try {
+            context_.services().reports->saveOpeningCashSeed(openingCash->value());
+            statusBar()->showMessage(QStringLiteral("Opening cash saved"), 7000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Save Opening Cash"), err);
+        }
+    });
+    layout->addWidget(cashSettingsPanel);
+
+    QFrame* userPanel = createPanel(page);
+    QVBoxLayout* userLayout = new QVBoxLayout(userPanel);
+    userLayout->setContentsMargins(14, 12, 14, 12);
+    userLayout->setSpacing(10);
+    QLabel* userTitle = new QLabel(QStringLiteral("User Management"), userPanel);
+    userTitle->setObjectName(QStringLiteral("sectionTitle"));
+    userLayout->addWidget(userTitle);
+
+    QGridLayout* userForm = new QGridLayout();
+    QLineEdit* newUsername = new QLineEdit(userPanel);
+    newUsername->setPlaceholderText(QStringLiteral("Username"));
+    QLineEdit* newPassword = new QLineEdit(userPanel);
+    newPassword->setPlaceholderText(QStringLiteral("Password"));
+    newPassword->setEchoMode(QLineEdit::Password);
+    QComboBox* newRole = new QComboBox(userPanel);
+    newRole->addItems({QStringLiteral("accounts"), QStringLiteral("admin")});
+    QPushButton* createUser = new QPushButton(QStringLiteral("Create User"), userPanel);
+    QPushButton* changePassword = new QPushButton(QStringLiteral("Change Password"), userPanel);
+    changePassword->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* deleteUser = new QPushButton(QStringLiteral("Delete Selected"), userPanel);
+    deleteUser->setObjectName(QStringLiteral("dangerButton"));
+    QPushButton* refreshUsers = new QPushButton(QStringLiteral("Refresh"), userPanel);
+    refreshUsers->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportUsers = new QPushButton(QStringLiteral("Export PDF"), userPanel);
+    exportUsers->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportUsersExcel = new QPushButton(QStringLiteral("Export Excel"), userPanel);
+    exportUsersExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* printUsers = new QPushButton(QStringLiteral("Print"), userPanel);
+    printUsers->setObjectName(QStringLiteral("secondaryButton"));
+    userForm->addWidget(new QLabel(QStringLiteral("Username"), userPanel), 0, 0);
+    userForm->addWidget(new QLabel(QStringLiteral("Password"), userPanel), 0, 1);
+    userForm->addWidget(new QLabel(QStringLiteral("Role"), userPanel), 0, 2);
+    userForm->addWidget(newUsername, 1, 0);
+    userForm->addWidget(newPassword, 1, 1);
+    userForm->addWidget(newRole, 1, 2);
+    userForm->addWidget(createUser, 1, 3);
+    userForm->addWidget(changePassword, 1, 4);
+    userForm->addWidget(deleteUser, 1, 5);
+    userForm->addWidget(refreshUsers, 1, 6);
+    userForm->addWidget(exportUsersExcel, 1, 7);
+    userForm->addWidget(exportUsers, 1, 8);
+    userForm->addWidget(printUsers, 1, 9);
+    userLayout->addLayout(userForm);
+
+    QTableWidget* usersTable = createDataTable(userPanel);
+    usersTable->setMaximumHeight(180);
+    const QStringList userHeaders = {QStringLiteral("username"), QStringLiteral("role")};
+    auto loadUsers = [this, usersTable, userHeaders]() {
+        ensureTableHeaders(*usersTable, userHeaders);
+        try {
+            setTableRows(*usersTable, userHeaders, context_.services().users->listUsers(QStringLiteral("native-admin")));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Users"), err);
+        }
+    };
+    loadUsers();
+    userLayout->addWidget(usersTable);
+    connect(refreshUsers, &QPushButton::clicked, this, loadUsers);
+    connect(createUser, &QPushButton::clicked, this, [this, newUsername, newPassword, newRole, loadUsers]() {
+        try {
+            const QString username = newUsername->text().trimmed();
+            const QString password = newPassword->text();
+            const domain::UserRole role = newRole->currentText() == QStringLiteral("admin")
+                ? domain::UserRole::Admin
+                : domain::UserRole::Accounts;
+            context_.services().users->createUser(username, password, role, QStringLiteral("native-admin"));
+            newUsername->clear();
+            newPassword->clear();
+            loadUsers();
+            statusBar()->showMessage(QStringLiteral("User created"), 6000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Create User"), err);
+        }
+    });
+    connect(changePassword, &QPushButton::clicked, this, [this, newUsername, newPassword]() {
+        try {
+            context_.services().users->changePassword(newUsername->text().trimmed(), newPassword->text(), QStringLiteral("native-admin"));
+            newPassword->clear();
+            statusBar()->showMessage(QStringLiteral("Password changed"), 6000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Change Password"), err);
+        }
+    });
+    connect(deleteUser, &QPushButton::clicked, this, [this, usersTable, loadUsers]() {
+        const QList<QTableWidgetItem*> selected = usersTable->selectedItems();
+        if (selected.isEmpty()) {
+            statusBar()->showMessage(QStringLiteral("Select a user first"), 5000);
+            return;
+        }
+        const QTableWidgetItem* usernameItem = usersTable->item(selected.first()->row(), 0);
+        const QString username = usernameItem ? usernameItem->text().trimmed() : QString();
+        if (username.isEmpty() || username == QStringLiteral("admin")) {
+            statusBar()->showMessage(QStringLiteral("Default admin user cannot be deleted"), 5000);
+            return;
+        }
+        const QMessageBox::StandardButton result = QMessageBox::question(
+            this,
+            QStringLiteral("Delete User"),
+            QStringLiteral("Delete user %1?").arg(username),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        if (result != QMessageBox::Yes) {
+            return;
+        }
+        try {
+            context_.services().users->deleteUser(username, QStringLiteral("native-admin"));
+            loadUsers();
+            statusBar()->showMessage(QStringLiteral("User deleted"), 6000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Delete User"), err);
+        }
+    });
+    connect(exportUsers, &QPushButton::clicked, this, [this, usersTable]() {
+        try {
+            exportTableToPdf(*usersTable, QStringLiteral("Users"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportUsersExcel, &QPushButton::clicked, this, [this, usersTable]() {
+        try {
+            exportTableToExcel(*usersTable, QStringLiteral("Users"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(printUsers, &QPushButton::clicked, this, [this, usersTable]() {
+        try {
+            printTable(*usersTable, QStringLiteral("Users"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
+    });
+    layout->addWidget(userPanel);
+
+    QFrame* importPanel = createPanel(page);
+    QHBoxLayout* importLayout = new QHBoxLayout(importPanel);
+    importLayout->setContentsMargins(14, 12, 14, 12);
+    importLayout->setSpacing(10);
+    QLabel* importTitle = new QLabel(QStringLiteral("Data Import"), importPanel);
+    importTitle->setObjectName(QStringLiteral("sectionTitle"));
+    QPushButton* importTransactions = new QPushButton(QStringLiteral("Import Transactions CSV"), importPanel);
+    importTransactions->setObjectName(QStringLiteral("secondaryButton"));
+    importLayout->addWidget(importTitle);
+    importLayout->addStretch(1);
+    importLayout->addWidget(importTransactions);
+    connect(importTransactions, &QPushButton::clicked, this, [this]() {
+        try {
+            const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Import Transactions CSV"), QString(), QStringLiteral("CSV Files (*.csv)"));
+            if (path.trimmed().isEmpty()) {
+                return;
+            }
+            const int imported = importTransactionsFromCsv(path);
+            statusBar()->showMessage(QStringLiteral("Imported %1 transactions").arg(imported), 9000);
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Import Transactions"), err);
+        }
+    });
+    layout->addWidget(importPanel);
     layout->addStretch(1);
     return page;
 }
@@ -2316,6 +2791,12 @@ QWidget* DesktopApplication::buildInventoryPage() {
     refresh->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* preview = new QPushButton(QStringLiteral("Preview PDF"), toolbar);
     preview->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), toolbar);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), toolbar);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), toolbar);
+    print->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* mail = new QPushButton(QStringLiteral("Send PDF"), toolbar);
     mail->setObjectName(QStringLiteral("secondaryButton"));
     QPushButton* save = new QPushButton(QStringLiteral("Save Inventory"), toolbar);
@@ -2340,6 +2821,9 @@ QWidget* DesktopApplication::buildInventoryPage() {
     toolbarLayout->addWidget(cleanEmpty);
     toolbarLayout->addWidget(refresh);
     toolbarLayout->addWidget(preview);
+    toolbarLayout->addWidget(exportExcel);
+    toolbarLayout->addWidget(exportPdf);
+    toolbarLayout->addWidget(print);
     toolbarLayout->addWidget(mail);
     toolbarLayout->addWidget(save);
     QHBoxLayout* toolbarMeta = new QHBoxLayout();
@@ -2679,6 +3163,27 @@ QWidget* DesktopApplication::buildInventoryPage() {
             showError(QStringLiteral("Inventory PDF"), err);
         }
     });
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Inventory Management"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Inventory Management"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Inventory Management"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
+    });
     connect(mail, &QPushButton::clicked, this, [this, table, financialYear, month, onlyReorder, includeValue]() {
         std::optional<InventoryMailProfile> storedProfile;
         try {
@@ -2791,10 +3296,19 @@ QWidget* DesktopApplication::buildInventoryValuePage() {
     month->setCurrentIndex(QDate::currentDate().month() - 1);
     QPushButton* refresh = new QPushButton(QStringLiteral("Refresh"), toolbar);
     refresh->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportPdf = new QPushButton(QStringLiteral("Export PDF"), toolbar);
+    exportPdf->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* exportExcel = new QPushButton(QStringLiteral("Export Excel"), toolbar);
+    exportExcel->setObjectName(QStringLiteral("secondaryButton"));
+    QPushButton* print = new QPushButton(QStringLiteral("Print"), toolbar);
+    print->setObjectName(QStringLiteral("secondaryButton"));
     toolbarLayout->addWidget(new QLabel(QStringLiteral("Month"), toolbar));
     toolbarLayout->addWidget(month);
     toolbarLayout->addStretch(1);
     toolbarLayout->addWidget(refresh);
+    toolbarLayout->addWidget(exportExcel);
+    toolbarLayout->addWidget(exportPdf);
+    toolbarLayout->addWidget(print);
     layout->addWidget(toolbar);
 
     QTableWidget* table = createDataTable(page);
@@ -2805,6 +3319,27 @@ QWidget* DesktopApplication::buildInventoryValuePage() {
     });
     connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month]() {
         loadInventoryValue(*table, financialYear, month->currentIndex() + 1);
+    });
+    connect(exportPdf, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToPdf(*table, QStringLiteral("Stock Value Report"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export PDF"), err);
+        }
+    });
+    connect(exportExcel, &QPushButton::clicked, this, [this, table]() {
+        try {
+            exportTableToExcel(*table, QStringLiteral("Stock Value Report"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Export Excel"), err);
+        }
+    });
+    connect(print, &QPushButton::clicked, this, [this, table]() {
+        try {
+            printTable(*table, QStringLiteral("Stock Value Report"));
+        } catch (const std::exception& err) {
+            showError(QStringLiteral("Print"), err);
+        }
     });
     return page;
 }
@@ -3038,18 +3573,39 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
         headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("particulars"), QStringLiteral("debit"), QStringLiteral("credit"), QStringLiteral("balance")};
     } else if (reportName == QStringLiteral("Day Book")) {
         headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
-    } else if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
-        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
+    } else if (reportName == QStringLiteral("Purchase Report")) {
+        headers = {QStringLiteral("section"), QStringLiteral("name"), QStringLiteral("total_purchase")};
+    } else if (reportName == QStringLiteral("Expenses")) {
+        headers = {QStringLiteral("date"), QStringLiteral("party"), QStringLiteral("mode"), QStringLiteral("amount")};
     } else if (reportName == QStringLiteral("Outstanding")) {
-        headers = {QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("balance")};
+        headers = {QStringLiteral("party"), QStringLiteral("status"), QStringLiteral("days_unpaid"), QStringLiteral("last_receipt"), QStringLiteral("balance")};
     } else if (reportName == QStringLiteral("Trial Balance")) {
-        headers = {QStringLiteral("account"), QStringLiteral("debit"), QStringLiteral("credit"), QStringLiteral("balance")};
+        headers = {QStringLiteral("account"), QStringLiteral("debit"), QStringLiteral("credit")};
     } else if (reportName == QStringLiteral("Profit & Loss")) {
         headers = {QStringLiteral("metric"), QStringLiteral("amount")};
     } else if (reportName == QStringLiteral("Daily Summary")) {
-        headers = {QStringLiteral("date"), QStringLiteral("sales"), QStringLiteral("sale_returns"), QStringLiteral("receipts"), QStringLiteral("expenses"), QStringLiteral("net_sales")};
+        headers = {
+            QStringLiteral("date"),
+            QStringLiteral("opening_cash"),
+            QStringLiteral("cash_in"),
+            QStringLiteral("cash_expense"),
+            QStringLiteral("cash_needed"),
+            QStringLiteral("cash_in_hand"),
+            QStringLiteral("cash_short_excess"),
+            QStringLiteral("bank"),
+            QStringLiteral("credit_sale"),
+            QStringLiteral("total_sales")
+        };
     } else if (reportName == QStringLiteral("Short / Excess")) {
-        headers = {QStringLiteral("date"), QStringLiteral("cash_in_hand")};
+        headers = {
+            QStringLiteral("date"),
+            QStringLiteral("opening_cash"),
+            QStringLiteral("cash_in"),
+            QStringLiteral("cash_expense"),
+            QStringLiteral("cash_needed"),
+            QStringLiteral("cash_in_hand"),
+            QStringLiteral("cash_short_excess")
+        };
     }
     if (!headers.isEmpty()) {
         ensureTableHeaders(table, headers);
@@ -3074,7 +3630,7 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
             }
             const QJsonObject report = context_.services().reports->ledger(partyName, range);
             const QJsonArray rawData = report.value(QStringLiteral("data")).toArray();
-            // Transform: Sale → Debit, Receipt/Sale Return → Credit, balance with Dr/Cr suffix
+            // Transform sale/purchase rows into debit and receipt/return rows into credit.
             QJsonArray ledgerRows;
             for (const QJsonValue& val : rawData) {
                 const QJsonObject raw = val.toObject();
@@ -3110,19 +3666,53 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
             setTableRows(table, headers, context_.services().reports->dayBook(range.end));
             return;
         }
-        if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
-            const QString targetType = reportName == QStringLiteral("Purchase Report") ? QStringLiteral("Purchase") : QStringLiteral("Expense");
+        if (reportName == QStringLiteral("Purchase Report")) {
             const int days = static_cast<int>(std::max<qint64>(1, range.start.daysTo(QDate::currentDate()) + 1));
             const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 1000, days);
-            QJsonArray data;
+            QMap<QString, double> monthlyTotals;
+            QMap<QString, double> partyTotals;
             for (const domain::TransactionRow& row : rows) {
                 if (row.date < range.start || row.date > range.end) {
                     continue;
                 }
-                if (transactionTypeText(row.type) != targetType) {
+                if (transactionTypeText(row.type) != QStringLiteral("Purchase")) {
                     continue;
                 }
-                data.append(transactionToJson(row));
+                monthlyTotals[row.date.toString(QStringLiteral("yyyy-MM"))] += row.amount;
+                partyTotals[row.party] += row.amount;
+            }
+            QJsonArray data;
+            for (auto it = monthlyTotals.cbegin(); it != monthlyTotals.cend(); ++it) {
+                QJsonObject item;
+                item.insert(QStringLiteral("section"), QStringLiteral("Monthly"));
+                item.insert(QStringLiteral("name"), it.key());
+                item.insert(QStringLiteral("total_purchase"), it.value());
+                data.append(item);
+            }
+            for (auto it = partyTotals.cbegin(); it != partyTotals.cend(); ++it) {
+                QJsonObject item;
+                item.insert(QStringLiteral("section"), QStringLiteral("Party"));
+                item.insert(QStringLiteral("name"), it.key());
+                item.insert(QStringLiteral("total_purchase"), it.value());
+                data.append(item);
+            }
+            setTableRows(table, headers, data);
+            return;
+        }
+        if (reportName == QStringLiteral("Expenses")) {
+            const int days = static_cast<int>(std::max<qint64>(1, range.start.daysTo(QDate::currentDate()) + 1));
+            const QVector<domain::TransactionRow> rows = context_.services().transactions->listTransactions(1, 1000, days);
+            QJsonArray data;
+            for (const domain::TransactionRow& row : rows) {
+                if (row.date < range.start || row.date > range.end || transactionTypeText(row.type) != QStringLiteral("Expense")) {
+                    continue;
+                }
+                QJsonObject item;
+                item.insert(QStringLiteral("date"), row.date.toString(Qt::ISODate));
+                item.insert(QStringLiteral("party"), row.party);
+                item.insert(QStringLiteral("mode"), paymentModeText(row.mode));
+                item.insert(QStringLiteral("amount"), row.amount);
+                data.append(item);
             }
             setTableRows(table, headers, data);
             return;
@@ -3160,7 +3750,21 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
             return;
         }
         if (reportName == QStringLiteral("Short / Excess")) {
-            setTableRows(table, headers, context_.services().reports->shortExcess(range));
+            QJsonArray rows = context_.services().reports->shortExcess(range);
+            double totalShortExcess = 0.0;
+            for (const QJsonValue& value : rows) {
+                totalShortExcess += value.toObject().value(QStringLiteral("cash_short_excess")).toDouble();
+            }
+            QJsonObject total;
+            total.insert(QStringLiteral("date"), QStringLiteral("Total"));
+            total.insert(QStringLiteral("opening_cash"), QStringLiteral(""));
+            total.insert(QStringLiteral("cash_in"), QStringLiteral(""));
+            total.insert(QStringLiteral("cash_expense"), QStringLiteral(""));
+            total.insert(QStringLiteral("cash_needed"), QStringLiteral(""));
+            total.insert(QStringLiteral("cash_in_hand"), QStringLiteral(""));
+            total.insert(QStringLiteral("cash_short_excess"), totalShortExcess);
+            rows.append(total);
+            setTableRows(table, headers, rows);
         }
     } catch (const std::exception& err) {
         showError(reportName, err);
@@ -3172,6 +3776,84 @@ void DesktopApplication::applyTableSearch(QTableWidget& table, const QString& qu
     for (int rowIndex = 0; rowIndex < table.rowCount(); rowIndex += 1) {
         table.setRowHidden(rowIndex, !text.isEmpty() && !rowContainsText(table, rowIndex, text));
     }
+}
+
+int DesktopApplication::importTransactionsFromCsv(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        throw std::runtime_error(QStringLiteral("Could not open CSV file: %1").arg(path).toStdString());
+    }
+
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    if (stream.atEnd()) {
+        throw std::runtime_error(QStringLiteral("CSV file is empty: %1").arg(path).toStdString());
+    }
+
+    const QStringList header = parseCsvLine(stream.readLine());
+    QMap<QString, int> columns;
+    for (int index = 0; index < header.size(); index += 1) {
+        columns.insert(header.at(index).trimmed().toLower(), index);
+    }
+
+    const QStringList required = {
+        QStringLiteral("date"),
+        QStringLiteral("bill_no"),
+        QStringLiteral("party"),
+        QStringLiteral("type"),
+        QStringLiteral("mode"),
+        QStringLiteral("amount")
+    };
+    for (const QString& key : required) {
+        if (!columns.contains(key)) {
+            throw std::runtime_error(QStringLiteral("CSV file %1 is missing required column: %2").arg(path, key).toStdString());
+        }
+    }
+
+    const QStringList existingParties = partyNames();
+    int imported = 0;
+    int lineNumber = 1;
+    while (!stream.atEnd()) {
+        lineNumber += 1;
+        const QString rawLine = stream.readLine();
+        if (rawLine.trimmed().isEmpty()) {
+            continue;
+        }
+        const QStringList values = parseCsvLine(rawLine);
+        auto valueAt = [values, columns, lineNumber, path](const QString& key) {
+            const int column = columns.value(key);
+            if (column < 0 || column >= values.size()) {
+                throw std::runtime_error(QStringLiteral("CSV file %1 line %2 is missing value for column: %3").arg(path).arg(lineNumber).arg(key).toStdString());
+            }
+            return values.at(column).trimmed();
+        };
+
+        const QDate date = QDate::fromString(valueAt(QStringLiteral("date")), Qt::ISODate);
+        if (!date.isValid()) {
+            throw std::runtime_error(QStringLiteral("CSV file %1 line %2 has invalid ISO date").arg(path).arg(lineNumber).toStdString());
+        }
+        const QString partyName = findExistingPartyName(existingParties, valueAt(QStringLiteral("party")));
+        if (partyName.isEmpty()) {
+            throw std::runtime_error(QStringLiteral("CSV file %1 line %2 references a party that does not exist").arg(path).arg(lineNumber).toStdString());
+        }
+        bool amountOk = false;
+        const double amount = valueAt(QStringLiteral("amount")).toDouble(&amountOk);
+        if (!amountOk || amount <= 0.0) {
+            throw std::runtime_error(QStringLiteral("CSV file %1 line %2 has invalid amount").arg(path).arg(lineNumber).toStdString());
+        }
+
+        context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+            date,
+            valueAt(QStringLiteral("bill_no")),
+            partyName,
+            transactionTypeFromText(valueAt(QStringLiteral("type"))),
+            paymentModeFromText(valueAt(QStringLiteral("mode"))),
+            amount
+        });
+        imported += 1;
+    }
+
+    return imported;
 }
 
 QStringList DesktopApplication::partyNames() {
@@ -3269,6 +3951,225 @@ void DesktopApplication::setTableRows(QTableWidget& table, const QStringList& he
     table.setProperty("columnCount", headers.size());
 }
 
+void DesktopApplication::exportTableToExcel(QTableWidget& table, const QString& title) {
+    const QString defaultName = QStringLiteral("%1.csv").arg(title.trimmed().isEmpty() ? QStringLiteral("M-Finlogs") : title).replace(QLatin1Char('/'), QLatin1Char('-'));
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export Excel"), defaultName, QStringLiteral("Excel-compatible CSV (*.csv)"));
+    if (path.trimmed().isEmpty()) {
+        return;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        throw std::runtime_error(QStringLiteral("Could not write export file: %1").arg(file.errorString()).toStdString());
+    }
+
+    auto csvCell = [](const QString& value) {
+        QString escaped = value;
+        escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        return QStringLiteral("\"%1\"").arg(escaped);
+    };
+
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+
+    QStringList headerCells;
+    for (int column = 0; column < table.columnCount(); column += 1) {
+        if (!table.isColumnHidden(column)) {
+            const QString label = table.horizontalHeaderItem(column) ? table.horizontalHeaderItem(column)->text() : QString::number(column + 1);
+            headerCells.append(csvCell(label));
+        }
+    }
+    stream << headerCells.join(QLatin1Char(',')) << Qt::endl;
+
+    for (int row = 0; row < table.rowCount(); row += 1) {
+        if (table.isRowHidden(row)) {
+            continue;
+        }
+        QStringList cells;
+        for (int column = 0; column < table.columnCount(); column += 1) {
+            if (!table.isColumnHidden(column)) {
+                const QTableWidgetItem* item = table.item(row, column);
+                cells.append(csvCell(item ? item->text() : QString()));
+            }
+        }
+        stream << cells.join(QLatin1Char(',')) << Qt::endl;
+    }
+
+    statusBar()->showMessage(QStringLiteral("Excel export created: %1").arg(path), 8000);
+}
+
+void DesktopApplication::exportTableToPdf(QTableWidget& table, const QString& title) {
+    const QString defaultName = QStringLiteral("%1.pdf").arg(title.trimmed().isEmpty() ? QStringLiteral("M-Finlogs") : title).replace(QLatin1Char('/'), QLatin1Char('-'));
+    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Export PDF"), defaultName, QStringLiteral("PDF Files (*.pdf)"));
+    if (path.trimmed().isEmpty()) {
+        return;
+    }
+
+    QVector<int> visibleColumns;
+    for (int column = 0; column < table.columnCount(); column += 1) {
+        if (!table.isColumnHidden(column)) {
+            visibleColumns.append(column);
+        }
+    }
+    QVector<int> visibleRows;
+    for (int row = 0; row < table.rowCount(); row += 1) {
+        if (!table.isRowHidden(row)) {
+            visibleRows.append(row);
+        }
+    }
+    if (visibleColumns.isEmpty() || visibleRows.isEmpty()) {
+        throw std::runtime_error("No visible table data to export");
+    }
+
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    writer.setPageOrientation(QPageLayout::Landscape);
+    writer.setResolution(96);
+    writer.setTitle(title);
+
+    QPainter painter(&writer);
+    if (!painter.isActive()) {
+        throw std::runtime_error(QStringLiteral("Could not create PDF: %1").arg(path).toStdString());
+    }
+
+    const int pageWidth = writer.width();
+    const int pageHeight = writer.height();
+    const int margin = 28;
+    const int titleHeight = 32;
+    const int rowHeight = 22;
+    const int headerHeight = 24;
+    const int tableWidth = pageWidth - margin * 2;
+    const int columnsPerPage = qMax(1, tableWidth / 110);
+
+    auto drawHeader = [&](int& y, const QVector<int>& pageColumns, int columnWidth) {
+        painter.setPen(QColor(QStringLiteral("#111827")));
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 15, QFont::Bold));
+        painter.drawText(QRect(margin, y, tableWidth, titleHeight), Qt::AlignLeft | Qt::AlignVCenter, title);
+        y += titleHeight;
+
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 8, QFont::Bold));
+        painter.fillRect(QRect(margin, y, tableWidth, headerHeight), QColor(QStringLiteral("#eef2f7")));
+        painter.setPen(QColor(QStringLiteral("#374151")));
+        int x = margin;
+        for (int column : pageColumns) {
+            const QString label = table.horizontalHeaderItem(column) ? table.horizontalHeaderItem(column)->text() : QString::number(column + 1);
+            painter.drawText(QRect(x + 4, y, columnWidth - 8, headerHeight), Qt::AlignLeft | Qt::AlignVCenter, label);
+            x += columnWidth;
+        }
+        painter.setPen(QColor(QStringLiteral("#cbd5e1")));
+        painter.drawRect(QRect(margin, y, tableWidth, headerHeight));
+        y += headerHeight;
+    };
+
+    bool firstPage = true;
+    for (int columnStart = 0; columnStart < visibleColumns.size(); columnStart += columnsPerPage) {
+        QVector<int> pageColumns;
+        for (int offset = 0; offset < columnsPerPage && columnStart + offset < visibleColumns.size(); offset += 1) {
+            pageColumns.append(visibleColumns.at(columnStart + offset));
+        }
+        const int columnWidth = qMax(1, tableWidth / pageColumns.size());
+        if (!firstPage) {
+            writer.newPage();
+        }
+        firstPage = false;
+
+        int y = margin;
+        drawHeader(y, pageColumns, columnWidth);
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 8));
+        for (int row : visibleRows) {
+            if (y + rowHeight > pageHeight - margin) {
+                writer.newPage();
+                y = margin;
+                drawHeader(y, pageColumns, columnWidth);
+                painter.setFont(QFont(QStringLiteral("Segoe UI"), 8));
+            }
+
+            if (row % 2 == 1) {
+                painter.fillRect(QRect(margin, y, tableWidth, rowHeight), QColor(QStringLiteral("#f8fafc")));
+            }
+            int x = margin;
+            for (int column : pageColumns) {
+                const QTableWidgetItem* item = table.item(row, column);
+                const QString text = item ? item->text() : QString();
+                painter.setPen(QColor(QStringLiteral("#111827")));
+                painter.drawText(QRect(x + 4, y, columnWidth - 8, rowHeight), Qt::AlignLeft | Qt::AlignVCenter, painter.fontMetrics().elidedText(text, Qt::ElideRight, columnWidth - 8));
+                painter.setPen(QColor(QStringLiteral("#e5e7eb")));
+                painter.drawRect(QRect(x, y, columnWidth, rowHeight));
+                x += columnWidth;
+            }
+            y += rowHeight;
+        }
+    }
+    painter.end();
+    statusBar()->showMessage(QStringLiteral("PDF exported: %1").arg(path), 8000);
+}
+
+void DesktopApplication::printTable(QTableWidget& table, const QString& title) {
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setPageOrientation(QPageLayout::Landscape);
+    QPrintDialog dialog(&printer, this);
+    dialog.setWindowTitle(QStringLiteral("Print %1").arg(title));
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QPainter painter(&printer);
+    if (!painter.isActive()) {
+        throw std::runtime_error("Could not start printer painter");
+    }
+
+    const QRect page = printer.pageRect(QPrinter::DevicePixel).toRect();
+    const int margin = 80;
+    const int rowHeight = 42;
+    const int headerHeight = 48;
+    const int tableWidth = page.width() - margin * 2;
+    QVector<int> visibleColumns;
+    for (int column = 0; column < table.columnCount(); column += 1) {
+        if (!table.isColumnHidden(column)) {
+            visibleColumns.append(column);
+        }
+    }
+    if (visibleColumns.isEmpty()) {
+        throw std::runtime_error("No visible table columns to print");
+    }
+    const int columnWidth = qMax(1, tableWidth / visibleColumns.size());
+    int y = margin;
+    painter.setFont(QFont(QStringLiteral("Segoe UI"), 14, QFont::Bold));
+    painter.drawText(QRect(margin, y, tableWidth, headerHeight), Qt::AlignLeft | Qt::AlignVCenter, title);
+    y += headerHeight;
+
+    auto drawHeader = [&]() {
+        painter.setFont(QFont(QStringLiteral("Segoe UI"), 8, QFont::Bold));
+        int x = margin;
+        for (int column : visibleColumns) {
+            const QString label = table.horizontalHeaderItem(column) ? table.horizontalHeaderItem(column)->text() : QString::number(column + 1);
+            painter.drawText(QRect(x, y, columnWidth, rowHeight), Qt::AlignLeft | Qt::AlignVCenter, label);
+            x += columnWidth;
+        }
+        y += rowHeight;
+    };
+    drawHeader();
+    painter.setFont(QFont(QStringLiteral("Segoe UI"), 8));
+    for (int row = 0; row < table.rowCount(); row += 1) {
+        if (table.isRowHidden(row)) {
+            continue;
+        }
+        if (y + rowHeight > page.height() - margin) {
+            printer.newPage();
+            y = margin;
+            drawHeader();
+            painter.setFont(QFont(QStringLiteral("Segoe UI"), 8));
+        }
+        int x = margin;
+        for (int column : visibleColumns) {
+            const QTableWidgetItem* item = table.item(row, column);
+            painter.drawText(QRect(x, y, columnWidth, rowHeight), Qt::AlignLeft | Qt::AlignVCenter, item ? item->text() : QString());
+            x += columnWidth;
+        }
+        y += rowHeight;
+    }
+}
+
 void DesktopApplication::showError(const QString& title, const std::exception& err) {
     statusBar()->showMessage(QStringLiteral("%1: %2").arg(title, QString::fromUtf8(err.what())), 8000);
 }
@@ -3342,11 +4243,18 @@ int runDesktopApplication(int argc, char** argv) {
 
     QObject::connect(splash.get(), &SplashScreen::finished, &qtApp, [&]() {
         splash->close();
-        context = std::make_unique<AppContext>(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
-        window = std::make_unique<DesktopApplication>(*context);
-        window->show();
-        window->raise();
-        window->activateWindow();
+        try {
+            context = std::make_unique<AppContext>(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
+            window = std::make_unique<DesktopApplication>(*context);
+            window->show();
+            window->raise();
+            window->activateWindow();
+        } catch (const std::exception& err) {
+            QMessageBox::critical(nullptr,
+                QStringLiteral("M-Finlogs Native"),
+                QStringLiteral("Native app startup failed.\n\n%1").arg(QString::fromUtf8(err.what())));
+            QTimer::singleShot(0, &qtApp, &QApplication::quit);
+        }
     });
     splash->runIndeterminate(1600);
 
