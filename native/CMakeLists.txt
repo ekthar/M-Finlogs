@@ -22,6 +22,11 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
 
 qt_standard_project_setup()
 
+# Explicitly enable automatic resource compilation so the icon qrc is built
+# into the binary (AUTORCC was not picking it up reliably).
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOMOC ON)
+
 set(MFINLOGS_NATIVE_SOURCES
     src/main.cpp
     src/app/AppContext.h
@@ -30,6 +35,8 @@ set(MFINLOGS_NATIVE_SOURCES
     src/app/DesktopApplication.h
     src/app/DesktopApplication.cpp
     src/app/SplashScreen.h
+    src/app/AuthWindow.cpp
+    src/app/AuthWindow.h
     src/app/SplashScreen.cpp
     src/app/ServerApplication.h
     src/app/ServerApplication.cpp
@@ -46,12 +53,42 @@ set(MFINLOGS_NATIVE_SOURCES
     src/domain/ServiceRegistry.h
     src/domain/ServiceRegistry.cpp
     src/domain/Types.h
-    resources/native_resources.qrc
 )
 
 qt_add_executable(mfinlogs-native
     WIN32
     ${MFINLOGS_NATIVE_SOURCES}
+)
+
+# Compile the Qt resource (icons) explicitly into the target
+qt_add_resources(mfinlogs-native "native_resources"
+    PREFIX "/"
+    BASE "resources"
+    FILES
+        resources/icons/welcome.svg
+        resources/icons/entry.svg
+        resources/icons/dashboard.svg
+        resources/icons/reports.svg
+        resources/icons/ledger.svg
+        resources/icons/daybook.svg
+        resources/icons/summary.svg
+        resources/icons/cash.svg
+        resources/icons/expenses.svg
+        resources/icons/outstanding.svg
+        resources/icons/trend.svg
+        resources/icons/inventory.svg
+        resources/icons/stock.svg
+        resources/icons/party.svg
+        resources/icons/audit.svg
+        resources/icons/settings.svg
+        resources/icons/search.svg
+        resources/icons/refresh.svg
+        resources/icons/save.svg
+        resources/icons/clear.svg
+        resources/icons/delete.svg
+        resources/icons/database.svg
+        resources/icons/keyboard.svg
+        resources/icons/runtime.svg
 )
 
 target_include_directories(mfinlogs-native PRIVATE

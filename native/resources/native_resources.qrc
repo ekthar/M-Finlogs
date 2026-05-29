@@ -1,5 +1,5 @@
 <RCC>
-  <qresource prefix="/icons">
+  <qresource prefix="/">
     <file>icons/welcome.svg</file>
     <file>icons/entry.svg</file>
     <file>icons/dashboard.svg</file>
