@@ -984,9 +984,21 @@ DesktopApplication::DesktopApplication(AppContext& context)
 }
 
 void DesktopApplication::applyTheme(bool darkMode) {
-    const QString fontDir = QCoreApplication::applicationDirPath() + QStringLiteral("/fonts/");
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
-    QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
+    // Try multiple font paths: next to exe, project root, or parent directory
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList fontSearchPaths = {
+        appDir + QStringLiteral("/fonts/"),
+        appDir + QStringLiteral("/../fonts/"),
+        appDir + QStringLiteral("/../../fonts/"),
+        appDir + QStringLiteral("/../../../fonts/"),
+    };
+    for (const QString& fontDir : fontSearchPaths) {
+        if (QDir(fontDir).exists()) {
+            QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Regular.ttf"));
+            QFontDatabase::addApplicationFont(fontDir + QStringLiteral("InterTight-Bold.ttf"));
+            break;
+        }
+    }
     qApp->setFont(QFont(QStringLiteral("Inter Tight"), 10));
     qApp->setStyleSheet(buildModernQss(darkMode));
 }
@@ -1086,7 +1098,7 @@ void DesktopApplication::buildNavigation() {
 
     const std::shared_ptr<bool> sidebarCollapsed = std::make_shared<bool>(false);
     auto applySidebarState = [sidebar, nav, sidebarBrand, sidebarToggle, sidebarCollapsed]() {
-        sidebar->setFixedWidth(*sidebarCollapsed ? 64 : 240);
+        sidebar->setFixedWidth(*sidebarCollapsed ? 56 : 240);
         sidebar->setObjectName(*sidebarCollapsed ? QStringLiteral("sidebarWrapCollapsed") : QStringLiteral("sidebarWrap"));
         sidebar->style()->unpolish(sidebar);
         sidebar->style()->polish(sidebar);
@@ -1094,11 +1106,18 @@ void DesktopApplication::buildNavigation() {
         sidebarToggle->setObjectName(*sidebarCollapsed ? QStringLiteral("sidebarToggleCollapsed") : QStringLiteral("sidebarToggle"));
         sidebarToggle->style()->unpolish(sidebarToggle);
         sidebarToggle->style()->polish(sidebarToggle);
-        sidebarToggle->setText(*sidebarCollapsed ? QStringLiteral(">") : QStringLiteral("<"));
+        sidebarToggle->setText(*sidebarCollapsed ? QStringLiteral("\xe2\x96\xb6") : QStringLiteral("\xe2\x97\x80"));
         sidebarToggle->setToolTip(*sidebarCollapsed ? QStringLiteral("Expand sidebar") : QStringLiteral("Collapse sidebar"));
+        sidebarToggle->setFixedWidth(*sidebarCollapsed ? 40 : 34);
         for (int row = 0; row < nav->count(); row += 1) {
             QListWidgetItem* item = nav->item(row);
+            const int pageIndex = item->data(Qt::UserRole).toInt();
             const QString label = item->data(Qt::UserRole + 1).toString();
+            // Hide group headers when collapsed
+            if (pageIndex < 0) {
+                item->setHidden(*sidebarCollapsed);
+                continue;
+            }
             if (!label.isEmpty()) {
                 item->setText(*sidebarCollapsed ? QString() : label);
                 const Qt::Alignment alignment = *sidebarCollapsed
@@ -2641,6 +2660,8 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
     table.setColumnWidth(1, 200);     // Product
     table.setColumnWidth(2, 80);      // Cost
     table.setColumnWidth(3, 80);      // Min Stock
+
+    // Only show days that exist in this month (e.g., 28 for Feb, 30 for Apr, 31 for May)
     for (int day = 1; day <= 31; ++day) {
         const bool visible = (day <= visibleDays);
         table.setColumnHidden(3 + day, !visible);
@@ -2650,6 +2671,11 @@ void DesktopApplication::loadInventorySnapshot(QTableWidget& table, const QStrin
             table.setColumnWidth(34 + day, 58);  // Purchase column (compact)
         }
     }
+
+    // Freeze Product, Cost, Min Stock columns (first 4 visible columns stay fixed on scroll)
+    table.horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    table.horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    table.horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
 
     // Step 5 - Load data from service (wrapped in try/catch)
     QJsonArray rows;
