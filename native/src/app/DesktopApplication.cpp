@@ -1,5 +1,6 @@
 #include "app/DesktopApplication.h"
 
+#include "app/SplashScreen.h"
 #include "domain/Types.h"
 
 #include <QAction>
@@ -2424,9 +2425,26 @@ int runDesktopApplication(int argc, char** argv) {
     QApplication::setOrganizationName(QStringLiteral("M-Finlogs"));
     QApplication::setApplicationName(QStringLiteral("M-Finlogs"));
 
-    AppContext context(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
-    DesktopApplication window(context);
-    window.show();
+    // Show the modern frameless splash first. The main window (and its auth
+    // dialog) is only constructed once the splash animation completes, so the
+    // splash never covers the modal sign-in dialog.
+    auto splash = std::make_unique<SplashScreen>();
+    std::unique_ptr<AppContext> context;
+    std::unique_ptr<DesktopApplication> window;
+
+    splash->show();
+    splash->setProgress(20, QStringLiteral("Loading services..."));
+
+    QObject::connect(splash.get(), &SplashScreen::finished, &qtApp, [&]() {
+        context = std::make_unique<AppContext>(QStringLiteral("M-Finlogs"), QStringLiteral("M-Finlogs"));
+        window = std::make_unique<DesktopApplication>(*context);
+        splash->close();
+        window->show();
+        window->raise();
+        window->activateWindow();
+    });
+    splash->runIndeterminate(1400);
+
     return qtApp.exec();
 }
 
