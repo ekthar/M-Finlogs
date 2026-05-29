@@ -53,6 +53,7 @@
 #include <QScrollBar>
 #include <QSizePolicy>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStandardPaths>
@@ -268,10 +269,65 @@ QTableWidget* createInventoryTable(QWidget* parent) {
     table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
     table->horizontalHeader()->setStretchLastSection(false);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-    table->horizontalHeader()->setMinimumSectionSize(60);
+    table->horizontalHeader()->setMinimumSectionSize(50);
     table->verticalHeader()->setDefaultSectionSize(28);
     table->installEventFilter(new InventoryTableKeyFilter(*table));
     return table;
+}
+
+// Number of frozen columns in the inventory table (row_id hidden + Product + Cost + Min Stock)
+constexpr int kInventoryFrozenCols = 4;
+
+// Creates a frozen-pane overlay for the inventory table. The frozen table shows
+// columns 0..kInventoryFrozenCols-1 and stays fixed while the main table scrolls.
+QTableWidget* createFrozenOverlay(QTableWidget* mainTable) {
+    QTableWidget* frozen = new QTableWidget(mainTable->parentWidget());
+    frozen->setObjectName(QStringLiteral("inventoryTable"));
+    frozen->setAlternatingRowColors(true);
+    frozen->setSelectionBehavior(QAbstractItemView::SelectItems);
+    frozen->setSelectionMode(QAbstractItemView::SingleSelection);
+    frozen->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
+    frozen->horizontalHeader()->setStretchLastSection(false);
+    frozen->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    frozen->horizontalHeader()->setMinimumSectionSize(50);
+    frozen->verticalHeader()->setVisible(false);
+    frozen->verticalHeader()->setDefaultSectionSize(28);
+    frozen->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozen->setFrameShape(QFrame::NoFrame);
+    frozen->setStyleSheet(QStringLiteral(
+        "QTableWidget { background: #ffffff; border-right: 2px solid #3b82f6; border-radius: 0; }"));
+    return frozen;
+}
+
+// Synchronize the frozen overlay geometry and vertical scroll with the main table.
+void setupFrozenPane(QTableWidget* mainTable, QTableWidget* frozenTable) {
+    auto updateFrozenGeometry = [mainTable, frozenTable]() {
+        int frozenWidth = 0;
+        for (int col = 0; col < kInventoryFrozenCols; ++col) {
+            if (!mainTable->isColumnHidden(col)) {
+                frozenWidth += mainTable->columnWidth(col);
+            }
+        }
+        const int headerH = mainTable->horizontalHeader()->height();
+        frozenTable->setGeometry(
+            mainTable->x(), mainTable->y(),
+            frozenWidth + mainTable->verticalHeader()->width(),
+            mainTable->height());
+    };
+
+    // Sync vertical scroll
+    QObject::connect(mainTable->verticalScrollBar(), &QScrollBar::valueChanged,
+        frozenTable->verticalScrollBar(), &QScrollBar::setValue);
+    QObject::connect(frozenTable->verticalScrollBar(), &QScrollBar::valueChanged,
+        mainTable->verticalScrollBar(), &QScrollBar::setValue);
+
+    // Update geometry when main table resizes
+    QObject::connect(mainTable->horizontalHeader(), &QHeaderView::sectionResized,
+        mainTable, [updateFrozenGeometry](int, int, int) { updateFrozenGeometry(); });
+
+    // Initial geometry
+    QTimer::singleShot(0, mainTable, updateFrozenGeometry);
 }
 
 QListWidgetItem* addGroupItem(QListWidget& nav, const QString& label) {
@@ -610,35 +666,33 @@ void focusEntryWidget(QWidget& widget) {
 }
 
 static QString buildModernQss(bool darkMode = false) {
-    // Warm professional palette with stronger contrast for a vibrant, non-pale look
-    const QString bg           = darkMode ? QStringLiteral("#121925") : QStringLiteral("#ede4d0");
-    const QString surface      = darkMode ? QStringLiteral("#182130") : QStringLiteral("#ffffff");
-    const QString sidebarBg    = darkMode ? QStringLiteral("#1b2432") : QStringLiteral("#2d3a33");
-    const QString sidebarSel   = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#2f7a65");
-    const QString sidebarSelTx = darkMode ? QStringLiteral("#ffffff") : QStringLiteral("#ffffff");
-    const QString sidebarHover = darkMode ? QStringLiteral("#243044") : QStringLiteral("#3a4a40");
-    const QString textPrimary  = darkMode ? QStringLiteral("#edf3ff") : QStringLiteral("#24302a");
-    const QString textSecondary= darkMode ? QStringLiteral("#aab8d1") : QStringLiteral("#5c6b61");
-    const QString border       = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#d4c8b0");
-    const QString inputBorder  = darkMode ? QStringLiteral("#344057") : QStringLiteral("#c4b69b");
-    const QString tableHeaderBg= darkMode ? QStringLiteral("#273246") : QStringLiteral("#2f7a65");
-    const QString tableHeaderTx= darkMode ? QStringLiteral("#eaf1ff") : QStringLiteral("#ffffff");
-    const QString tableAltRow  = darkMode ? QStringLiteral("#151e2c") : QStringLiteral("#f7f1e4");
-    const QString tableGrid    = darkMode ? QStringLiteral("#2a3447") : QStringLiteral("#ddd2bb");
-    const QString tableSelBg   = darkMode ? QStringLiteral("#1b3642") : QStringLiteral("#d6ebe1");
-    const QString accent       = darkMode ? QStringLiteral("#1e8f85") : QStringLiteral("#2f7a65");
-    const QString accentHover  = darkMode ? QStringLiteral("#17766d") : QStringLiteral("#296a58");
-    const QString accentPanelBg= darkMode ? QStringLiteral("#1b2638") : QStringLiteral("#e3f0ea");
-    const QString inputBg      = darkMode ? QStringLiteral("#121a28") : QStringLiteral("#ffffff");
-    const QString scrollHandle = darkMode ? QStringLiteral("#344057") : QStringLiteral("#c4b69b");
-    const QString secondaryBg  = darkMode ? QStringLiteral("#202b3d") : QStringLiteral("#e8f1ed");
-    const QString secondaryHover = darkMode ? QStringLiteral("#2a364c") : QStringLiteral("#dcebe4");
-    // Sidebar text colors (sidebar is dark in light mode, so text must be light)
-    const QString sidebarText  = QStringLiteral("#e8efe9");
-    const QString sidebarMuted = QStringLiteral("#9fb0a6");
-    const QString heroGrad     = darkMode
-        ? QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2563eb, stop:1 #60a5fa)")
-        : QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #2f7a65, stop:1 #4ba88c)");
+    // Clean light theme with cobalt accents and semi-rounded corners
+    Q_UNUSED(darkMode);
+    const QString bg           = QStringLiteral("#f0f4f8");
+    const QString surface      = QStringLiteral("#ffffff");
+    const QString sidebarBg    = QStringLiteral("#1e293b");
+    const QString sidebarSel   = QStringLiteral("#3b82f6");
+    const QString sidebarSelTx = QStringLiteral("#ffffff");
+    const QString sidebarHover = QStringLiteral("#334155");
+    const QString textPrimary  = QStringLiteral("#1e293b");
+    const QString textSecondary= QStringLiteral("#64748b");
+    const QString border       = QStringLiteral("#e2e8f0");
+    const QString inputBorder  = QStringLiteral("#cbd5e1");
+    const QString tableHeaderBg= QStringLiteral("#1e293b");
+    const QString tableHeaderTx= QStringLiteral("#f8fafc");
+    const QString tableAltRow  = QStringLiteral("#f8fafc");
+    const QString tableGrid    = QStringLiteral("#e2e8f0");
+    const QString tableSelBg   = QStringLiteral("#dbeafe");
+    const QString accent       = QStringLiteral("#3b82f6");
+    const QString accentHover  = QStringLiteral("#2563eb");
+    const QString accentPanelBg= QStringLiteral("#eff6ff");
+    const QString inputBg      = QStringLiteral("#ffffff");
+    const QString scrollHandle = QStringLiteral("#94a3b8");
+    const QString secondaryBg  = QStringLiteral("#f1f5f9");
+    const QString secondaryHover = QStringLiteral("#e2e8f0");
+    const QString sidebarText  = QStringLiteral("#e2e8f0");
+    const QString sidebarMuted = QStringLiteral("#94a3b8");
+    const QString heroGrad     = QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #1e40af, stop:1 #3b82f6)");
 
     return QStringLiteral(
         // 1. Universal font reset - normal weight baseline
@@ -700,7 +754,7 @@ static QString buildModernQss(bool darkMode = false) {
 
     // 10. Page title
     + QStringLiteral(
-        "QLabel#pageTitle { color: %1; font-size: 30px; font-weight: 800; letter-spacing: 0px; }"
+        "QLabel#pageTitle { color: %1; font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }"
     ).arg(textPrimary)
 
     // 11. Page meta
@@ -784,8 +838,8 @@ static QString buildModernQss(bool darkMode = false) {
     // 22. Primary button - solid blue, white bold text
     + QStringLiteral(
         "QPushButton { background: %1; color: #ffffff; border: none;"
-        " border-radius: 8px; min-height: 30px; padding: 2px 18px;"
-        " font-weight: 800; font-size: 13px; }"
+        " border-radius: 10px; min-height: 32px; padding: 2px 18px;"
+        " font-weight: 700; font-size: 13px; }"
     ).arg(accent)
 
     // 23. Button hover
@@ -804,11 +858,11 @@ static QString buildModernQss(bool darkMode = false) {
         "QPushButton:disabled { background: #edf0f3; color: #9aa3ad; }"
     ).arg(secondaryBg, textPrimary, secondaryHover)
 
-    // 25. Inputs - 32px height, light border, 5px radius
+    // 25. Inputs - 32px height, semi-rounded
     + QStringLiteral(
         "QLineEdit, QDateEdit, QDoubleSpinBox, QComboBox {"
-        " background: %1; border: 1px solid %2; border-radius: 5px;"
-        " min-height: 30px; padding: 0 10px; color: %3; font-size: 13px; }"
+        " background: %1; border: 1px solid %2; border-radius: 10px;"
+        " min-height: 32px; padding: 0 12px; color: %3; font-size: 13px; }"
     ).arg(inputBg, inputBorder, textPrimary)
 
     // 26. Focus states
@@ -1222,18 +1276,18 @@ bool DesktopApplication::showAuthDialog() {
         dialog.setModal(true);
         // Interactive auth dialog styling with hover/focus states
         dialog.setStyleSheet(QStringLiteral(
-            "QDialog { background: #ffffff; }"
-            "QLineEdit { background: #f9fafb; border: 1.5px solid #e5e7eb; border-radius: 9px;"
-            " padding: 0 14px; color: #111827; font-size: 13px; }"
-            "QLineEdit:hover { border-color: #cbd5e1; background: #ffffff; }"
-            "QLineEdit:focus { border-color: #2f7a65; background: #ffffff; }"
-            "QLineEdit:disabled { background: #f1f3f5; color: #9aa3ad; }"
-            "QPushButton { background: #2f7a65; color: #ffffff; border: none; border-radius: 9px;"
+            "QDialog { background: #ffffff; border-radius: 14px; }"
+            "QLineEdit { background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px;"
+            " padding: 0 14px; color: #1e293b; font-size: 13px; }"
+            "QLineEdit:hover { border-color: #3b82f6; background: #ffffff; }"
+            "QLineEdit:focus { border-color: #3b82f6; background: #ffffff; }"
+            "QLineEdit:disabled { background: #f1f5f9; color: #94a3b8; }"
+            "QPushButton { background: #3b82f6; color: #ffffff; border: none; border-radius: 10px;"
             " font-weight: 700; font-size: 14px; padding: 8px 18px; }"
-            "QPushButton:hover { background: #296a58; }"
-            "QPushButton:pressed { background: #225647; }"
-            "QPushButton#secondaryButton { background: #eef2f0; color: #2f7a65; font-weight: 600; }"
-            "QPushButton#secondaryButton:hover { background: #e0e9e5; }"
+            "QPushButton:hover { background: #2563eb; }"
+            "QPushButton:pressed { background: #1d4ed8; }"
+            "QPushButton#secondaryButton { background: #f1f5f9; color: #3b82f6; font-weight: 600; border-radius: 10px; }"
+            "QPushButton#secondaryButton:hover { background: #e2e8f0; }"
         ));
         dialog.resize(440, 380);
 
@@ -1257,7 +1311,7 @@ bool DesktopApplication::showAuthDialog() {
 
         QLabel* title = new QLabel(setupRequired ? QStringLiteral("Create Admin Password") : QStringLiteral("Welcome Back"), &dialog);
         title->setAlignment(Qt::AlignCenter);
-        title->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: 700; color: #111827;"));
+        title->setStyleSheet(QStringLiteral("font-size: 22px; font-weight: 700; color: #1e293b;"));
         layout->addWidget(title);
         layout->addSpacing(4);
 
@@ -1265,7 +1319,7 @@ bool DesktopApplication::showAuthDialog() {
             ? QStringLiteral("Set up the admin password for this database")
             : QStringLiteral("Sign in to manage your accounting workspace"), &dialog);
         subtitle->setAlignment(Qt::AlignCenter);
-        subtitle->setStyleSheet(QStringLiteral("font-size: 12px; color: #6B7280;"));
+        subtitle->setStyleSheet(QStringLiteral("font-size: 12px; color: #64748b;"));
         layout->addWidget(subtitle);
         layout->addSpacing(24);
 
@@ -1930,7 +1984,7 @@ QWidget* DesktopApplication::buildDailyEntryPage() {
 QWidget* DesktopApplication::buildDashboardPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
 
     layout->addWidget(createPageHeader(
@@ -1958,7 +2012,7 @@ QWidget* DesktopApplication::buildDashboardPage() {
 QWidget* DesktopApplication::buildPartiesPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Add Party"), QStringLiteral("Create and review customer, supplier, bank, and expense parties."), page));
     layout->addWidget(createContextBar(context_, page));
@@ -2001,14 +2055,16 @@ QWidget* DesktopApplication::buildPartiesPage() {
 QWidget* DesktopApplication::buildReportPage(const QString& title, const QString& description) {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
-    layout->setSpacing(6);
+    layout->setContentsMargins(16, 8, 16, 8);
+    layout->setSpacing(4);
 
     layout->addWidget(createPageHeader(title, description, page));
-    layout->addWidget(createContextBar(context_, page));
 
-    QFrame* filters = createPanel(page);
+    // Compact inline filter row (no panel wrapper to save vertical space)
+    QWidget* filters = new QWidget(page);
     QHBoxLayout* filterLayout = new QHBoxLayout(filters);
+    filterLayout->setContentsMargins(0, 4, 0, 4);
+    filterLayout->setSpacing(8);
     QLineEdit* search = new QLineEdit(filters);
     search->setPlaceholderText(QStringLiteral("Party or table search..."));
     try {
@@ -2087,7 +2143,7 @@ QWidget* DesktopApplication::buildReportPage(const QString& title, const QString
 QWidget* DesktopApplication::buildAuditPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Audit Logs"), QStringLiteral("Administrative activity and native service events."), page));
     layout->addWidget(createContextBar(context_, page));
@@ -2101,7 +2157,7 @@ QWidget* DesktopApplication::buildAuditPage() {
 QWidget* DesktopApplication::buildSettingsPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Settings"), QStringLiteral("Database configuration, backup paths, and native runtime controls."), page));
     layout->addWidget(createContextBar(context_, page));
@@ -2233,7 +2289,7 @@ QWidget* DesktopApplication::buildSettingsPage() {
 QWidget* DesktopApplication::buildInventoryPage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Inventory Management"), QStringLiteral("Monthly stock quantities and purchases per day. Tab between Qty and Purchase fields."), page));
     layout->addWidget(createContextBar(context_, page));
@@ -2333,9 +2389,57 @@ QWidget* DesktopApplication::buildInventoryPage() {
     metricsLayout->addStretch(1);
     layout->addWidget(metricsRow);
 
-    QTableWidget* table = createInventoryTable(page);
+    // Inventory table with frozen Product/Cost/Min Stock pane
+    // Uses two side-by-side tables: left (frozen) + right (scrollable day columns)
+    QSplitter* tableSplitter = new QSplitter(Qt::Horizontal, page);
+    tableSplitter->setChildrenCollapsible(false);
+    tableSplitter->setHandleWidth(2);
+    tableSplitter->setStyleSheet(QStringLiteral("QSplitter::handle { background: #3b82f6; }"));
+
+    QTableWidget* frozenTable = createInventoryTable(tableSplitter);
+    frozenTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    frozenTable->setObjectName(QStringLiteral("inventoryFrozen"));
+
+    QTableWidget* table = createInventoryTable(tableSplitter);
+
+    tableSplitter->addWidget(frozenTable);
+    tableSplitter->addWidget(table);
+    tableSplitter->setSizes({330, 700});
+
+    // Load data into main table, then mirror frozen columns
     loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
-    layout->addWidget(table, 1);
+
+    auto syncFrozenTable = [table, frozenTable]() {
+        frozenTable->setRowCount(table->rowCount());
+        frozenTable->setColumnCount(4);
+        QStringList fHeaders;
+        for (int c = 0; c < 4; ++c) {
+            QTableWidgetItem* h = table->horizontalHeaderItem(c);
+            fHeaders.append(h ? h->text() : QString());
+        }
+        frozenTable->setHorizontalHeaderLabels(fHeaders);
+        frozenTable->setColumnHidden(0, true);
+        frozenTable->setColumnWidth(1, 180);
+        frozenTable->setColumnWidth(2, 70);
+        frozenTable->setColumnWidth(3, 70);
+        for (int r = 0; r < table->rowCount(); ++r) {
+            for (int c = 0; c < 4; ++c) {
+                QTableWidgetItem* src = table->item(r, c);
+                QTableWidgetItem* dst = src ? new QTableWidgetItem(*src) : new QTableWidgetItem();
+                if (c == 0) dst->setFlags(Qt::ItemIsEnabled);
+                frozenTable->setItem(r, c, dst);
+            }
+        }
+    };
+    syncFrozenTable();
+
+    // Sync vertical scroll between the two tables
+    QObject::connect(table->verticalScrollBar(), &QScrollBar::valueChanged,
+        frozenTable->verticalScrollBar(), &QScrollBar::setValue);
+    QObject::connect(frozenTable->verticalScrollBar(), &QScrollBar::valueChanged,
+        table->verticalScrollBar(), &QScrollBar::setValue);
+
+    layout->addWidget(tableSplitter, 1);
 
     auto refreshSummary = [table, tableSummary, periodChip, financialYear, month,
                            totalQtyValue, purchaseInValue, avgDailyValue, reorderValue]() {
@@ -2474,17 +2578,19 @@ QWidget* DesktopApplication::buildInventoryPage() {
         dialog.exec();
     });
 
-    connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month](int) {
+    connect(month, &QComboBox::currentIndexChanged, this, [this, table, financialYear, month, syncFrozenTable](int) {
         loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+        syncFrozenTable();
     });
     connect(month, &QComboBox::currentIndexChanged, this, [refreshSummary](int) {
         refreshSummary();
     });
-    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary]() {
+    connect(refresh, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary, syncFrozenTable]() {
         loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+        syncFrozenTable();
         refreshSummary();
     });
-    connect(add, &QPushButton::clicked, this, [table, product, refreshSummary]() {
+    connect(add, &QPushButton::clicked, this, [table, product, refreshSummary, syncFrozenTable]() {
         const QString name = product->text().trimmed();
         if (name.isEmpty()) {
             return;
@@ -2509,8 +2615,9 @@ QWidget* DesktopApplication::buildInventoryPage() {
         table->setCurrentCell(row, 1);
         table->editItem(table->item(row, 1));
         refreshSummary();
+        syncFrozenTable();
     });
-    connect(addGap, &QPushButton::clicked, this, [table, refreshSummary]() {
+    connect(addGap, &QPushButton::clicked, this, [table, refreshSummary, syncFrozenTable]() {
         const int row = table->rowCount();
         table->insertRow(row);
         table->setItem(row, 0, createTableItem(QString(), Qt::ItemIsEnabled | Qt::ItemIsSelectable));
@@ -2523,8 +2630,9 @@ QWidget* DesktopApplication::buildInventoryPage() {
         table->setCurrentCell(row, 1);
         table->editItem(table->item(row, 1));
         refreshSummary();
+        syncFrozenTable();
     });
-    connect(cleanEmpty, &QPushButton::clicked, this, [table, refreshSummary]() {
+    connect(cleanEmpty, &QPushButton::clicked, this, [table, refreshSummary, syncFrozenTable]() {
         for (int row = table->rowCount() - 1; row >= 0; row -= 1) {
             const QTableWidgetItem* item = table->item(row, 1);
             if (!item || item->text().trimmed().isEmpty()) {
@@ -2532,12 +2640,14 @@ QWidget* DesktopApplication::buildInventoryPage() {
             }
         }
         refreshSummary();
+        syncFrozenTable();
     });
     connect(product, &QLineEdit::returnPressed, add, &QPushButton::click);
-    connect(save, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary]() {
+    connect(save, &QPushButton::clicked, this, [this, table, financialYear, month, refreshSummary, syncFrozenTable]() {
         try {
             context_.services().inventory->saveSnapshot(financialYear, month->currentIndex() + 1, inventoryRowsFromTable(*table));
             loadInventorySnapshot(*table, financialYear, month->currentIndex() + 1);
+            syncFrozenTable();
             refreshSummary();
             statusBar()->showMessage(QStringLiteral("Inventory saved"), 7000);
         } catch (const std::exception& err) {
@@ -2668,7 +2778,7 @@ QWidget* DesktopApplication::buildInventoryPage() {
 QWidget* DesktopApplication::buildInventoryValuePage() {
     QWidget* page = new QWidget(this);
     QVBoxLayout* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(20, 14, 20, 22);
+    layout->setContentsMargins(12, 6, 12, 8);
     layout->setSpacing(6);
     layout->addWidget(createPageHeader(QStringLiteral("Stock Value Report"), QStringLiteral("Daily stock quantity and value from saved inventory snapshots."), page));
     layout->addWidget(createContextBar(context_, page));
@@ -2925,7 +3035,7 @@ void DesktopApplication::loadAuditLogs(QTableWidget& table) {
 void DesktopApplication::loadReportTable(QTableWidget& table, const QString& reportName, const QString& partyName, const domain::ReportRange& range) {
     QStringList headers;
     if (reportName == QStringLiteral("Party Ledger")) {
-        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount"), QStringLiteral("balance")};
+        headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("particulars"), QStringLiteral("debit"), QStringLiteral("credit"), QStringLiteral("balance")};
     } else if (reportName == QStringLiteral("Day Book")) {
         headers = {QStringLiteral("date"), QStringLiteral("bill_no"), QStringLiteral("party"), QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")};
     } else if (reportName == QStringLiteral("Purchase Report") || reportName == QStringLiteral("Expenses")) {
@@ -2954,16 +3064,46 @@ void DesktopApplication::loadReportTable(QTableWidget& table, const QString& rep
                 QJsonObject placeholder;
                 placeholder.insert(QStringLiteral("date"), QStringLiteral("--"));
                 placeholder.insert(QStringLiteral("bill_no"), QStringLiteral("--"));
-                placeholder.insert(QStringLiteral("type"), QStringLiteral("Enter a party name and refresh"));
-                placeholder.insert(QStringLiteral("mode"), QStringLiteral("--"));
-                placeholder.insert(QStringLiteral("amount"), 0.0);
-                placeholder.insert(QStringLiteral("balance"), 0.0);
+                placeholder.insert(QStringLiteral("particulars"), QStringLiteral("Enter a party name and refresh"));
+                placeholder.insert(QStringLiteral("debit"), QStringLiteral(""));
+                placeholder.insert(QStringLiteral("credit"), QStringLiteral(""));
+                placeholder.insert(QStringLiteral("balance"), QStringLiteral("--"));
                 rows.append(placeholder);
                 setTableRows(table, headers, rows);
                 return;
             }
             const QJsonObject report = context_.services().reports->ledger(partyName, range);
-            setTableRows(table, headers, report.value(QStringLiteral("data")).toArray());
+            const QJsonArray rawData = report.value(QStringLiteral("data")).toArray();
+            // Transform: Sale → Debit, Receipt/Sale Return → Credit, balance with Dr/Cr suffix
+            QJsonArray ledgerRows;
+            for (const QJsonValue& val : rawData) {
+                const QJsonObject raw = val.toObject();
+                const QString type = raw.value(QStringLiteral("type")).toString().trimmed().toLower();
+                const QString mode = raw.value(QStringLiteral("mode")).toString().trimmed();
+                const double amount = raw.value(QStringLiteral("amount")).toDouble();
+                const double balance = raw.value(QStringLiteral("balance")).toDouble();
+                const QString particulars = raw.value(QStringLiteral("type")).toString()
+                    + (mode.isEmpty() ? QString() : QStringLiteral(" / %1").arg(mode));
+                QString debit;
+                QString credit;
+                if (type == QStringLiteral("sale") || type == QStringLiteral("expense") || type == QStringLiteral("purchase")) {
+                    debit = moneyText(amount);
+                } else {
+                    credit = moneyText(amount);
+                }
+                const QString balanceText = balance < 0
+                    ? QStringLiteral("%1 Cr").arg(moneyText(qAbs(balance)))
+                    : QStringLiteral("%1 Dr").arg(moneyText(balance));
+                QJsonObject row;
+                row.insert(QStringLiteral("date"), raw.value(QStringLiteral("date")));
+                row.insert(QStringLiteral("bill_no"), raw.value(QStringLiteral("bill_no")));
+                row.insert(QStringLiteral("particulars"), particulars);
+                row.insert(QStringLiteral("debit"), debit);
+                row.insert(QStringLiteral("credit"), credit);
+                row.insert(QStringLiteral("balance"), balanceText);
+                ledgerRows.append(row);
+            }
+            setTableRows(table, headers, ledgerRows);
             return;
         }
         if (reportName == QStringLiteral("Day Book")) {

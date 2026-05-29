@@ -52,6 +52,17 @@ jobs:
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
+      - name: Build installer
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "native\installer\setup.iss"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfinlogs-installer
+          path: native\installer\Output\*.exe
+
       - name: Upload native executable
         uses: actions/upload-artifact@v4
         with:
