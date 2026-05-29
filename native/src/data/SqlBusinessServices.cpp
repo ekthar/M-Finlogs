@@ -1440,9 +1440,9 @@ public:
             painter.drawText(left + 8, y, row.name.left(42));
             painter.drawText(330, y, QString::number(quantity, 'f', 2));
             painter.drawText(420, y, QString::number(purchaseQuantity, 'f', 2));
-            painter.drawText(530, y, QString::number(row.cost, 'f', 2));
+            painter.drawText(530, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(row.cost, 0, 'f', 2));
             if (request.includeStockValue) {
-                painter.drawText(620, y, QString::number(stockValue, 'f', 2));
+                painter.drawText(620, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(stockValue, 0, 'f', 2));
             }
             rowNumber += 1;
             y += 24;
@@ -1462,7 +1462,7 @@ public:
         painter.drawText(330, y, QString::number(grandQuantity, 'f', 2));
         painter.drawText(420, y, QString::number(grandPurchase, 'f', 2));
         if (request.includeStockValue) {
-            painter.drawText(620, y, QString::number(grandValue, 'f', 2));
+            painter.drawText(620, y, (QString(QChar(0x20B9)) + QStringLiteral("%1")).arg(grandValue, 0, 'f', 2));
         }
         painter.end();
         return bytes;
