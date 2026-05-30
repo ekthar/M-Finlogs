@@ -1,39 +1,51 @@
 pragma Singleton
 import QtQuick
+import QtCore
 
-// "Aurora" design system — global design tokens.
-// A single source of truth for color, type, spacing, radius and motion.
+// "Aurora" design system — global design tokens with light/dark palettes
+// and a global animation on/off switch. Preferences persist via QtCore Settings.
 QtObject {
     id: theme
 
-    // ---- Palette: Aurora (deep indigo night with violet/sky aurora) ------
-    readonly property color bg0: "#0b1020"          // deepest backdrop
-    readonly property color bg1: "#0f1530"          // base
-    readonly property color bg2: "#141b3a"          // raised
+    // ---- User preferences (persisted) ------------------------------------
+    property bool dark: true
+    property bool animationsEnabled: true
 
-    readonly property color surface: "#171f42"      // opaque card fallback
-    readonly property color glass: Qt.rgba(1, 1, 1, 0.06)
-    readonly property color glassStrong: Qt.rgba(1, 1, 1, 0.10)
-    readonly property color glassBorder: Qt.rgba(1, 1, 1, 0.14)
-    readonly property color glassBorderSoft: Qt.rgba(1, 1, 1, 0.08)
+    property Settings _prefs: Settings {
+        category: "ui"
+        property alias dark: theme.dark
+        property alias animationsEnabled: theme.animationsEnabled
+    }
 
-    readonly property color text: "#eef2ff"
-    readonly property color textDim: "#aab3d4"
-    readonly property color textFaint: "#6f7aa3"
+    // ---- Palette (switches on `dark`) ------------------------------------
+    // Dark = Aurora indigo night. Light = soft, low-glare off-white (easy on eyes).
+    property color bg0: dark ? "#0b1020" : "#eceef5"   // deepest backdrop
+    property color bg1: dark ? "#0f1530" : "#f2f4f9"   // base
+    property color bg2: dark ? "#141b3a" : "#ffffff"   // raised
 
-    readonly property color accent: "#7c8cff"        // indigo
-    readonly property color accent2: "#a78bfa"       // violet
-    readonly property color accent3: "#56ccf2"       // sky
-    readonly property color accentInk: "#ffffff"
+    property color surface: dark ? "#171f42" : "#ffffff"
+    property color glass: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(255/255,255/255,255/255,0.72)
+    property color glassStrong: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(1,1,1,0.92)
+    property color glassBorder: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(20/255,27/255,58/255,0.12)
+    property color glassBorderSoft: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(20/255,27/255,58/255,0.07)
 
-    readonly property color success: "#34d399"
-    readonly property color warning: "#fbbf24"
-    readonly property color danger: "#fb7185"
+    property color text: dark ? "#eef2ff" : "#1d2440"
+    property color textDim: dark ? "#aab3d4" : "#566085"
+    property color textFaint: dark ? "#6f7aa3" : "#8b93ad"
+
+    property color accent: dark ? "#7c8cff" : "#5b63e6"        // indigo
+    property color accent2: dark ? "#a78bfa" : "#8b5cf6"       // violet
+    property color accent3: dark ? "#56ccf2" : "#0ea5e9"       // sky
+    property color accentInk: "#ffffff"
+
+    property color success: dark ? "#34d399" : "#0f9d6b"
+    property color warning: dark ? "#fbbf24" : "#d97706"
+    property color danger: dark ? "#fb7185" : "#e11d48"
 
     // Gradient stops used across the app shell + hero surfaces
-    readonly property color grad0: "#6366f1"
-    readonly property color grad1: "#8b5cf6"
-    readonly property color grad2: "#38bdf8"
+    property color grad0: "#6366f1"
+    property color grad1: "#8b5cf6"
+    property color grad2: "#38bdf8"
 
     // ---- Typography ------------------------------------------------------
     readonly property string fontFamily: "Inter Tight"
@@ -63,13 +75,13 @@ QtObject {
     readonly property int rXl: 22
     readonly property int rPill: 999
 
-    // ---- Motion ----------------------------------------------------------
-    readonly property int durFast: 140
-    readonly property int durBase: 240
-    readonly property int durSlow: 420
+    // ---- Motion (durations become 0 when animations are disabled) --------
+    readonly property int durFast: animationsEnabled ? 140 : 0
+    readonly property int durBase: animationsEnabled ? 240 : 0
+    readonly property int durSlow: animationsEnabled ? 420 : 0
     readonly property int easeOut: Easing.OutCubic
     readonly property int easeInOut: Easing.InOutCubic
-    readonly property int easeSpring: Easing.OutBack
+    readonly property int easeSpring: animationsEnabled ? Easing.OutBack : Easing.OutCubic
 
     // ---- Helpers ---------------------------------------------------------
     function alpha(c, a) {
@@ -84,7 +96,6 @@ QtObject {
         case "Expense": return danger
         case "Sale Return": return warning
         case "Purchase": return accent2
-        // Outstanding risk statuses
         case "Critical": return danger
         case "High": return warning
         case "Normal": return success
