@@ -80,6 +80,7 @@ public:
     Q_INVOKABLE QVariantList inventorySnapshot(const QString& financialYear, int month);
     Q_INVOKABLE QVariantMap saveInventory(const QString& financialYear, int month, const QVariantList& rows);
     Q_INVOKABLE QVariantList stockValue(const QString& financialYear, int month);
+    Q_INVOKABLE QVariantMap inventoryPdfPreview(const QString& financialYear, int month, bool onlyReorder);
 
     // --- Users (admin) ----------------------------------------------------
     Q_INVOKABLE QVariantList users();

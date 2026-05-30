@@ -146,7 +146,7 @@ Item {
                         label: "Party"
                         placeholder: "Search or type party"
                         completions: page.partyList
-                        onAccepted: typeField.forceActiveFocus()
+                        onAccepted: typeField.focusCombo()
                         // Lookup balance when user finishes typing
                         inputField.onEditingFinished: page.lookupPartyBalance(text)
                     }
@@ -155,17 +155,14 @@ Item {
                         Layout.preferredWidth: 150
                         label: "Type"
                         options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
-                        // Enter on combo moves to next field
-                        Keys.onReturnPressed: modeField.forceActiveFocus()
-                        Keys.onEnterPressed: modeField.forceActiveFocus()
+                        onNextField: modeField.focusCombo()
                     }
                     FieldCombo {
                         id: modeField
                         Layout.preferredWidth: 140
                         label: "Mode"
                         options: ["Credit", "Cash", "UPI", "Bank"]
-                        Keys.onReturnPressed: amountField.inputField.forceActiveFocus()
-                        Keys.onEnterPressed: amountField.inputField.forceActiveFocus()
+                        onNextField: amountField.inputField.forceActiveFocus()
                     }
                     FieldInput {
                         id: amountField

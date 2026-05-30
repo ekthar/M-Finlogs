@@ -9,6 +9,11 @@ Item {
     property var options: []
     property alias currentIndex: combo.currentIndex
     property alias currentText: combo.currentText
+    signal nextField()
+    signal prevField()
+
+    // Focus the inner ComboBox (so parent can call comboField.focusCombo())
+    function focusCombo() { combo.forceActiveFocus() }
 
     implicitHeight: (label.length > 0 ? 20 : 0) + 44
     implicitWidth: 160
@@ -35,11 +40,38 @@ Item {
             font.pixelSize: Theme.fsBody
             activeFocusOnTab: true
 
-            // Keyboard: Enter/Return opens dropdown, arrow keys navigate items
-            Keys.onReturnPressed: { if (!popup.visible) popup.open(); else popup.close() }
-            Keys.onEnterPressed: { if (!popup.visible) popup.open(); else popup.close() }
-            // Space also toggles (built-in behavior), just ensure it works
-            Keys.onSpacePressed: { if (!popup.visible) popup.open(); else popup.close() }
+            // Keyboard navigation:
+            //  - Down: open dropdown if closed; if open, move selection down
+            //  - Up: move selection up
+            //  - Enter/Return: if open, accept & close; else move to next field
+            Keys.onDownPressed: function(event) {
+                if (!popup.visible) {
+                    popup.open()
+                } else {
+                    combo.currentIndex = Math.min(combo.currentIndex + 1, combo.count - 1)
+                }
+                event.accepted = true
+            }
+            Keys.onUpPressed: function(event) {
+                if (popup.visible) {
+                    combo.currentIndex = Math.max(combo.currentIndex - 1, 0)
+                }
+                event.accepted = true
+            }
+            Keys.onReturnPressed: function(event) {
+                if (popup.visible) { popup.close() }
+                else { root.nextField() }
+                event.accepted = true
+            }
+            Keys.onEnterPressed: function(event) {
+                if (popup.visible) { popup.close() }
+                else { root.nextField() }
+                event.accepted = true
+            }
+            Keys.onSpacePressed: function(event) {
+                if (!popup.visible) popup.open(); else popup.close()
+                event.accepted = true
+            }
 
             background: Rectangle {
                 radius: Theme.rMd

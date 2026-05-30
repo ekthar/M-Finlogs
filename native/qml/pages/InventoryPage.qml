@@ -190,9 +190,10 @@ Item {
         backend.exportTableToExcel("Inventory " + monthNames[selectedMonth-1] + " " + selectedFy, cols, expRows)
     }
     function exportPdf() {
-        var cols = buildExportCols()
-        var expRows = buildExportRows()
-        backend.exportTableToPdf("Inventory " + monthNames[selectedMonth-1] + " " + selectedFy, cols, expRows)
+        // Use the proper inventory report generator (portrait, last 7 days,
+        // metrics cards, grouped rows, reorder highlighting) — saves & saves to DB first
+        page.saveAll()
+        backend.inventoryPdfPreview(selectedFy, selectedMonth, false)
     }
     function buildExportCols() {
         var c = ["Name","Cost","Min Stock"]

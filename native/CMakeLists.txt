@@ -60,6 +60,11 @@ set(MFINLOGS_NATIVE_SOURCES
     src/domain/Types.h
 )
 
+# Windows: embed the application icon into the .exe (shows in taskbar + Explorer)
+if(WIN32)
+    list(APPEND MFINLOGS_NATIVE_SOURCES resources/app.rc)
+endif()
+
 qt_add_executable(mfinlogs-native
     WIN32
     ${MFINLOGS_NATIVE_SOURCES}
