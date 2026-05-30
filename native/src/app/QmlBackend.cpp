@@ -866,6 +866,206 @@ QVariantMap QmlBackend::exportTableToExcel(const QString& title, const QVariantL
     }
 }
 
+// ---- 7-day Recent Transactions PDF Report --------------------------------
+
+QVariantMap QmlBackend::exportRecentPdf(int days) {
+    try {
+        const int span = days > 0 ? days : 7;
+        const QVector<domain::TransactionRow> rows =
+            context_.services().transactions->listTransactions(1, 5000, span);
+
+        const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/M-Finlogs_Last_%1_Days.pdf").arg(span);
+        const QString filePath = QFileDialog::getSaveFileName(nullptr,
+            QStringLiteral("Export %1-Day Report").arg(span), defaultPath, QStringLiteral("PDF (*.pdf)"));
+        if (filePath.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        QPdfWriter writer(filePath);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setPageOrientation(QPageLayout::Landscape);
+        writer.setResolution(96);
+        writer.setTitle(QStringLiteral("M-Finlogs — Last %1 Days").arg(span));
+
+        QPainter painter(&writer);
+        if (!painter.isActive()) {
+            return errorResult(QStringLiteral("Could not start PDF writer"));
+        }
+
+        const int pageW = writer.width();
+        const int pageH = writer.height();
+        const int margin = 32;
+        const int tableW = pageW - margin * 2;
+        int y = margin;
+
+        // --- Title block ---
+        painter.setFont(QFont(QStringLiteral("Inter Tight"), 16, QFont::Bold));
+        painter.setPen(QColor(0x1e, 0x24, 0x35));
+        painter.drawText(margin, y + 20, QStringLiteral("M-Finlogs — Transaction Report"));
+        y += 30;
+        painter.setFont(QFont(QStringLiteral("Inter Tight"), 9));
+        painter.setPen(QColor(0x64, 0x74, 0x8b));
+        const QDate today = QDate::currentDate();
+        painter.drawText(margin, y + 12,
+            QStringLiteral("Period: %1 to %2 | Generated: %3")
+                .arg(today.addDays(-span + 1).toString(QStringLiteral("dd MMM yyyy")),
+                     today.toString(QStringLiteral("dd MMM yyyy")),
+                     today.toString(QStringLiteral("dd MMM yyyy"))));
+        y += 28;
+
+        // --- Column layout ---
+        const QStringList headers = {
+            QStringLiteral("Date"), QStringLiteral("Bill No"), QStringLiteral("Party"),
+            QStringLiteral("Type"), QStringLiteral("Mode"), QStringLiteral("Amount")
+        };
+        const QVector<double> colWeights = {1.1, 1.0, 2.2, 1.0, 0.9, 1.2};
+        double totalWeight = 0;
+        for (double w : colWeights) totalWeight += w;
+        QVector<int> colWidths;
+        for (double w : colWeights) colWidths.append(static_cast<int>(tableW * w / totalWeight));
+
+        const int rowH = 22;
+        const int headerH = 26;
+
+        auto drawTableHeader = [&](int& yPos) {
+            // Dark header bar
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0x1b, 0x24, 0x40));
+            painter.drawRect(margin, yPos, tableW, headerH);
+            painter.setPen(QColor(0xee, 0xf2, 0xfb));
+            painter.setFont(QFont(QStringLiteral("Inter Tight"), 8, QFont::Bold));
+            int x = margin;
+            for (int c = 0; c < headers.size(); ++c) {
+                const Qt::Alignment align = (c == 5) ? (Qt::AlignRight | Qt::AlignVCenter) : (Qt::AlignLeft | Qt::AlignVCenter);
+                painter.drawText(QRect(x + 6, yPos, colWidths[c] - 12, headerH), align, headers[c]);
+                x += colWidths[c];
+            }
+            yPos += headerH;
+        };
+
+        drawTableHeader(y);
+
+        // --- Data rows ---
+        painter.setFont(QFont(QStringLiteral("Inter Tight"), 8));
+        double grandTotal = 0.0;
+        for (int r = 0; r < rows.size(); ++r) {
+            if (y + rowH > pageH - margin) {
+                writer.newPage();
+                y = margin;
+                drawTableHeader(y);
+                painter.setFont(QFont(QStringLiteral("Inter Tight"), 8));
+            }
+
+            // Alternating bands
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(r % 2 == 0 ? QColor(0xf8, 0xfa, 0xfc) : QColor(0xff, 0xff, 0xff));
+            painter.drawRect(margin, y, tableW, rowH);
+
+            const domain::TransactionRow& row = rows[r];
+            QString typeText;
+            switch (row.type) {
+            case domain::TransactionType::Sale: typeText = QStringLiteral("Sale"); break;
+            case domain::TransactionType::SaleReturn: typeText = QStringLiteral("Sale Return"); break;
+            case domain::TransactionType::Purchase: typeText = QStringLiteral("Purchase"); break;
+            case domain::TransactionType::Expense: typeText = QStringLiteral("Expense"); break;
+            case domain::TransactionType::Receipt: typeText = QStringLiteral("Receipt"); break;
+            }
+            QString modeText;
+            switch (row.mode) {
+            case domain::PaymentMode::Credit: modeText = QStringLiteral("Credit"); break;
+            case domain::PaymentMode::Cash: modeText = QStringLiteral("Cash"); break;
+            case domain::PaymentMode::Upi: modeText = QStringLiteral("UPI"); break;
+            case domain::PaymentMode::Bank: modeText = QStringLiteral("Bank"); break;
+            }
+            const QStringList cells = {
+                row.date.toString(QStringLiteral("dd-MM-yyyy")),
+                row.billNo,
+                row.party,
+                typeText,
+                modeText,
+                formatMoney(row.amount)
+            };
+
+            painter.setPen(QColor(0x1e, 0x24, 0x35));
+            int x = margin;
+            for (int c = 0; c < cells.size(); ++c) {
+                const Qt::Alignment align = (c == 5) ? (Qt::AlignRight | Qt::AlignVCenter) : (Qt::AlignLeft | Qt::AlignVCenter);
+                painter.drawText(QRect(x + 6, y, colWidths[c] - 12, rowH), align, cells[c]);
+                x += colWidths[c];
+            }
+            // Row border
+            painter.setPen(QPen(QColor(0xe5, 0xe7, 0xeb), 1));
+            painter.drawLine(margin, y + rowH, margin + tableW, y + rowH);
+            grandTotal += row.amount;
+            y += rowH;
+        }
+
+        // --- Footer total ---
+        y += 4;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0x1b, 0x24, 0x40));
+        painter.drawRect(margin, y, tableW, headerH);
+        painter.setPen(QColor(0xee, 0xf2, 0xfb));
+        painter.setFont(QFont(QStringLiteral("Inter Tight"), 9, QFont::Bold));
+        painter.drawText(QRect(margin + 6, y, tableW / 2, headerH), Qt::AlignLeft | Qt::AlignVCenter,
+            QStringLiteral("Total: %1 transactions").arg(rows.size()));
+        painter.drawText(QRect(margin + tableW / 2, y, tableW / 2 - 6, headerH), Qt::AlignRight | Qt::AlignVCenter,
+            formatMoney(grandTotal));
+
+        painter.end();
+        emit toast(QStringLiteral("PDF report exported: ") + filePath, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), filePath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+// ---- Party balance lookup ------------------------------------------------
+
+QVariantMap QmlBackend::partyBalance(const QString& partyName) {
+    try {
+        if (partyName.trimmed().isEmpty()) {
+            return QVariantMap();
+        }
+        // Get ledger with full date range (no filter = all transactions)
+        domain::ReportRange range;
+        range.start = QDate(2000, 1, 1);
+        range.end = QDate::currentDate();
+        range.days = 0;
+        const QJsonObject ledger = context_.services().reports->ledger(partyName, range);
+        const QJsonArray data = ledger.value(QStringLiteral("data")).toArray();
+
+        double balance = 0.0;
+        QString lastTxnDate;
+        QString lastTxnType;
+        double lastTxnAmount = 0.0;
+
+        if (!data.isEmpty()) {
+            const QJsonObject lastRow = data.last().toObject();
+            balance = lastRow.value(QStringLiteral("balance")).toDouble();
+            lastTxnDate = lastRow.value(QStringLiteral("date")).toString();
+            lastTxnType = lastRow.value(QStringLiteral("type")).toString();
+            lastTxnAmount = lastRow.value(QStringLiteral("amount")).toDouble();
+        }
+
+        QVariantMap result;
+        result.insert(QStringLiteral("balance"), balance);
+        result.insert(QStringLiteral("balanceLabel"), balance >= 0
+            ? formatMoney(balance) + QStringLiteral(" Dr")
+            : formatMoney(qAbs(balance)) + QStringLiteral(" Cr"));
+        result.insert(QStringLiteral("lastDate"), lastTxnDate);
+        result.insert(QStringLiteral("lastType"), lastTxnType);
+        result.insert(QStringLiteral("lastAmount"), lastTxnAmount);
+        result.insert(QStringLiteral("hasData"), !data.isEmpty());
+        return result;
+    } catch (...) {
+        return QVariantMap();
+    }
+}
+
 // ---- Audit ---------------------------------------------------------------
 
 QVariantList QmlBackend::auditLogs() {

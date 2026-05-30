@@ -8,12 +8,29 @@ Item {
 
     property var rows: []
     property var partyList: []
+    property string partyBalanceText: ""
+    property bool partyBalanceVisible: false
 
     function refresh() {
         rows = backend.transactions(1, 100, 0)
     }
     function refreshParties() {
         partyList = backend.partyNames()
+    }
+    function lookupPartyBalance(name) {
+        if (!name || name.trim().length === 0) {
+            partyBalanceVisible = false
+            return
+        }
+        var info = backend.partyBalance(name.trim())
+        if (info && info.hasData) {
+            partyBalanceText = name.trim() + ": " + info.balanceLabel +
+                " | Last: " + info.lastType + " \u20B9" + backend.formatMoney(info.lastAmount) +
+                " on " + backend.formatDate(info.lastDate)
+            partyBalanceVisible = true
+        } else {
+            partyBalanceVisible = false
+        }
     }
 
     Component.onCompleted: {
@@ -79,6 +96,33 @@ Item {
                 anchors.margins: Theme.s5
                 spacing: Theme.s4
 
+                // Party balance info (visible when a known party is typed)
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 32
+                    radius: Theme.rSm
+                    visible: page.partyBalanceVisible
+                    color: Theme.alpha(Theme.accent3, 0.08)
+                    border.width: 1
+                    border.color: Theme.alpha(Theme.accent3, 0.2)
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.s3
+                        anchors.rightMargin: Theme.s3
+                        spacing: Theme.s2
+                        Text { text: "\u2139"; color: Theme.accent3; font.pixelSize: 13 }
+                        Text {
+                            text: page.partyBalanceText
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fsTiny
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s3
@@ -103,6 +147,8 @@ Item {
                         placeholder: "Search or type party"
                         completions: page.partyList
                         onAccepted: typeField.forceActiveFocus()
+                        // Lookup balance when user finishes typing
+                        inputField.onEditingFinished: page.lookupPartyBalance(text)
                     }
                     FieldCombo {
                         id: typeField
@@ -161,6 +207,12 @@ Item {
                         font.weight: Font.Bold
                     }
                     Item { Layout.fillWidth: true }
+                    GhostButton {
+                        text: "Export 7-Day PDF"
+                        tint: Theme.accent2
+                        implicitWidth: 140
+                        onClicked: backend.exportRecentPdf(7)
+                    }
                     StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                 }
 

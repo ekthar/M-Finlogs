@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
+import QtQuick.Window
 import MFinlogs
 
 Item {
@@ -28,11 +29,27 @@ Item {
         if (showPurchase()) n++
         return 3 + n * daysInMonth()  // 3 frozen + day cells
     }
-    function moveFocus(dRow, dCol) {
-        var newRow = Math.max(0, Math.min(rows.length - 1, focusRow + dRow))
-        var newCol = Math.max(0, Math.min(gridColCount() - 1, focusCol + dCol))
-        focusRow = newRow
-        focusCol = newCol
+    // Move focus down/up by walking the focus chain forward/backward
+    // by exactly gridColCount() steps (each row has that many tab-stops).
+    function moveFocusDown() {
+        var item = page.Window.window ? page.Window.window.activeFocusItem : null
+        if (!item) return
+        var steps = gridColCount()
+        for (var i = 0; i < steps; i++) {
+            item = item.nextItemInFocusChain(true)
+            if (!item) return
+        }
+        item.forceActiveFocus()
+    }
+    function moveFocusUp() {
+        var item = page.Window.window ? page.Window.window.activeFocusItem : null
+        if (!item) return
+        var steps = gridColCount()
+        for (var i = 0; i < steps; i++) {
+            item = item.nextItemInFocusChain(false)
+            if (!item) return
+        }
+        item.forceActiveFocus()
     }
     // Signal to notify cells to check if they should grab focus
     signal focusCellChanged()
@@ -623,10 +640,10 @@ Item {
                                             background: Item {}
                                             verticalAlignment: Text.AlignVCenter
                                             activeFocusOnTab: true
-                                            Keys.onDownPressed: page.moveFocus(1, 0)
-                                            Keys.onUpPressed: page.moveFocus(-1, 0)
-                                            Keys.onReturnPressed: page.moveFocus(1, 0)
-                                            Keys.onEnterPressed: page.moveFocus(1, 0)
+                                            Keys.onDownPressed: page.moveFocusDown()
+                                            Keys.onUpPressed: page.moveFocusUp()
+                                            Keys.onReturnPressed: page.moveFocusDown()
+                                            Keys.onEnterPressed: page.moveFocusDown()
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].name = text
@@ -653,10 +670,10 @@ Item {
                                             verticalAlignment: Text.AlignVCenter
                                             activeFocusOnTab: true
                                             validator: DoubleValidator { bottom: 0 }
-                                            Keys.onDownPressed: page.moveFocus(1, 0)
-                                            Keys.onUpPressed: page.moveFocus(-1, 0)
-                                            Keys.onReturnPressed: page.moveFocus(1, 0)
-                                            Keys.onEnterPressed: page.moveFocus(1, 0)
+                                            Keys.onDownPressed: page.moveFocusDown()
+                                            Keys.onUpPressed: page.moveFocusUp()
+                                            Keys.onReturnPressed: page.moveFocusDown()
+                                            Keys.onEnterPressed: page.moveFocusDown()
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].cost = parseFloat(text) || 0
@@ -681,10 +698,10 @@ Item {
                                             verticalAlignment: Text.AlignVCenter
                                             activeFocusOnTab: true
                                             validator: IntValidator { bottom: 0 }
-                                            Keys.onDownPressed: page.moveFocus(1, 0)
-                                            Keys.onUpPressed: page.moveFocus(-1, 0)
-                                            Keys.onReturnPressed: page.moveFocus(1, 0)
-                                            Keys.onEnterPressed: page.moveFocus(1, 0)
+                                            Keys.onDownPressed: page.moveFocusDown()
+                                            Keys.onUpPressed: page.moveFocusUp()
+                                            Keys.onReturnPressed: page.moveFocusDown()
+                                            Keys.onEnterPressed: page.moveFocusDown()
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].min_stock = parseInt(text) || 0
@@ -738,10 +755,10 @@ Item {
                                                             verticalAlignment: Text.AlignVCenter
                                                             activeFocusOnTab: true
                                                             validator: IntValidator { bottom: 0 }
-                                                            Keys.onDownPressed: page.moveFocus(1, 0)
-                                                            Keys.onUpPressed: page.moveFocus(-1, 0)
-                                                            Keys.onReturnPressed: page.moveFocus(1, 0)
-                                                            Keys.onEnterPressed: page.moveFocus(1, 0)
+                                                            Keys.onDownPressed: page.moveFocusDown()
+                                                            Keys.onUpPressed: page.moveFocusUp()
+                                                            Keys.onReturnPressed: page.moveFocusDown()
+                                                            Keys.onEnterPressed: page.moveFocusDown()
                                                             onTextEdited: {
                                                                 var tmp = page.rows.slice()
                                                                 tmp[rowDelegate.rowIdx][page.qtyKey(dayNum)] = parseInt(text) || 0
@@ -777,10 +794,10 @@ Item {
                                                             verticalAlignment: Text.AlignVCenter
                                                             activeFocusOnTab: true
                                                             validator: IntValidator { bottom: 0 }
-                                                            Keys.onDownPressed: page.moveFocus(1, 0)
-                                                            Keys.onUpPressed: page.moveFocus(-1, 0)
-                                                            Keys.onReturnPressed: page.moveFocus(1, 0)
-                                                            Keys.onEnterPressed: page.moveFocus(1, 0)
+                                                            Keys.onDownPressed: page.moveFocusDown()
+                                                            Keys.onUpPressed: page.moveFocusUp()
+                                                            Keys.onReturnPressed: page.moveFocusDown()
+                                                            Keys.onEnterPressed: page.moveFocusDown()
                                                             onTextEdited: {
                                                                 var tmp = page.rows.slice()
                                                                 tmp[rowDelegate.rowIdx][page.purKey(dayNum)] = parseInt(text) || 0
