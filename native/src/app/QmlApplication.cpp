@@ -88,8 +88,9 @@ int runQmlApplication(int argc, char** argv) {
             return -1;
         }
 
-        // Close splash after a short delay so the user sees it while QML renders
-        QTimer::singleShot(800, &splash, [&splash]() { splash.close(); });
+        // Keep the animated splash visible long enough to enjoy it, then
+        // cross-fade out while the QML window is already rendered behind it.
+        QTimer::singleShot(2000, &splash, [&splash]() { splash.close(); });
 
         return app.exec();
     } catch (const std::exception& err) {
