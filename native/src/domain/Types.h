@@ -33,6 +33,11 @@ struct Session final {
     QString token;
 };
 
+enum class DatabaseMode {
+    Server,   // SQL Server via ODBC
+    Local     // Embedded SQLite
+};
+
 struct DatabaseConfig final {
     QString server;
     QString database;
@@ -42,6 +47,8 @@ struct DatabaseConfig final {
     QString apiBaseUrl;
     QString backupDir;
     bool useWindowsAuth;
+    DatabaseMode mode = DatabaseMode::Server;
+    QString sqlitePath;   // path to SQLite .db file (local mode only)
 };
 
 struct TransactionRow final {

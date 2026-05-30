@@ -56,7 +56,9 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
             QStringLiteral("{ODBC Driver 17 for SQL Server}"),
             QStringLiteral("http://127.0.0.1:8000"),
             QStringLiteral("D:/finlogs"),
-            true
+            true,
+            domain::DatabaseMode::Server,
+            QString()
         };
     }
 
@@ -81,6 +83,11 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
         ? payload.value(QStringLiteral("windows_auth")).toBool(true)
         : authType != QStringLiteral("sql");
 
+    const QString modeStr = payload.value(QStringLiteral("mode")).toString(QStringLiteral("server"));
+    const domain::DatabaseMode mode = (modeStr == QStringLiteral("local"))
+        ? domain::DatabaseMode::Local
+        : domain::DatabaseMode::Server;
+
     return domain::DatabaseConfig{
         payload.value(QStringLiteral("server")).toString(QStringLiteral("localhost")),
         payload.value(QStringLiteral("database")).toString(QStringLiteral("Finlogs")),
@@ -89,7 +96,9 @@ domain::DatabaseConfig JsonConfigService::readDatabaseConfig() const {
         payload.value(QStringLiteral("driver")).toString(QStringLiteral("{ODBC Driver 17 for SQL Server}")),
         payload.value(QStringLiteral("api_base")).toString(QStringLiteral("http://127.0.0.1:8000")),
         payload.value(QStringLiteral("backup_dir")).toString(QStringLiteral("D:/finlogs")),
-        useWindowsAuth
+        useWindowsAuth,
+        mode,
+        payload.value(QStringLiteral("sqlite_path")).toString()
     };
 }
 
@@ -109,6 +118,8 @@ void JsonConfigService::writeDatabaseConfig(const domain::DatabaseConfig& config
     payload.insert(QStringLiteral("backup_dir"), config.backupDir);
     payload.insert(QStringLiteral("windows_auth"), config.useWindowsAuth);
     payload.insert(QStringLiteral("auth_type"), config.useWindowsAuth ? QStringLiteral("windows") : QStringLiteral("sql"));
+    payload.insert(QStringLiteral("mode"), config.mode == domain::DatabaseMode::Local ? QStringLiteral("local") : QStringLiteral("server"));
+    payload.insert(QStringLiteral("sqlite_path"), config.sqlitePath);
 
     QSaveFile file(configPath());
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {

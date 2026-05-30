@@ -261,6 +261,83 @@ Item {
                     }
                 }
             }
+
+            // ─── Mode Selection ───────────────────────────────────────────
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.glassBorder
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.s2
+                text: "Connection Mode"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsSection
+                font.weight: Font.Bold
+            }
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Current: " + backend.currentMode().toUpperCase()
+                color: Theme.textDim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsTiny
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "\uD83C\uDF10 Server Mode"
+                    from: Theme.accent
+                    to: Theme.accent2
+                    onClicked: {
+                        var res = backend.selectMode("server")
+                        if (res && res.ok) {
+                            dbStatus.text = "\u2713 Set to Server mode. Restart to apply."
+                            dbStatus.color = Theme.success
+                        }
+                    }
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "\uD83D\uDCBB Local Mode"
+                    from: Theme.accent3
+                    to: Theme.success
+                    onClicked: {
+                        var res = backend.selectMode("local")
+                        if (res && res.ok) {
+                            dbStatus.text = "\u2713 Set to Local (SQLite) mode. Restart to apply."
+                            dbStatus.color = Theme.success
+                        }
+                    }
+                }
+            }
+
+            PrimaryButton {
+                Layout.fillWidth: true
+                text: "\uD83D\uDCE5 Migrate: Server \u2192 Local"
+                danger: false
+                from: Theme.warning
+                to: "#d97706"
+                onClicked: {
+                    dbStatus.text = "Migrating all data from SQL Server to local SQLite..."
+                    dbStatus.color = Theme.warning
+                    var res = backend.migrateServerToLocal()
+                    if (res && res.ok === true) {
+                        dbStatus.text = "\u2713 Migration complete! All data copied. Restart to use local mode."
+                        dbStatus.color = Theme.success
+                    } else {
+                        dbStatus.text = "\u2717 Migration failed: " + (res.error || "Unknown error")
+                        dbStatus.color = Theme.danger
+                    }
+                }
+            }
+
             GhostButton {
                 Layout.fillWidth: true
                 text: "\u2190 Back to Login"

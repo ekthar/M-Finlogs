@@ -1,5 +1,6 @@
 #include "app/QmlBackend.h"
 
+#include "data/MigrationService.h"
 #include "domain/DomainErrors.h"
 #include "domain/Types.h"
 
@@ -1122,6 +1123,60 @@ QVariantMap QmlBackend::partyBalance(const QString& partyName) {
         return result;
     } catch (...) {
         return QVariantMap();
+    }
+}
+
+// ---- Mode selection (Server / Local / Migration) -------------------------
+
+QString QmlBackend::currentMode() const {
+    try {
+        const domain::DatabaseConfig cfg = context_.services().config->readDatabaseConfig();
+        return cfg.mode == domain::DatabaseMode::Local ? QStringLiteral("local") : QStringLiteral("server");
+    } catch (...) {
+        return QStringLiteral("server");
+    }
+}
+
+QVariantMap QmlBackend::selectMode(const QString& mode) {
+    try {
+        domain::DatabaseConfig cfg = context_.services().config->readDatabaseConfig();
+        if (mode == QStringLiteral("local")) {
+            cfg.mode = domain::DatabaseMode::Local;
+            if (cfg.sqlitePath.trimmed().isEmpty()) {
+                cfg.sqlitePath = QDir(context_.appDataDir()).filePath(QStringLiteral("finlogs.db"));
+            }
+        } else {
+            cfg.mode = domain::DatabaseMode::Server;
+        }
+        context_.services().config->writeDatabaseConfig(cfg);
+        emit toast(QStringLiteral("Mode set to '%1'. Restart the app to apply.").arg(mode), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::migrateServerToLocal() {
+    try {
+        domain::DatabaseConfig cfg = context_.services().config->readDatabaseConfig();
+        if (cfg.sqlitePath.trimmed().isEmpty()) {
+            cfg.sqlitePath = QDir(context_.appDataDir()).filePath(QStringLiteral("finlogs.db"));
+        }
+
+        emit toast(QStringLiteral("Migration started — copying all data from SQL Server..."), QStringLiteral("info"));
+
+        const QString resultPath = data::migrateServerToSqlite(cfg, cfg.sqlitePath);
+
+        // Update config to local mode
+        cfg.mode = domain::DatabaseMode::Local;
+        context_.services().config->writeDatabaseConfig(cfg);
+
+        emit toast(QStringLiteral("Migration complete! Restart app to use local mode."), QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), resultPath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
     }
 }
 
