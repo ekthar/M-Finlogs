@@ -748,13 +748,41 @@ QVariantMap QmlBackend::autoBackup() {
 
 QVariantMap QmlBackend::restoreDatabase(const QString& backupPath) {
     try {
-        if (backupPath.trimmed().isEmpty()) {
-            return errorResult(QStringLiteral("No backup file selected"));
+        QString path = backupPath.trimmed();
+
+        // If no path provided, open a native file picker. The filter adapts to
+        // the active database mode: .bak for SQL Server, .db for local SQLite.
+        if (path.isEmpty()) {
+            QString filter;
+            QString startDir;
+            try {
+                const domain::DatabaseConfig cfg = context_.services().config->readDatabaseConfig();
+                if (cfg.mode == domain::DatabaseMode::Local) {
+                    filter = QStringLiteral("SQLite Database (*.db);;All Files (*)");
+                } else {
+                    filter = QStringLiteral("SQL Backup (*.bak);;All Files (*)");
+                }
+                startDir = cfg.backupDir.trimmed();
+            } catch (...) {
+                filter = QStringLiteral("Backup Files (*.bak *.db);;All Files (*)");
+            }
+            if (startDir.isEmpty()) {
+                startDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+            }
+            path = QFileDialog::getOpenFileName(nullptr,
+                QStringLiteral("Choose backup file to restore"), startDir, filter);
+            if (path.trimmed().isEmpty()) {
+                return okResult(); // user cancelled — not an error
+            }
         }
-        context_.services().backups->restore(backupPath.trimmed());
-        emit toast(QStringLiteral("Backup restored. Restart app to reload."), QStringLiteral("success"));
-        return okResult();
+
+        context_.services().backups->restore(path.trimmed());
+        emit toast(QStringLiteral("Backup restored successfully. Restart the app to reload."), QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), path.trimmed());
+        return res;
     } catch (const std::exception& err) {
+        emit toast(QStringLiteral("Restore failed: ") + QString::fromUtf8(err.what()), QStringLiteral("error"));
         return errorResult(QString::fromUtf8(err.what()));
     }
 }

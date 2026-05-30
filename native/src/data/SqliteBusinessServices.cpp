@@ -1762,6 +1762,17 @@ public:
         if (!directory.exists() && !directory.mkpath(QStringLiteral("."))) {
             throw domain::DomainError(QStringLiteral("Could not create backup directory: %1").arg(requestedPath).toStdString());
         }
+
+        // Checkpoint any WAL journal into the main .db so the single-file copy
+        // is complete and consistent (otherwise recent writes can be missed).
+        {
+            SqliteDb db(dbPath());
+            if (db.open()) {
+                QSqlQuery cp(db.handle());
+                cp.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"));
+            }
+        }
+
         const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
         const QString baseName = QFileInfo(dbPath()).completeBaseName();
         const QString backupPath = directory.filePath(QStringLiteral("%1_%2.db").arg(baseName, timestamp));
@@ -1781,15 +1792,34 @@ public:
         if (!backupFile.exists() || !backupFile.isFile()) {
             throw domain::DomainError(QStringLiteral("Backup file not found: %1").arg(backupPath).toStdString());
         }
-        // Remove existing db and replace with backup
-        if (QFile::exists(dbPath())) {
-            if (!QFile::remove(dbPath())) {
-                throw domain::DomainError(QStringLiteral("Could not remove current database for restore: %1").arg(dbPath()).toStdString());
+
+        const QString target = QFileInfo(dbPath()).absoluteFilePath();
+        const QString source = backupFile.absoluteFilePath();
+
+        // No-op if the chosen file is already the live database.
+        if (QString::compare(source, target, Qt::CaseInsensitive) == 0) {
+            return;
+        }
+
+        // SQLite in WAL mode keeps -wal/-shm sidecar files. They MUST be
+        // removed when swapping the main db file, otherwise the restored
+        // database is mixed with stale journal data (corruption / old data).
+        const QStringList sidecars = {
+            target,
+            target + QStringLiteral("-wal"),
+            target + QStringLiteral("-shm"),
+            target + QStringLiteral("-journal")
+        };
+        for (const QString& f : sidecars) {
+            if (QFile::exists(f) && !QFile::remove(f)) {
+                throw domain::DomainError(QStringLiteral(
+                    "Could not remove current database file for restore (is the app still using it?): %1").arg(f).toStdString());
             }
         }
-        if (!QFile::copy(backupFile.absoluteFilePath(), dbPath())) {
+
+        if (!QFile::copy(source, target)) {
             throw domain::DomainError(QStringLiteral("Could not copy backup to database path: %1 -> %2")
-                .arg(backupFile.absoluteFilePath(), dbPath()).toStdString());
+                .arg(source, target).toStdString());
         }
     }
 };
