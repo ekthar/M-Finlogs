@@ -274,16 +274,17 @@ QVariantMap QmlBackend::addTransaction(const QString& dateIso,
         if (!date.isValid()) {
             return fail(QStringLiteral("Please choose a valid date"));
         }
-        if (party.trimmed().isEmpty()) {
-            return fail(QStringLiteral("Party is required"));
-        }
+        // If no party specified, default to "customer" for quick cash sales
+        const QString resolvedParty = party.trimmed().isEmpty()
+            ? QStringLiteral("customer")
+            : party.trimmed();
         if (amount <= 0.0) {
             return fail(QStringLiteral("Amount must be greater than zero"));
         }
         const int id = context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
             date,
             billNo.trimmed(),
-            party.trimmed(),
+            resolvedParty,
             transactionTypeFromText(type),
             paymentModeFromText(mode),
             amount

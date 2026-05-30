@@ -297,4 +297,32 @@ Item {
             }
         }
     }
+
+    // ============ Keyboard shortcuts ============
+    // Alt+N → Daily Entry, Alt+D → Dashboard, Alt+L → Ledger
+    // Alt+I → Inventory, Alt+P → Parties, Alt+S → Settings
+    // Ctrl+K → focus search (future), Alt+Left/Right → prev/next page
+    focus: true
+    Keys.onPressed: function(event) {
+        if (event.modifiers & Qt.AltModifier) {
+            switch (event.key) {
+            case Qt.Key_N: shell.navigate("DailyEntryPage"); event.accepted = true; break
+            case Qt.Key_D: shell.navigate("DashboardPage"); event.accepted = true; break
+            case Qt.Key_L: shell.navigate("LedgerPage"); event.accepted = true; break
+            case Qt.Key_I: shell.navigate("InventoryPage"); event.accepted = true; break
+            case Qt.Key_P: shell.navigate("PartiesPage"); event.accepted = true; break
+            case Qt.Key_S: shell.navigate("SettingsPage"); event.accepted = true; break
+            case Qt.Key_O: shell.navigate("OutstandingPage"); event.accepted = true; break
+            case Qt.Key_T: shell.navigate("TrialBalancePage"); event.accepted = true; break
+            case Qt.Key_B: shell.navigate("DayBookPage"); event.accepted = true; break
+            case Qt.Key_A: shell.navigate("AuditPage"); event.accepted = true; break
+            }
+        }
+    }
+
+    // Sidebar items selectable with keyboard (Tab into sidebar then Up/Down)
+    Shortcut {
+        sequence: "Ctrl+["
+        onActivated: shell.collapsed = !shell.collapsed
+    }
 }
