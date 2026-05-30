@@ -113,6 +113,11 @@ public:
     // --- Party balance lookup (for entry hints) ---------------------------
     Q_INVOKABLE QVariantMap partyBalance(const QString& partyName);
 
+    // --- Mode selection (Server / Local / Migration) ----------------------
+    Q_INVOKABLE QString currentMode() const;
+    Q_INVOKABLE QVariantMap selectMode(const QString& mode);
+    Q_INVOKABLE QVariantMap migrateServerToLocal();
+
     // --- Formatting helpers (used widely by QML) --------------------------
     Q_INVOKABLE QString formatMoney(double value) const;
     Q_INVOKABLE QString formatDate(const QString& iso) const;

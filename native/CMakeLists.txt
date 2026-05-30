@@ -53,6 +53,12 @@ set(MFINLOGS_NATIVE_SOURCES
     src/data/SqlBusinessServices.cpp
     src/data/SqlDatabase.h
     src/data/SqlDatabase.cpp
+    src/data/SqliteSchemaInitializer.h
+    src/data/SqliteSchemaInitializer.cpp
+    src/data/SqliteBusinessServices.h
+    src/data/SqliteBusinessServices.cpp
+    src/data/MigrationService.h
+    src/data/MigrationService.cpp
     src/domain/DomainErrors.h
     src/domain/ServiceInterfaces.h
     src/domain/ServiceRegistry.h
