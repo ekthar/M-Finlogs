@@ -15,6 +15,25 @@ Item {
         load()
     }
 
+    function doExportPdf() {
+        var cols = ["Date", "Opening", "Cash In", "Cash Exp", "Needed", "Short/Excess", "Bank", "Total Sales"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.opening_cash || ""), String(r.cash_in || ""), String(r.cash_expense || ""), String(r.cash_needed || ""), String(r.cash_short_excess || ""), String(r.bank || ""), String(r.total_sales || "")])
+        }
+        backend.exportTableToPdf("Daily Summary", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Date", "Opening", "Cash In", "Cash Exp", "Needed", "Short/Excess", "Bank", "Total Sales"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.opening_cash || ""), String(r.cash_in || ""), String(r.cash_expense || ""), String(r.cash_needed || ""), String(r.cash_short_excess || ""), String(r.bank || ""), String(r.total_sales || "")])
+        }
+        backend.exportTableToExcel("Daily Summary", cols, data)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -23,9 +42,15 @@ Item {
         anchors.bottomMargin: Theme.s6
         spacing: Theme.s5
 
-        SectionHeader {
-            title: "Daily Summary"
-            subtitle: "Cash flow and sales by day"
+        RowLayout {
+            Layout.fillWidth: true
+            SectionHeader {
+                title: "Daily Summary"
+                subtitle: "Cash flow and sales by day"
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
         GlassPanel {

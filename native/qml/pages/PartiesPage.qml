@@ -161,17 +161,48 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 400
                 radius: Theme.rLg
-                DataTable {
+                ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: Theme.s5
-                    emptyText: "No parties yet \u2014 create one above"
-                    rows: page.rows
-                    columns: [
-                        { title: "Name", key: "name", weight: 2.4 },
-                        { title: "Type", key: "type", chip: true, weight: 1.4 }
-                    ]
+                    spacing: Theme.s3
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text { text: "Party List"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                        Item { Layout.fillWidth: true }
+                        GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+                        GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
+                    }
+                    DataTable {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        emptyText: "No parties yet \u2014 create one above"
+                        rows: page.rows
+                        columns: [
+                            { title: "Name", key: "name", weight: 2.4 },
+                            { title: "Type", key: "type", chip: true, weight: 1.4 }
+                        ]
+                    }
                 }
             }
         }
+    }
+
+    function doExportPdf() {
+        var cols = ["Name", "Type"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.name || ""), String(r.type || "")])
+        }
+        backend.exportTableToPdf("Parties", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Name", "Type"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.name || ""), String(r.type || "")])
+        }
+        backend.exportTableToExcel("Parties", cols, data)
     }
 }

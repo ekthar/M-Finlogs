@@ -10,6 +10,25 @@ Item {
     Component.onCompleted: load()
     Connections { target: backend; function onDataChanged() { page.load() } }
 
+    function doExportPdf() {
+        var cols = ["Time", "User", "Action", "Details"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.timestamp || ""), String(r.username || ""), String(r.action || ""), String(r.details || "")])
+        }
+        backend.exportTableToPdf("Audit Logs", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Time", "User", "Action", "Details"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.timestamp || ""), String(r.username || ""), String(r.action || ""), String(r.details || "")])
+        }
+        backend.exportTableToExcel("Audit Logs", cols, data)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -25,6 +44,8 @@ Item {
                 subtitle: "Every change, who made it and when"
             }
             Item { Layout.fillWidth: true }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
             GhostButton { text: "Refresh"; onClicked: page.load() }
         }
 
