@@ -14,6 +14,25 @@ Item {
     property real expenses: Number(data.expenses || 0)
     property real net: Number(data.net_profit || 0)
 
+    function doExportPdf() {
+        var cols = ["Item", "Amount"]
+        var data = [
+            ["Total Sales", String(page.sales)],
+            ["Total Expenses", String(page.expenses)],
+            ["Net Profit", String(page.net)]
+        ]
+        backend.exportTableToPdf("Profit & Loss", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Item", "Amount"]
+        var data = [
+            ["Total Sales", String(page.sales)],
+            ["Total Expenses", String(page.expenses)],
+            ["Net Profit", String(page.net)]
+        ]
+        backend.exportTableToExcel("Profit & Loss", cols, data)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -22,9 +41,15 @@ Item {
         anchors.bottomMargin: Theme.s6
         spacing: Theme.s5
 
-        SectionHeader {
-            title: "Profit & Loss"
-            subtitle: "Income statement for the financial year"
+        RowLayout {
+            Layout.fillWidth: true
+            SectionHeader {
+                title: "Profit & Loss"
+                subtitle: "Income statement for the financial year"
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
         GridLayout {

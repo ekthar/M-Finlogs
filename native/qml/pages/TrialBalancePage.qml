@@ -20,6 +20,25 @@ Item {
     Component.onCompleted: load()
     Connections { target: backend; function onDataChanged() { page.load() } }
 
+    function doExportPdf() {
+        var cols = ["Account/Party", "Debit", "Credit"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.account || ""), String(r.debit || ""), String(r.credit || "")])
+        }
+        backend.exportTableToPdf("Trial Balance", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Account/Party", "Debit", "Credit"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.account || ""), String(r.debit || ""), String(r.credit || "")])
+        }
+        backend.exportTableToExcel("Trial Balance", cols, data)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -28,9 +47,15 @@ Item {
         anchors.bottomMargin: Theme.s6
         spacing: Theme.s5
 
-        SectionHeader {
-            title: "Trial Balance"
-            subtitle: "Account-wise debit and credit position"
+        RowLayout {
+            Layout.fillWidth: true
+            SectionHeader {
+                title: "Trial Balance"
+                subtitle: "Account-wise debit and credit position"
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
         GlassPanel {

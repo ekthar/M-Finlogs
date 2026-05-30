@@ -15,6 +15,25 @@ Item {
     }
     Component.onCompleted: load()
 
+    function doExportPdf() {
+        var cols = ["Bill", "Party", "Type", "Mode", "Amount"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.bill_no || ""), String(r.party || ""), String(r.type || ""), String(r.mode || ""), String(r.amount || "")])
+        }
+        backend.exportTableToPdf("Day Book", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Bill", "Party", "Type", "Mode", "Amount"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.bill_no || ""), String(r.party || ""), String(r.type || ""), String(r.mode || ""), String(r.amount || "")])
+        }
+        backend.exportTableToExcel("Day Book", cols, data)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -23,9 +42,15 @@ Item {
         anchors.bottomMargin: Theme.s6
         spacing: Theme.s5
 
-        SectionHeader {
-            title: "Day Book"
-            subtitle: "All transactions on a chosen day"
+        RowLayout {
+            Layout.fillWidth: true
+            SectionHeader {
+                title: "Day Book"
+                subtitle: "All transactions on a chosen day"
+            }
+            Item { Layout.fillWidth: true }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
         GlassPanel {

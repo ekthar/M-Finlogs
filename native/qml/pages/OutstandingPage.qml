@@ -57,9 +57,20 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: Theme.rLg
-            DataTable {
+            ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
+                spacing: Theme.s3
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text { text: "Outstanding Details"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Item { Layout.fillWidth: true }
+                    GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+                    GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
+                }
+            DataTable {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
                 emptyText: "No outstanding balances"
                 rows: page.rows
                 totals: ({ balance: page.total })
@@ -73,6 +84,26 @@ Item {
                     { title: "Balance", key: "balance", money: true, align: "right", weight: 1.3 }
                 ]
             }
+            }
         }
+    }
+
+    function doExportPdf() {
+        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.balance)])
+        }
+        backend.exportTableToPdf("Credit Outstanding", cols, data)
+    }
+    function doExportCsv() {
+        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.balance)])
+        }
+        backend.exportTableToExcel("Credit Outstanding", cols, data)
     }
 }
