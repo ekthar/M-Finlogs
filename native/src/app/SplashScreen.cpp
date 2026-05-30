@@ -1,17 +1,20 @@
 #include "app/SplashScreen.h"
 
 #include <QApplication>
-#include <QFrame>
+#include <QColor>
+#include <QFont>
+#include <QFontDatabase>
 #include <QGraphicsDropShadowEffect>
-#include <QGraphicsOpacityEffect>
-#include <QHBoxLayout>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPen>
 #include <QProgressBar>
 #include <QPropertyAnimation>
+#include <QRadialGradient>
+#include <QRandomGenerator>
 #include <QScreen>
-#include <QSequentialAnimationGroup>
 #include <QShowEvent>
 #include <QSvgRenderer>
 #include <QTimer>
@@ -31,107 +34,199 @@ namespace {
 constexpr int kSplashWidth = 680;
 constexpr int kSplashHeight = 420;
 
+// Brand palette (ported from the Aurora HTML splash)
+const QColor kBgIndigo(0x31, 0x2E, 0x81);
+const QColor kBgSlate(0x1B, 0x24, 0x40);
+const QColor kBgDark(0x0B, 0x10, 0x20);
+const QColor kAccentIndigo(0x63, 0x66, 0xF1);
+const QColor kAccentViolet(0x8B, 0x5C, 0xF6);
+const QColor kAccentSky(0x38, 0xBD, 0xF8);
+const QColor kAccentBlueLogo(0x5B, 0x8C, 0xFA);
+const QColor kTextTint(0x8E, 0xA2, 0xFF);
+
+// Logo geometry: badge is 72x72 centred inside a 96x96 wrapper.
+constexpr double kLogoCx = kSplashWidth / 2.0;          // 340
+constexpr double kLogoCy = 150.0;                        // brand block sits above centre
+constexpr double kBadge = 72.0;
+constexpr double kRing = 96.0;
+
 } // namespace
 
-// Painted aurora backdrop with floating gradient blobs and frosted glass panel
+// Fully painted Aurora canvas: gradient backdrop, drifting blurred blobs,
+// technical grid, frosted glass panel, pulsing logo glow, rotating orbit ring
+// with three accent dots, and the gradient logo badge with the "M" mark.
 class SplashCanvas final : public QWidget {
 public:
     explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {
-        // Continuous pulse animation driving the glow ring + blob drift
-        pulse_ = new QVariantAnimation(this);
-        pulse_->setStartValue(0.0);
-        pulse_->setEndValue(1.0);
-        pulse_->setDuration(2400);
-        pulse_->setLoopCount(-1);
-        pulse_->setEasingCurve(QEasingCurve::InOutSine);
-        connect(pulse_, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+        logo_.load(QStringLiteral(":/icons/logo.svg"));
+
+        anim_ = new QVariantAnimation(this);
+        anim_->setStartValue(0.0);
+        anim_->setEndValue(1.0);
+        anim_->setDuration(6000);          // one full orbit revolution
+        anim_->setLoopCount(-1);
+        anim_->setEasingCurve(QEasingCurve::Linear);
+        connect(anim_, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
             phase_ = v.toDouble();
             update();
         });
-        pulse_->start();
+        anim_->start();
     }
-
-    double logoCx = 96.0;
-    double logoCy = 126.0;
 
 protected:
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
-        const QRect r = rect();
+        const QRectF r = rect();
 
-        // Deep aurora radial gradient
-        QRadialGradient bg(r.center(), r.width() * 0.8);
-        bg.setColorAt(0.0, QColor(0x31, 0x2e, 0x81));
-        bg.setColorAt(0.4, QColor(0x1b, 0x24, 0x40));
-        bg.setColorAt(1.0, QColor(0x0b, 0x10, 0x20));
-        p.fillRect(r, bg);
+        // Rounded clip so everything respects the 24px corner radius.
+        QPainterPath clip;
+        clip.addRoundedRect(r, 24, 24);
+        p.setClipPath(clip);
 
-        // Animated floating blobs (drift with phase)
-        const double drift = std::sin(phase_ * 2.0 * M_PI) * 24.0;
-        QRadialGradient blob1(QPointF(r.width() * 0.2 + drift, r.height() * 0.25), 240);
-        blob1.setColorAt(0.0, QColor(99, 102, 241, 90));
-        blob1.setColorAt(1.0, Qt::transparent);
-        p.fillRect(r, blob1);
-
-        QRadialGradient blob2(QPointF(r.width() * 0.8 - drift, r.height() * 0.7), 220);
-        blob2.setColorAt(0.0, QColor(139, 92, 246, 70));
-        blob2.setColorAt(1.0, Qt::transparent);
-        p.fillRect(r, blob2);
-
-        QRadialGradient blob3(QPointF(r.width() * 0.75, r.height() * 0.2 + drift * 0.5), 170);
-        blob3.setColorAt(0.0, QColor(56, 189, 248, 50));
-        blob3.setColorAt(1.0, Qt::transparent);
-        p.fillRect(r, blob3);
-
-        // Pulsing glow ring behind the logo
-        const double glowR = 52.0 + phase_ * 14.0;
-        const int glowAlpha = static_cast<int>(120 * (1.0 - phase_ * 0.6));
-        QRadialGradient glow(QPointF(logoCx, logoCy), glowR);
-        glow.setColorAt(0.0, QColor(124, 140, 255, glowAlpha));
-        glow.setColorAt(0.7, QColor(124, 140, 255, glowAlpha / 3));
-        glow.setColorAt(1.0, Qt::transparent);
-        p.setBrush(glow);
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(QPointF(logoCx, logoCy), glowR, glowR);
-
-        // Orbiting accent dots around the logo
-        for (int i = 0; i < 3; ++i) {
-            const double ang = phase_ * 2.0 * M_PI + i * (2.0 * M_PI / 3.0);
-            const double ox = logoCx + std::cos(ang) * 58.0;
-            const double oy = logoCy + std::sin(ang) * 58.0;
-            const QColor dotColor = i == 0 ? QColor(0x5b, 0x8c, 0xfa)
-                                  : i == 1 ? QColor(0x8b, 0x5c, 0xf6)
-                                           : QColor(0x38, 0xbd, 0xf8);
-            p.setBrush(dotColor);
-            p.drawEllipse(QPointF(ox, oy), 3.5, 3.5);
-        }
-
-        // Frosted glass central panel
-        QPainterPath glass;
-        glass.addRoundedRect(QRectF(40, 60, r.width() - 80, r.height() - 120), 24, 24);
-        p.fillPath(glass, QColor(255, 255, 255, 16));
-        p.setPen(QPen(QColor(255, 255, 255, 45), 1.2));
-        p.drawPath(glass);
-
-        // Subtle grid pattern
-        p.setPen(QPen(QColor(255, 255, 255, 7), 0.5));
-        for (int x = 0; x < r.width(); x += 40) {
-            p.drawLine(x, 0, x, r.height());
-        }
-        for (int y = 0; y < r.height(); y += 40) {
-            p.drawLine(0, y, r.width(), y);
-        }
-
-        // Top sheen
-        QLinearGradient sheen(0, 0, 0, r.height() * 0.3);
-        sheen.setColorAt(0.0, QColor(255, 255, 255, 12));
-        sheen.setColorAt(1.0, Qt::transparent);
-        p.fillRect(r, sheen);
+        paintBackground(p, r);
+        paintBlobs(p, r);
+        paintGrid(p, r);
+        paintGlassPanel(p, r);
+        paintLogoGlow(p);
+        paintOrbit(p);
+        paintLogoBadge(p);
+        paintProgressTrack(p, r);
     }
 
 private:
-    QVariantAnimation* pulse_ = nullptr;
+    void paintBackground(QPainter& p, const QRectF& r) {
+        QRadialGradient bg(r.center(), r.width() * 0.62);
+        bg.setColorAt(0.0, kBgIndigo);
+        bg.setColorAt(0.45, kBgSlate);
+        bg.setColorAt(1.0, kBgDark);
+        p.fillRect(r, bg);
+    }
+
+    // Three large, heavily-blurred, slowly drifting colour blobs.
+    void paintBlobs(QPainter& p, const QRectF& r) {
+        const double t = phase_ * 2.0 * M_PI;
+        auto blob = [&](QPointF c, double radius, QColor color, double op) {
+            QRadialGradient g(c, radius);
+            QColor inner = color; inner.setAlphaF(op);
+            QColor outer = color; outer.setAlpha(0);
+            g.setColorAt(0.0, inner);
+            g.setColorAt(1.0, outer);
+            p.setBrush(g);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(c, radius, radius);
+        };
+        blob(QPointF(120 + std::sin(t) * 26, 70 + std::cos(t) * 18), 200, kAccentIndigo, 0.35);
+        blob(QPointF(r.width() - 110 - std::sin(t) * 26, r.height() - 60 + std::cos(t) * 20), 230, kAccentViolet, 0.32);
+        blob(QPointF(r.width() / 2.0, r.height() / 2.0 + std::sin(t + 1.0) * 16), 170, kAccentSky, 0.20);
+    }
+
+    void paintGrid(QPainter& p, const QRectF& r) {
+        p.setPen(QPen(QColor(255, 255, 255, 8), 1.0));
+        for (int x = 0; x < r.width(); x += 40) {
+            p.drawLine(QPointF(x, 0), QPointF(x, r.height()));
+        }
+        for (int y = 0; y < r.height(); y += 40) {
+            p.drawLine(QPointF(0, y), QPointF(r.width(), y));
+        }
+    }
+
+    // Frosted glass panel: translucent fill, hairline border, top sheen.
+    void paintGlassPanel(QPainter& p, const QRectF& r) {
+        QPainterPath panel;
+        panel.addRoundedRect(r, 24, 24);
+        p.fillPath(panel, QColor(255, 255, 255, 20));
+        p.setPen(QPen(QColor(255, 255, 255, 46), 1.2));
+        p.drawPath(panel);
+
+        QLinearGradient sheen(0, 0, 0, r.height() * 0.4);
+        sheen.setColorAt(0.0, QColor(255, 255, 255, 13));
+        sheen.setColorAt(1.0, QColor(255, 255, 255, 0));
+        QPainterPath sheenPath;
+        sheenPath.addRoundedRect(QRectF(0, 0, r.width(), r.height() * 0.4), 24, 24);
+        p.fillPath(sheenPath, sheen);
+    }
+
+    // Pulsing soft glow behind the logo (opacity + scale, ~3s cycle).
+    void paintLogoGlow(QPainter& p) {
+        const double pulse = (std::sin(phase_ * 4.0 * M_PI) + 1.0) / 2.0; // 0..1, 2 cycles per revolution
+        const double radius = 42.0 + pulse * 16.0;
+        const int alpha = static_cast<int>(90 + pulse * 60);
+        QRadialGradient glow(QPointF(kLogoCx, kLogoCy), radius);
+        QColor c = kAccentIndigo; c.setAlpha(alpha);
+        QColor edge = kAccentIndigo; edge.setAlpha(0);
+        glow.setColorAt(0.0, c);
+        glow.setColorAt(1.0, edge);
+        p.setBrush(glow);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(kLogoCx, kLogoCy), radius, radius);
+    }
+
+    // Rotating orbit ring + three accent dots fixed on it.
+    void paintOrbit(QPainter& p) {
+        const double ringR = kRing / 2.0;
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(QColor(255, 255, 255, 26), 1.0));
+        p.drawEllipse(QPointF(kLogoCx, kLogoCy), ringR, ringR);
+
+        const double base = phase_ * 2.0 * M_PI;
+        struct Dot { double angleOffset; QColor color; };
+        const Dot dots[] = {
+            { -M_PI / 2.0, kAccentIndigo },               // top
+            { M_PI / 6.0, kAccentViolet },                // lower-right
+            { M_PI - M_PI / 6.0, kAccentSky },            // lower-left
+        };
+        for (const Dot& d : dots) {
+            const double a = base + d.angleOffset;
+            const QPointF pos(kLogoCx + std::cos(a) * ringR, kLogoCy + std::sin(a) * ringR);
+            // Glow halo
+            QColor halo = d.color; halo.setAlpha(120);
+            p.setBrush(halo);
+            p.setPen(Qt::NoPen);
+            p.drawEllipse(pos, 6, 6);
+            p.setBrush(d.color);
+            p.drawEllipse(pos, 3, 3);
+        }
+    }
+
+    // Gradient rounded-square badge with the M / ledger / sparkline mark.
+    void paintLogoBadge(QPainter& p) {
+        const QRectF badge(kLogoCx - kBadge / 2.0, kLogoCy - kBadge / 2.0, kBadge, kBadge);
+
+        // Drop shadow for the badge
+        QColor shadow = kAccentIndigo; shadow.setAlpha(90);
+        p.setBrush(shadow);
+        p.setPen(Qt::NoPen);
+        QPainterPath sh;
+        sh.addRoundedRect(badge.translated(0, 8), 18, 18);
+        // (Soft-ish: draw without blur — keep it subtle)
+        p.fillPath(sh, QColor(99, 102, 241, 40));
+
+        if (logo_.isValid()) {
+            // logo.svg already contains the gradient badge + M + ledger + sparkline.
+            logo_.render(&p, badge);
+        } else {
+            QLinearGradient g(badge.topLeft(), badge.bottomRight());
+            g.setColorAt(0.0, kAccentBlueLogo);
+            g.setColorAt(1.0, kAccentViolet);
+            QPainterPath bp;
+            bp.addRoundedRect(badge, 18, 18);
+            p.fillPath(bp, g);
+            QFont f(QStringLiteral("Inter Tight"), 30, QFont::Bold);
+            p.setFont(f);
+            p.setPen(Qt::white);
+            p.drawText(badge, Qt::AlignCenter, QStringLiteral("M"));
+        }
+    }
+
+    // Track is painted; the fill is a styled QProgressBar child for animation.
+    void paintProgressTrack(QPainter& p, const QRectF& r) {
+        Q_UNUSED(r);
+        Q_UNUSED(p);
+    }
+
+    QSvgRenderer logo_;
+    QVariantAnimation* anim_ = nullptr;
     double phase_ = 0.0;
 };
 
@@ -154,127 +249,101 @@ void SplashScreen::buildUi() {
 
     card_ = new QFrame(this);
     card_->setFixedSize(kSplashWidth, kSplashHeight);
-    card_->setStyleSheet(QStringLiteral("QFrame { border-radius: 16px; }"));
+    card_->setStyleSheet(QStringLiteral("QFrame { border-radius: 24px; background: transparent; }"));
 
     QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(card_);
-    shadow->setBlurRadius(60);
-    shadow->setOffset(0, 20);
+    shadow->setBlurRadius(80);
+    shadow->setOffset(0, 30);
     shadow->setColor(QColor(0, 0, 20, 200));
     card_->setGraphicsEffect(shadow);
 
-    // Painted canvas background
     SplashCanvas* canvas = new SplashCanvas(card_);
     canvas->setGeometry(0, 0, kSplashWidth, kSplashHeight);
 
-    // --- Logo SVG (rendered from qrc) ---
-    QLabel* logoLabel = new QLabel(card_);
-    logoLabel->setGeometry(60, 90, 72, 72);
-    logoLabel->setStyleSheet(QStringLiteral("background: transparent;"));
-    QSvgRenderer logoRenderer(QStringLiteral(":/icons/logo.svg"));
-    if (logoRenderer.isValid()) {
-        QPixmap logoPix(72, 72);
-        logoPix.fill(Qt::transparent);
-        QPainter logoPainter(&logoPix);
-        logoRenderer.render(&logoPainter);
-        logoLabel->setPixmap(logoPix);
-    }
+    // Tagline (top-right)
+    QLabel* tagline = new QLabel(QStringLiteral("Crafted by EKTHAR"), card_);
+    tagline->setGeometry(kSplashWidth - 260, 34, 220, 16);
+    tagline->setAlignment(Qt::AlignRight);
+    tagline->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.30); font-family: 'Inter'; font-size: 10px; background: transparent;"));
 
-    // Brand title
+    // Title (centred under the logo)
     QLabel* title = new QLabel(QStringLiteral("M-FINLOGS"), card_);
-    title->setGeometry(60, 175, 400, 48);
+    title->setGeometry(0, 196, kSplashWidth, 48);
+    title->setAlignment(Qt::AlignHCenter);
     title->setStyleSheet(QStringLiteral(
-        "color: #ffffff; font-size: 38px; font-weight: 800;"
+        "color: #FFFFFF; font-family: 'Inter Tight'; font-size: 38px; font-weight: 700;"
         "letter-spacing: -1px; background: transparent;"));
 
-    // Subtitle
-    QLabel* subtitle = new QLabel(QStringLiteral("NEXT-GEN FINANCIAL WORKSPACE"), card_);
-    subtitle->setGeometry(60, 226, 400, 20);
+    // Subtitle (tracked-out uppercase tint)
+    QLabel* subtitle = new QLabel(QStringLiteral("N E X T - G E N   F I N A N C I A L   W O R K S P A C E"), card_);
+    subtitle->setGeometry(0, 246, kSplashWidth, 18);
+    subtitle->setAlignment(Qt::AlignHCenter);
     subtitle->setStyleSheet(QStringLiteral(
-        "color: #8ea2ff; font-size: 11px; font-weight: 500;"
-        "letter-spacing: 3px; background: transparent;"));
-
-    // Tagline
-    QLabel* tagline = new QLabel(QStringLiteral("Crafted by EKTHAR"), card_);
-    tagline->setGeometry(60, 254, 300, 16);
-    tagline->setStyleSheet(QStringLiteral(
-        "color: rgba(255,255,255,0.4); font-size: 10px;"
-        "letter-spacing: 1px; background: transparent;"));
-
-    // --- Status section (bottom) ---
-    statusLabel_ = new QLabel(QStringLiteral("INITIALIZING RUNTIME"), card_);
-    statusLabel_->setGeometry(60, 330, 350, 16);
-    statusLabel_->setStyleSheet(QStringLiteral(
-        "color: #8ea2ff; font-size: 10px; font-weight: 600;"
+        "color: #8EA2FF; font-family: 'Inter'; font-size: 10px; font-weight: 500;"
         "letter-spacing: 2px; background: transparent;"));
 
-    QLabel* statusLine1 = new QLabel(QStringLiteral("Connecting to SQL Server..."), card_);
-    statusLine1->setGeometry(60, 350, 350, 14);
-    statusLine1->setStyleSheet(QStringLiteral(
-        "color: rgba(255,255,255,0.35); font-size: 10px; background: transparent;"));
+    // Status line (bottom-left, monospace)
+    statusLabel_ = new QLabel(QStringLiteral("Initializing runtime..."), card_);
+    statusLabel_->setGeometry(40, kSplashHeight - 66, 420, 16);
+    statusLabel_->setStyleSheet(QStringLiteral(
+        "color: rgba(142,162,255,0.70); font-family: 'Space Mono','Consolas',monospace;"
+        "font-size: 10px; background: transparent;"));
 
-    // Progress bar (full width, bottom)
+    // Version badge (bottom-right, monospace)
+    QLabel* version = new QLabel(QStringLiteral("v2.0.0  \u2022  Aurora"), card_);
+    version->setGeometry(kSplashWidth - 240, kSplashHeight - 66, 200, 16);
+    version->setAlignment(Qt::AlignRight);
+    version->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.25); font-family: 'Space Mono','Consolas',monospace;"
+        "font-size: 10px; background: transparent;"));
+
+    // Progress bar (full width, bottom) with the tri-stop gradient fill
     progress_ = new QProgressBar(card_);
-    progress_->setGeometry(60, 378, kSplashWidth - 120, 4);
+    progress_->setGeometry(40, kSplashHeight - 44, kSplashWidth - 80, 4);
     progress_->setRange(0, 100);
     progress_->setValue(0);
     progress_->setTextVisible(false);
     progress_->setStyleSheet(QStringLiteral(
-        "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 2px; }"
-        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-        " stop:0 #5b8cfa, stop:0.5 #8b5cf6, stop:1 #38bdf8); border-radius: 2px; }"));
-
-    // Version (bottom-right)
-    QLabel* version = new QLabel(QStringLiteral("v2.0.0 \u2022 Aurora"), card_);
-    version->setGeometry(kSplashWidth - 180, kSplashHeight - 34, 160, 14);
-    version->setAlignment(Qt::AlignRight);
-    version->setStyleSheet(QStringLiteral(
-        "color: rgba(255,255,255,0.25); font-size: 10px; background: transparent;"));
+        "QProgressBar { background: rgba(255,255,255,0.05); border: none; border-radius: 2px; }"
+        "QProgressBar::chunk { border-radius: 2px; background: qlineargradient("
+        "x1:0,y1:0,x2:1,y2:0, stop:0 #5B8CFA, stop:0.5 #8B5CF6, stop:1 #38BDF8); }"));
 
     root->addWidget(card_);
 
-    // --- Window fade-in + scale animation ---
+    // Window fade-in
     setWindowOpacity(0.0);
     QPropertyAnimation* fadeIn = new QPropertyAnimation(this, "windowOpacity", this);
-    fadeIn->setDuration(600);
+    fadeIn->setDuration(550);
     fadeIn->setStartValue(0.0);
     fadeIn->setEndValue(1.0);
     fadeIn->setEasingCurve(QEasingCurve::OutCubic);
     fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
 
-    // Animate logo entrance (fade + spring scale-in from center)
-    QGraphicsOpacityEffect* logoEffect = new QGraphicsOpacityEffect(logoLabel);
-    logoEffect->setOpacity(0.0);
-    logoLabel->setGraphicsEffect(logoEffect);
-    QPropertyAnimation* logoFade = new QPropertyAnimation(logoEffect, "opacity", this);
-    logoFade->setDuration(700);
-    logoFade->setStartValue(0.0);
-    logoFade->setEndValue(1.0);
-    logoFade->setEasingCurve(QEasingCurve::OutCubic);
-
-    // Spring scale: grow from a small centered rect to the final 72x72
-    QPropertyAnimation* logoScale = new QPropertyAnimation(logoLabel, "geometry", this);
-    logoScale->setDuration(900);
-    logoScale->setStartValue(QRect(84, 114, 24, 24));   // small, centered ~(96,126)
-    logoScale->setEndValue(QRect(60, 90, 72, 72));       // final
-    logoScale->setEasingCurve(QEasingCurve::OutBack);    // spring overshoot
-
-    QTimer::singleShot(150, this, [logoFade, logoScale]() {
-        logoFade->start(QAbstractAnimation::DeleteWhenStopped);
-        logoScale->start(QAbstractAnimation::DeleteWhenStopped);
+    // Cycling status log lines (mirrors the HTML JS)
+    static const QStringList kLogs = {
+        QStringLiteral("Initializing engine..."),
+        QStringLiteral("Connecting to encrypted storage..."),
+        QStringLiteral("Authenticating with SQL Server..."),
+        QStringLiteral("Loading financial ledgers..."),
+        QStringLiteral("Syncing inventory assets..."),
+        QStringLiteral("Optimizing workspace...")
+    };
+    int* logIndex = new int(0);
+    QTimer* logTimer = new QTimer(this);
+    connect(logTimer, &QTimer::timeout, this, [this, logIndex, logTimer]() {
+        if (*logIndex >= kLogs.size()) {
+            logTimer->stop();
+            delete logIndex;
+            return;
+        }
+        if (statusLabel_) {
+            statusLabel_->setText(kLogs.at(*logIndex));
+        }
+        *logIndex += 1;
+        logTimer->setInterval(700 + (QRandomGenerator::global()->bounded(900)));
     });
-
-    // Animate title entrance
-    QGraphicsOpacityEffect* titleEffect = new QGraphicsOpacityEffect(title);
-    titleEffect->setOpacity(0.0);
-    title->setGraphicsEffect(titleEffect);
-    QPropertyAnimation* titleFade = new QPropertyAnimation(titleEffect, "opacity", this);
-    titleFade->setDuration(700);
-    titleFade->setStartValue(0.0);
-    titleFade->setEndValue(1.0);
-    titleFade->setEasingCurve(QEasingCurve::OutCubic);
-    QTimer::singleShot(500, this, [titleFade]() {
-        titleFade->start(QAbstractAnimation::DeleteWhenStopped);
-    });
+    QTimer::singleShot(400, this, [logTimer]() { logTimer->start(700); });
 }
 
 void SplashScreen::animateTileEntry(QWidget&, int, const QPoint&, const QPoint&) {}
@@ -287,7 +356,7 @@ void SplashScreen::setProgress(int value, const QString& message) {
         progress_->setValue(qBound(0, value, 100));
     }
     if (statusLabel_ && !message.isEmpty()) {
-        statusLabel_->setText(message.toUpper());
+        statusLabel_->setText(message);
     }
 }
 
@@ -296,7 +365,9 @@ void SplashScreen::runIndeterminate(int durationMs) {
     if (!tickTimer_) {
         tickTimer_ = new QTimer(this);
         connect(tickTimer_, &QTimer::timeout, this, [this]() {
-            if (!progress_) return;
+            if (!progress_) {
+                return;
+            }
             const int next = progress_->value() + 2;
             progress_->setValue(next);
             if (next >= tickTarget_) {
