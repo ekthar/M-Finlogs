@@ -21,6 +21,7 @@ Item {
         { kind: "item", label: "Outstanding", glyph: "\u26A0", page: "OutstandingPage" },
         { kind: "item", label: "Trial Balance", glyph: "\u2696", page: "TrialBalancePage" },
         { kind: "item", label: "Profit & Loss", glyph: "\u2197", page: "ProfitLossPage" },
+        { kind: "item", label: "Inventory", glyph: "\u2692", page: "InventoryPage" },
         { kind: "header", label: "Manage" },
         { kind: "item", label: "Parties", glyph: "\u263A", page: "PartiesPage" },
         { kind: "item", label: "Audit Logs", glyph: "\u2261", page: "AuditPage" },

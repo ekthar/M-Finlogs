@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls.Basic
 import MFinlogs
 
 Item {
@@ -18,7 +19,7 @@ Item {
     Component.onCompleted: {
         refresh()
         refreshParties()
-        billField.text = ""
+        billField.inputField.forceActiveFocus()
     }
     Connections {
         target: backend
@@ -35,7 +36,7 @@ Item {
 
         SectionHeader {
             title: "Daily Entry"
-            subtitle: "Record a transaction — press Enter to move between fields"
+            subtitle: "Press Enter to navigate: Bill \u2192 Party \u2192 Type \u2192 Mode \u2192 Amount \u2192 Save \u2192 Bill"
         }
 
         // Entry form panel
@@ -67,6 +68,7 @@ Item {
                         label: "Ref / Bill"
                         placeholder: "INV-001"
                         showCompletions: false
+                        onAccepted: partyField.inputField.forceActiveFocus()
                     }
                     FieldInput {
                         id: partyField
@@ -74,18 +76,24 @@ Item {
                         label: "Party"
                         placeholder: "Search or type party"
                         completions: page.partyList
+                        onAccepted: typeField.forceActiveFocus()
                     }
                     FieldCombo {
                         id: typeField
                         Layout.preferredWidth: 150
                         label: "Type"
                         options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
+                        // Enter on combo moves to next field
+                        Keys.onReturnPressed: modeField.forceActiveFocus()
+                        Keys.onEnterPressed: modeField.forceActiveFocus()
                     }
                     FieldCombo {
                         id: modeField
                         Layout.preferredWidth: 140
                         label: "Mode"
                         options: ["Credit", "Cash", "UPI", "Bank"]
+                        Keys.onReturnPressed: amountField.inputField.forceActiveFocus()
+                        Keys.onEnterPressed: amountField.inputField.forceActiveFocus()
                     }
                     FieldInput {
                         id: amountField
@@ -133,7 +141,7 @@ Item {
                 DataTable {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    emptyText: "No transactions yet — add your first entry above"
+                    emptyText: "No transactions yet \u2014 add your first entry above"
                     rows: page.rows
                     columns: [
                         { title: "Date", key: "date", date: true, weight: 1.1 },
@@ -158,13 +166,12 @@ Item {
             Number(amountField.text)
         )
         if (res && res.ok === true) {
-            // Auto-increment bill, clear inputs, keep focus flow snappy
+            // Auto-increment bill, clear inputs, cycle focus back to Bill
             billField.text = backend.nextBillNumber(billField.text)
             partyField.text = ""
             amountField.text = ""
             refreshParties()
-            partyField.inputField.forceActiveFocus()
+            billField.inputField.forceActiveFocus()
         }
-        // Validation/errors are surfaced via the global toast from the backend.
     }
 }
