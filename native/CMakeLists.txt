@@ -142,6 +142,7 @@ qt_add_resources(mfinlogs-native "native_resources"
         resources/icons/database.svg
         resources/icons/keyboard.svg
         resources/icons/runtime.svg
+        resources/icons/logo.svg
 )
 
 target_include_directories(mfinlogs-native PRIVATE

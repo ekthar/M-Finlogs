@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5b8cfa"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square backdrop -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#g1)"/>
+  <!-- Inner glass panel -->
+  <rect x="64" y="64" width="384" height="384" rx="72" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
+  <!-- M letterform (bold geometric) -->
+  <path d="M160 352 V192 L256 272 L352 192 V352" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Ledger line accents (three horizontal bars below M) -->
+  <rect x="160" y="372" width="192" height="6" rx="3" fill="rgba(255,255,255,0.6)"/>
+  <rect x="180" y="392" width="152" height="5" rx="2.5" fill="rgba(255,255,255,0.4)"/>
+  <rect x="200" y="410" width="112" height="4" rx="2" fill="rgba(255,255,255,0.25)"/>
+  <!-- Sparkline chart accent (top right) -->
+  <polyline points="320,130 340,115 360,125 380,100 400,108" fill="none" stroke="url(#g2)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="400" cy="108" r="6" fill="#38bdf8"/>
+</svg>

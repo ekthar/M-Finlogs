@@ -124,13 +124,24 @@ Item {
             model: root.rows
             boundsBehavior: Flickable.StopAtBounds
             ScrollIndicator.vertical: ScrollIndicator {}
+            focus: true
+            keyNavigationEnabled: true
+            keyNavigationWraps: false
+            highlightMoveDuration: Theme.durFast
+            currentIndex: -1
+
+            // Keyboard: Enter activates row, Up/Down moves
+            Keys.onReturnPressed: { if (currentIndex >= 0 && root.rows[currentIndex]) root.rowActivated(root.rows[currentIndex]) }
+            Keys.onEnterPressed: { if (currentIndex >= 0 && root.rows[currentIndex]) root.rowActivated(root.rows[currentIndex]) }
 
             delegate: Rectangle {
                 id: rowItem
                 width: list.width
                 height: 46
                 property var rowData: modelData
-                color: rowHover.hovered ? Theme.glassStrong
+                property bool isCurrent: list.currentIndex === index
+                color: isCurrent ? Theme.alpha(Theme.accent, 0.14)
+                     : rowHover.hovered ? Theme.glassStrong
                      : (index % 2 === 0 ? "transparent" : Theme.alpha(Qt.rgba(1,1,1,1), 0.02))
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
