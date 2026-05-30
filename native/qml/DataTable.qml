@@ -123,7 +123,24 @@ Item {
             clip: true
             model: root.rows
             boundsBehavior: Flickable.StopAtBounds
-            ScrollIndicator.vertical: ScrollIndicator {}
+            flickableDirection: Flickable.VerticalFlick
+
+            // Visible scrollbar (not just an indicator) so content is obviously scrollable
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                width: 8
+                contentItem: Rectangle {
+                    implicitWidth: 8
+                    radius: 4
+                    color: Theme.alpha(Theme.accent, 0.45)
+                }
+                background: Rectangle {
+                    implicitWidth: 8
+                    radius: 4
+                    color: Theme.alpha(Theme.glass, 0.2)
+                }
+            }
+
             focus: true
             keyNavigationEnabled: true
             keyNavigationWraps: false
