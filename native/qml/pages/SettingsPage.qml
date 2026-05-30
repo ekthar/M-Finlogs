@@ -108,9 +108,31 @@ Item {
                                 }
                             }
                         }
-                        GhostButton { text: "Backup Now"; onClicked: backend.backupDatabase(dbBackupDir.text) }
-                        GhostButton { text: "Auto Backup"; onClicked: backend.autoBackup() }
-                        GhostButton { text: "Restore Backup"; onClicked: backend.restoreDatabase("") }
+                        GhostButton { text: "Backup Now"; onClicked: {
+                            var r = backend.backupDatabase(dbBackupDir.text)
+                            if (r && r.ok) { dbStatus.text = "\u2713 Backup saved: " + (r.path || ""); dbStatus.color = Theme.success }
+                            else { dbStatus.text = "\u2717 " + (r.error || "Backup failed"); dbStatus.color = Theme.danger }
+                        } }
+                        GhostButton { text: "Auto Backup"; onClicked: {
+                            var r = backend.autoBackup()
+                            if (r && r.ok) { dbStatus.text = "\u2713 Auto backup saved: " + (r.path || ""); dbStatus.color = Theme.success }
+                            else { dbStatus.text = "\u2717 " + (r.error || "Backup failed"); dbStatus.color = Theme.danger }
+                        } }
+                        GhostButton { text: "Restore Backup"; tint: Theme.warning; onClicked: {
+                            dbStatus.text = "Choose a backup file to restore..."
+                            dbStatus.color = Theme.warning
+                            var r = backend.restoreDatabase("")
+                            if (r && r.ok === true && r.path) {
+                                dbStatus.text = "\u2713 Restored from: " + r.path + " — restart the app."
+                                dbStatus.color = Theme.success
+                            } else if (r && r.ok === true) {
+                                dbStatus.text = "Restore cancelled."
+                                dbStatus.color = Theme.textDim
+                            } else {
+                                dbStatus.text = "\u2717 " + (r.error || "Restore failed")
+                                dbStatus.color = Theme.danger
+                            }
+                        } }
                     }
                 }
             }
