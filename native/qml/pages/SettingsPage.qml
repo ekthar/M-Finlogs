@@ -40,7 +40,84 @@ Item {
 
             SectionHeader {
                 title: "Settings"
-                subtitle: "Database, backup, users, and runtime controls"
+                subtitle: "Appearance, database, backup, users, and runtime controls"
+            }
+
+            // ========== Appearance ==========
+            GlassPanel {
+                Layout.fillWidth: true
+                implicitHeight: appCol.implicitHeight + Theme.s8
+                radius: Theme.rLg
+                ColumnLayout {
+                    id: appCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.s5
+                    spacing: Theme.s4
+                    Text { text: "Appearance"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+
+                    // Theme toggle row
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.s3
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "Theme"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Light is easier on the eyes in bright rooms"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                        }
+                        Item { Layout.fillWidth: true }
+                        // segmented Light / Dark control
+                        Row {
+                            spacing: 0
+                            Rectangle {
+                                width: 90; height: 36
+                                topLeftRadius: Theme.rMd; bottomLeftRadius: Theme.rMd
+                                color: !Theme.dark ? Theme.accent : Theme.glass
+                                border.width: 1; border.color: Theme.glassBorder
+                                Text { anchors.centerIn: parent; text: "\u2600 Light"; color: !Theme.dark ? Theme.accentInk : Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = false }
+                            }
+                            Rectangle {
+                                width: 90; height: 36
+                                topRightRadius: Theme.rMd; bottomRightRadius: Theme.rMd
+                                color: Theme.dark ? Theme.accent : Theme.glass
+                                border.width: 1; border.color: Theme.glassBorder
+                                Text { anchors.centerIn: parent; text: "\u263D Dark"; color: Theme.dark ? Theme.accentInk : Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = true }
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.glassBorderSoft }
+
+                    // Animations toggle row
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.s3
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "Animations"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Turn off for snappier performance on low-end systems"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                        }
+                        Item { Layout.fillWidth: true }
+                        // toggle switch
+                        Rectangle {
+                            width: 52; height: 30; radius: 15
+                            color: Theme.animationsEnabled ? Theme.accent : Theme.glass
+                            border.width: 1; border.color: Theme.animationsEnabled ? Theme.accent : Theme.glassBorder
+                            Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            Rectangle {
+                                width: 24; height: 24; radius: 12
+                                color: "#ffffff"
+                                y: 3
+                                x: Theme.animationsEnabled ? parent.width - width - 3 : 3
+                                Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.animationsEnabled = !Theme.animationsEnabled }
+                        }
+                    }
+                }
             }
 
             // ========== Database Configuration ==========
