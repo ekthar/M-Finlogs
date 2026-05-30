@@ -34,9 +34,9 @@ Item {
         visible: root.elevated
         z: -2
         shadowEnabled: true
-        shadowColor: Qt.rgba(0, 0, 0, 0.45)
+        shadowColor: Theme.dark ? Qt.rgba(0, 0, 0, 0.45) : Qt.rgba(30/255, 40/255, 90/255, 0.16)
         shadowBlur: 1.0
-        shadowVerticalOffset: 18
+        shadowVerticalOffset: Theme.dark ? 18 : 10
         shadowHorizontalOffset: 0
         autoPaddingEnabled: true
         opacity: 0.9
@@ -52,11 +52,12 @@ Item {
         border.color: root.borderColor
         z: -1
 
-        // Top sheen
+        // Top sheen — a soft white highlight in dark mode only. In light mode a
+        // white sheen washes the panel out and kills contrast, so it's disabled.
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
-            visible: root.sheen
+            visible: root.sheen && Theme.dark
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.10) }
                 GradientStop { position: 0.18; color: Qt.rgba(1, 1, 1, 0.02) }

@@ -43,7 +43,9 @@ void copyTable(QSqlDatabase& src, QSqlDatabase& dst,
     for (int i = 0; i < columns.size(); ++i) {
         placeholders.append(QStringLiteral("?"));
     }
-    const QString insertSql = QStringLiteral("INSERT OR IGNORE INTO %1 (%2) VALUES (%3)")
+    // INSERT OR REPLACE so source rows overwrite any bootstrap rows the schema
+    // initializer seeded (critically the admin user, pre-created with NULL pw).
+    const QString insertSql = QStringLiteral("INSERT OR REPLACE INTO %1 (%2) VALUES (%3)")
         .arg(tableName, columns.join(QStringLiteral(",")), placeholders.join(QStringLiteral(",")));
 
     QSqlQuery insertQuery(dst);
