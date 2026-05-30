@@ -4,11 +4,13 @@
 #include "domain/Types.h"
 
 #include <QDate>
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLocale>
 #include <QMap>
+#include <QProcess>
 #include <QVector>
 
 #include <exception>
@@ -606,14 +608,16 @@ QVariantMap QmlBackend::testDatabaseConfig(const QVariantMap& config) {
         cfg.username = config.value(QStringLiteral("username")).toString();
         cfg.password = config.value(QStringLiteral("password")).toString();
         cfg.driver = config.value(QStringLiteral("driver")).toString();
+        if (cfg.driver.trimmed().isEmpty()) {
+            cfg.driver = QStringLiteral("{ODBC Driver 17 for SQL Server}");
+        }
         cfg.backupDir = config.value(QStringLiteral("backupDir")).toString();
         cfg.useWindowsAuth = config.value(QStringLiteral("useWindowsAuth"), true).toBool();
-        const bool success = context_.services().config->testDatabaseConfig(cfg);
+        // testDatabaseConfig throws on failure with a descriptive message;
+        // it returns true only on success.
+        context_.services().config->testDatabaseConfig(cfg);
         QVariantMap result = okResult();
-        result.insert(QStringLiteral("success"), success);
-        if (!success) {
-            result.insert(QStringLiteral("error"), QStringLiteral("Connection test failed"));
-        }
+        result.insert(QStringLiteral("success"), true);
         return result;
     } catch (const std::exception& err) {
         return errorResult(QString::fromUtf8(err.what()));
@@ -628,15 +632,86 @@ QVariantMap QmlBackend::saveDatabaseConfig(const QVariantMap& config) {
         cfg.username = config.value(QStringLiteral("username")).toString();
         cfg.password = config.value(QStringLiteral("password")).toString();
         cfg.driver = config.value(QStringLiteral("driver")).toString();
+        if (cfg.driver.trimmed().isEmpty()) {
+            cfg.driver = QStringLiteral("{ODBC Driver 17 for SQL Server}");
+        }
         cfg.apiBaseUrl = config.value(QStringLiteral("apiBaseUrl")).toString();
         cfg.backupDir = config.value(QStringLiteral("backupDir")).toString();
         cfg.useWindowsAuth = config.value(QStringLiteral("useWindowsAuth"), true).toBool();
+        // Test first, then save (same as the reference commit's behavior)
+        context_.services().config->testDatabaseConfig(cfg);
         context_.services().config->writeDatabaseConfig(cfg);
         emit toast(QStringLiteral("Database configuration saved. Restart app to apply."), QStringLiteral("success"));
         return okResult();
     } catch (const std::exception& err) {
         return errorResult(QString::fromUtf8(err.what()));
     }
+}
+
+// ---- Backup & restore ----------------------------------------------------
+
+QVariantMap QmlBackend::backupDatabase(const QString& targetDir) {
+    try {
+        const domain::BackupResult result = context_.services().backups->backup(targetDir.trimmed());
+        emit toast(result.status + QStringLiteral(": ") + result.path, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), result.path);
+        res.insert(QStringLiteral("status"), result.status);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::autoBackup() {
+    try {
+        const domain::BackupResult result = context_.services().backups->autoBackup();
+        emit toast(result.status + QStringLiteral(": ") + result.path, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), result.path);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::restoreDatabase(const QString& backupPath) {
+    try {
+        if (backupPath.trimmed().isEmpty()) {
+            return errorResult(QStringLiteral("No backup file selected"));
+        }
+        context_.services().backups->restore(backupPath.trimmed());
+        emit toast(QStringLiteral("Backup restored. Restart app to reload."), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+// ---- Server controls -----------------------------------------------------
+
+QVariantMap QmlBackend::startNativeServer() {
+    const bool launched = QProcess::startDetached(
+        QCoreApplication::applicationFilePath(),
+        {QStringLiteral("--server-start")}
+    );
+    if (launched) {
+        emit toast(QStringLiteral("Native server start requested"), QStringLiteral("success"));
+        return okResult();
+    }
+    return errorResult(QStringLiteral("Could not start native server process"));
+}
+
+QVariantMap QmlBackend::stopNativeServer() {
+    const bool launched = QProcess::startDetached(
+        QCoreApplication::applicationFilePath(),
+        {QStringLiteral("--server-stop")}
+    );
+    if (launched) {
+        emit toast(QStringLiteral("Native server stop requested"), QStringLiteral("success"));
+        return okResult();
+    }
+    return errorResult(QStringLiteral("Could not stop native server process"));
 }
 
 // ---- Export (PDF/Excel) ---------------------------------------------------

@@ -92,6 +92,15 @@ public:
     Q_INVOKABLE QVariantMap testDatabaseConfig(const QVariantMap& config);
     Q_INVOKABLE QVariantMap saveDatabaseConfig(const QVariantMap& config);
 
+    // --- Backup & restore -------------------------------------------------
+    Q_INVOKABLE QVariantMap backupDatabase(const QString& targetDir);
+    Q_INVOKABLE QVariantMap autoBackup();
+    Q_INVOKABLE QVariantMap restoreDatabase(const QString& backupPath);
+
+    // --- Server controls --------------------------------------------------
+    Q_INVOKABLE QVariantMap startNativeServer();
+    Q_INVOKABLE QVariantMap stopNativeServer();
+
     // --- Audit ------------------------------------------------------------
     Q_INVOKABLE QVariantList auditLogs();
 
