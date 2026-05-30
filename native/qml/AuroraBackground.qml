@@ -44,7 +44,7 @@ Item {
                     width: Math.max(420, root.width * 0.5)
                     height: width
                     radius: width / 2
-                    color: Theme.alpha(Theme.grad0, Theme.dark ? 0.55 : 0.35)
+                    color: Theme.alpha(Theme.grad0, Theme.dark ? 0.55 : 0.10)
                     x: -width * 0.2
                     y: -height * 0.25
                     SequentialAnimation on x {
@@ -64,7 +64,7 @@ Item {
                     width: Math.max(380, root.width * 0.45)
                     height: width
                     radius: width / 2
-                    color: Theme.alpha(Theme.grad1, Theme.dark ? 0.5 : 0.3)
+                    color: Theme.alpha(Theme.grad1, Theme.dark ? 0.5 : 0.09)
                     x: root.width * 0.55
                     y: -height * 0.15
                     SequentialAnimation on x {
@@ -84,7 +84,7 @@ Item {
                     width: Math.max(400, root.width * 0.42)
                     height: width
                     radius: width / 2
-                    color: Theme.alpha(Theme.grad2, Theme.dark ? 0.4 : 0.25)
+                    color: Theme.alpha(Theme.grad2, Theme.dark ? 0.4 : 0.08)
                     x: root.width * 0.2
                     y: root.height * 0.55
                     SequentialAnimation on x {

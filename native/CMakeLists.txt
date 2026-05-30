@@ -3,12 +3,16 @@ cmake_minimum_required(VERSION 3.25)
 project(MFinlogsNative
     VERSION 0.1.0
     DESCRIPTION "Native C++ rewrite of M-Finlogs"
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Vendored Argon2 (reference impl) — used to verify Argon2id password hashes
+# produced by the Electron/Python backend (argon2-cffi).
+add_subdirectory(third_party/argon2)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS
     Widgets
@@ -53,6 +57,8 @@ set(MFINLOGS_NATIVE_SOURCES
     src/data/SqlBusinessServices.cpp
     src/data/SqlDatabase.h
     src/data/SqlDatabase.cpp
+    src/data/PasswordVerifier.h
+    src/data/PasswordVerifier.cpp
     src/data/SqliteSchemaInitializer.h
     src/data/SqliteSchemaInitializer.cpp
     src/data/SqliteBusinessServices.h
@@ -171,6 +177,7 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
+    argon2
 )
 
 if(WIN32)

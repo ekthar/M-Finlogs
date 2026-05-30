@@ -3,6 +3,8 @@
 #include "data/SqliteSchemaInitializer.h"
 #include "domain/DomainErrors.h"
 
+#include "data/PasswordVerifier.h"
+
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QDate>
@@ -304,27 +306,20 @@ public:
         const QString role = query.value(0).toString();
         const QString storedHash = query.value(1).toString();
 
-        bool valid = false;
-        if (storedHash.isEmpty()) {
-            valid = false;
-        } else if (storedHash.startsWith(QStringLiteral("$argon2"))) {
-            // Argon2 hash from Python backend — trust on first login, re-hash as SHA-256
-            const QString newHash = sha256Hex(password);
-            QSqlQuery updateQuery(db.handle());
-            updateQuery.prepare(QStringLiteral("UPDATE users SET password_hash=? WHERE username=?"));
-            updateQuery.addBindValue(newHash);
-            updateQuery.addBindValue(username);
-            executePrepared(updateQuery, QStringLiteral("Migrate password hash to SHA-256"));
-            valid = true;
-            writeAudit(db.handle(), username, QStringLiteral("Password Migration"),
-                QStringLiteral("Migrated from Argon2id to SHA-256 (native format)"));
-        } else {
-            valid = (storedHash == sha256Hex(password));
-        }
-
-        if (!valid) {
+        // Verify against SHA-256 (native) or Argon2id (Electron/Python backend).
+        if (storedHash.isEmpty() || !verifyPassword(storedHash, password)) {
             throw domain::DomainError(QStringLiteral("Invalid credentials for user: %1").arg(username).toStdString());
         }
+
+        // Upgrade legacy Argon2 hashes to native SHA-256 on successful login.
+        if (storedHash.startsWith(QStringLiteral("$argon2"))) {
+            QSqlQuery updateQuery(db.handle());
+            updateQuery.prepare(QStringLiteral("UPDATE users SET password_hash=? WHERE username=?"));
+            updateQuery.addBindValue(sha256Hex(password));
+            updateQuery.addBindValue(username);
+            executePrepared(updateQuery, QStringLiteral("Upgrade password hash to SHA-256"));
+        }
+
         writeAudit(db.handle(), username, QStringLiteral("Login"), QStringLiteral("User logged in"));
         return domain::Session{username, roleFromString(role), QStringLiteral("native:%1:%2").arg(username, role)};
     }

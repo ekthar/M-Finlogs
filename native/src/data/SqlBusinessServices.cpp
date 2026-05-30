@@ -4,6 +4,8 @@
 #include "data/SqlDatabase.h"
 #include "domain/DomainErrors.h"
 
+#include "data/PasswordVerifier.h"
+
 #include <QCryptographicHash>
 #include <QBuffer>
 #include <QDate>
@@ -372,31 +374,19 @@ public:
         const QString role = query.value(0).toString();
         const QString storedHash = query.value(1).toString();
 
-        // Support both legacy SHA-256 (64-char hex) and Argon2id hashes
-        // (written by the updated Python/Electron backend).
-        bool valid = false;
-        if (storedHash.isEmpty()) {
-            valid = false;
-        } else if (storedHash.startsWith(QStringLiteral("$argon2"))) {
-            // Argon2id hash from the Python backend. Native app has no Argon2
-            // library, so on FIRST login we trust the user (they know the password)
-            // and re-store as SHA-256 for future native logins.
-            const QString newHash = sha256Hex(password);
-            QSqlQuery updateQuery(database.handle());
-            updateQuery.prepare(QStringLiteral("UPDATE users SET password_hash=? WHERE username=?"));
-            updateQuery.addBindValue(newHash);
-            updateQuery.addBindValue(username);
-            executePrepared(updateQuery, QStringLiteral("Migrate password hash to SHA-256"));
-            valid = true;
-            writeAudit(database.handle(), username, QStringLiteral("Password Migration"),
-                QStringLiteral("Migrated from Argon2id to SHA-256 (native format)"));
-        } else {
-            // Standard SHA-256 verification
-            valid = (storedHash == sha256Hex(password));
+        // Verify against SHA-256 (native) or Argon2id (Electron/Python backend).
+        if (storedHash.isEmpty() || !verifyPassword(storedHash, password)) {
+            throw domain::DomainError(QStringLiteral("Invalid credentials for user: %1").arg(username).toStdString());
         }
 
-        if (!valid) {
-            throw domain::DomainError(QStringLiteral("Invalid credentials for user: %1").arg(username).toStdString());
+        // Transparently upgrade legacy Argon2 hashes to the native SHA-256
+        // format on successful login (one-time, keeps future logins fast).
+        if (storedHash.startsWith(QStringLiteral("$argon2"))) {
+            QSqlQuery updateQuery(database.handle());
+            updateQuery.prepare(QStringLiteral("UPDATE users SET password_hash=? WHERE username=?"));
+            updateQuery.addBindValue(sha256Hex(password));
+            updateQuery.addBindValue(username);
+            executePrepared(updateQuery, QStringLiteral("Upgrade password hash to SHA-256"));
         }
 
         writeAudit(database.handle(), username, QStringLiteral("Login"), QStringLiteral("User logged in"));

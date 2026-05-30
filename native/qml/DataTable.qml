@@ -158,8 +158,8 @@ Item {
                 property var rowData: modelData
                 property bool isCurrent: list.currentIndex === index
                 color: isCurrent ? Theme.alpha(Theme.accent, 0.14)
-                     : rowHover.hovered ? Theme.glassStrong
-                     : (index % 2 === 0 ? "transparent" : Theme.alpha(Qt.rgba(1,1,1,1), 0.02))
+                     : rowHover.hovered ? Theme.rowHover
+                     : (index % 2 === 0 ? "transparent" : Theme.rowAlt)
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
                 // row bottom separator
@@ -189,7 +189,7 @@ Item {
                                 width: 1
                                 height: parent.height
                                 anchors.left: parent.left
-                                color: Theme.alpha(Qt.rgba(1,1,1,1), 0.03)
+                                color: Theme.gridLine
                             }
 
                             // Chip rendering for type/status columns
