@@ -5,6 +5,9 @@
 
 #include <QCoreApplication>
 #include <QDate>
+#include <QDateTime>
+#include <QDesktopServices>
+#include <QDir>
 #include <QFile>
 #include <QFileDialog>
 #include <QJsonArray>
@@ -17,6 +20,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTextStream>
+#include <QUrl>
 #include <QVector>
 
 #include <exception>
@@ -543,6 +547,61 @@ QVariantList QmlBackend::stockValue(const QString& financialYear, int month) {
     } catch (const std::exception& err) {
         emit toast(QString::fromUtf8(err.what()), QStringLiteral("error"));
         return {};
+    }
+}
+
+QVariantMap QmlBackend::inventoryPdfPreview(const QString& financialYear, int month, bool onlyReorder) {
+    try {
+        // Load the snapshot and convert to InventoryProductRow vector
+        const QJsonArray snapshot = context_.services().inventory->loadSnapshot(financialYear, month);
+        QVector<domain::InventoryProductRow> rows;
+        for (const QJsonValue& value : snapshot) {
+            const QJsonObject obj = value.toObject();
+            domain::InventoryProductRow row;
+            row.name = obj.value(QStringLiteral("name")).toString();
+            row.cost = obj.value(QStringLiteral("cost")).toDouble();
+            row.minStock = obj.value(QStringLiteral("min_stock")).toDouble();
+            for (int day = 1; day <= 31; ++day) {
+                const QString qk = QStringLiteral("qty_%1").arg(day, 2, 10, QLatin1Char('0'));
+                const QString pk = QStringLiteral("purchase_%1").arg(day, 2, 10, QLatin1Char('0'));
+                row.quantities.append(obj.value(qk).toDouble());
+                row.purchaseQuantities.append(obj.value(pk).toDouble());
+            }
+            rows.append(row);
+        }
+        if (rows.isEmpty()) {
+            return errorResult(QStringLiteral("No inventory data to export"));
+        }
+
+        const QString monthName = QDate(2000, month, 1).toString(QStringLiteral("MMMM"));
+        domain::InventoryPdfMailRequest request{
+            QString(), QString(), QString(), QString(),
+            QStringLiteral("smtp.gmail.com"), 587,
+            QStringLiteral("Inventory Report"), QString(),
+            financialYear, monthName, QStringLiteral("last7"),
+            onlyReorder, true, rows
+        };
+
+        const QByteArray pdf = context_.services().inventory->buildPdfPreview(request);
+
+        // Write to a temp file and open it
+        const QString tempPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+            .filePath(QStringLiteral("MFinlogs_Inventory_%1.pdf")
+                .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"))));
+        QFile tempFile(tempPath);
+        if (!tempFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            return errorResult(QStringLiteral("Could not write preview PDF"));
+        }
+        tempFile.write(pdf);
+        tempFile.close();
+
+        QDesktopServices::openUrl(QUrl::fromLocalFile(tempPath));
+        emit toast(QStringLiteral("Inventory PDF report opened"), QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), tempPath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
     }
 }
 

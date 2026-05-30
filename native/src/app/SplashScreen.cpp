@@ -18,6 +18,12 @@
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 
+#include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace mfinlogs::app {
 
 namespace {
@@ -30,7 +36,23 @@ constexpr int kSplashHeight = 420;
 // Painted aurora backdrop with floating gradient blobs and frosted glass panel
 class SplashCanvas final : public QWidget {
 public:
-    explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {}
+    explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {
+        // Continuous pulse animation driving the glow ring + blob drift
+        pulse_ = new QVariantAnimation(this);
+        pulse_->setStartValue(0.0);
+        pulse_->setEndValue(1.0);
+        pulse_->setDuration(2400);
+        pulse_->setLoopCount(-1);
+        pulse_->setEasingCurve(QEasingCurve::InOutSine);
+        connect(pulse_, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+            phase_ = v.toDouble();
+            update();
+        });
+        pulse_->start();
+    }
+
+    double logoCx = 96.0;
+    double logoCy = 126.0;
 
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -45,33 +67,55 @@ protected:
         bg.setColorAt(1.0, QColor(0x0b, 0x10, 0x20));
         p.fillRect(r, bg);
 
-        // Floating blob 1 (indigo, top-left)
-        QRadialGradient blob1(QPointF(r.width() * 0.2, r.height() * 0.25), 220);
-        blob1.setColorAt(0.0, QColor(99, 102, 241, 80));
+        // Animated floating blobs (drift with phase)
+        const double drift = std::sin(phase_ * 2.0 * M_PI) * 24.0;
+        QRadialGradient blob1(QPointF(r.width() * 0.2 + drift, r.height() * 0.25), 240);
+        blob1.setColorAt(0.0, QColor(99, 102, 241, 90));
         blob1.setColorAt(1.0, Qt::transparent);
         p.fillRect(r, blob1);
 
-        // Floating blob 2 (violet, bottom-right)
-        QRadialGradient blob2(QPointF(r.width() * 0.8, r.height() * 0.7), 200);
-        blob2.setColorAt(0.0, QColor(139, 92, 246, 60));
+        QRadialGradient blob2(QPointF(r.width() * 0.8 - drift, r.height() * 0.7), 220);
+        blob2.setColorAt(0.0, QColor(139, 92, 246, 70));
         blob2.setColorAt(1.0, Qt::transparent);
         p.fillRect(r, blob2);
 
-        // Floating blob 3 (sky, top-right)
-        QRadialGradient blob3(QPointF(r.width() * 0.75, r.height() * 0.2), 160);
-        blob3.setColorAt(0.0, QColor(56, 189, 248, 40));
+        QRadialGradient blob3(QPointF(r.width() * 0.75, r.height() * 0.2 + drift * 0.5), 170);
+        blob3.setColorAt(0.0, QColor(56, 189, 248, 50));
         blob3.setColorAt(1.0, Qt::transparent);
         p.fillRect(r, blob3);
+
+        // Pulsing glow ring behind the logo
+        const double glowR = 52.0 + phase_ * 14.0;
+        const int glowAlpha = static_cast<int>(120 * (1.0 - phase_ * 0.6));
+        QRadialGradient glow(QPointF(logoCx, logoCy), glowR);
+        glow.setColorAt(0.0, QColor(124, 140, 255, glowAlpha));
+        glow.setColorAt(0.7, QColor(124, 140, 255, glowAlpha / 3));
+        glow.setColorAt(1.0, Qt::transparent);
+        p.setBrush(glow);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(logoCx, logoCy), glowR, glowR);
+
+        // Orbiting accent dots around the logo
+        for (int i = 0; i < 3; ++i) {
+            const double ang = phase_ * 2.0 * M_PI + i * (2.0 * M_PI / 3.0);
+            const double ox = logoCx + std::cos(ang) * 58.0;
+            const double oy = logoCy + std::sin(ang) * 58.0;
+            const QColor dotColor = i == 0 ? QColor(0x5b, 0x8c, 0xfa)
+                                  : i == 1 ? QColor(0x8b, 0x5c, 0xf6)
+                                           : QColor(0x38, 0xbd, 0xf8);
+            p.setBrush(dotColor);
+            p.drawEllipse(QPointF(ox, oy), 3.5, 3.5);
+        }
 
         // Frosted glass central panel
         QPainterPath glass;
         glass.addRoundedRect(QRectF(40, 60, r.width() - 80, r.height() - 120), 24, 24);
-        p.fillPath(glass, QColor(255, 255, 255, 18));
-        p.setPen(QPen(QColor(255, 255, 255, 50), 1.2));
+        p.fillPath(glass, QColor(255, 255, 255, 16));
+        p.setPen(QPen(QColor(255, 255, 255, 45), 1.2));
         p.drawPath(glass);
 
         // Subtle grid pattern
-        p.setPen(QPen(QColor(255, 255, 255, 8), 0.5));
+        p.setPen(QPen(QColor(255, 255, 255, 7), 0.5));
         for (int x = 0; x < r.width(); x += 40) {
             p.drawLine(x, 0, x, r.height());
         }
@@ -85,6 +129,10 @@ protected:
         sheen.setColorAt(1.0, Qt::transparent);
         p.fillRect(r, sheen);
     }
+
+private:
+    QVariantAnimation* pulse_ = nullptr;
+    double phase_ = 0.0;
 };
 
 SplashScreen::SplashScreen(QWidget* parent)
@@ -193,25 +241,26 @@ void SplashScreen::buildUi() {
     fadeIn->setEasingCurve(QEasingCurve::OutCubic);
     fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
 
-    // Animate logo entrance (fade + slide up)
+    // Animate logo entrance (fade + spring scale-in from center)
     QGraphicsOpacityEffect* logoEffect = new QGraphicsOpacityEffect(logoLabel);
     logoEffect->setOpacity(0.0);
     logoLabel->setGraphicsEffect(logoEffect);
     QPropertyAnimation* logoFade = new QPropertyAnimation(logoEffect, "opacity", this);
-    logoFade->setDuration(800);
+    logoFade->setDuration(700);
     logoFade->setStartValue(0.0);
     logoFade->setEndValue(1.0);
     logoFade->setEasingCurve(QEasingCurve::OutCubic);
 
-    QPropertyAnimation* logoSlide = new QPropertyAnimation(logoLabel, "geometry", this);
-    logoSlide->setDuration(800);
-    logoSlide->setStartValue(QRect(60, 110, 72, 72));
-    logoSlide->setEndValue(QRect(60, 90, 72, 72));
-    logoSlide->setEasingCurve(QEasingCurve::OutCubic);
+    // Spring scale: grow from a small centered rect to the final 72x72
+    QPropertyAnimation* logoScale = new QPropertyAnimation(logoLabel, "geometry", this);
+    logoScale->setDuration(900);
+    logoScale->setStartValue(QRect(84, 114, 24, 24));   // small, centered ~(96,126)
+    logoScale->setEndValue(QRect(60, 90, 72, 72));       // final
+    logoScale->setEasingCurve(QEasingCurve::OutBack);    // spring overshoot
 
-    QTimer::singleShot(200, this, [logoFade, logoSlide]() {
+    QTimer::singleShot(150, this, [logoFade, logoScale]() {
         logoFade->start(QAbstractAnimation::DeleteWhenStopped);
-        logoSlide->start(QAbstractAnimation::DeleteWhenStopped);
+        logoScale->start(QAbstractAnimation::DeleteWhenStopped);
     });
 
     // Animate title entrance
