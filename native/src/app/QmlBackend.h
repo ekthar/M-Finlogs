@@ -107,6 +107,10 @@ public:
     // --- Export (PDF/Excel) -----------------------------------------------
     Q_INVOKABLE QVariantMap exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows);
+    Q_INVOKABLE QVariantMap exportRecentPdf(int days);
+
+    // --- Party balance lookup (for entry hints) ---------------------------
+    Q_INVOKABLE QVariantMap partyBalance(const QString& partyName);
 
     // --- Formatting helpers (used widely by QML) --------------------------
     Q_INVOKABLE QString formatMoney(double value) const;

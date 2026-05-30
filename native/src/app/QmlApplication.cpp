@@ -12,6 +12,8 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QThread>
+#include <QTimer>
 #include <QtGlobal>
 
 #include <exception>
@@ -47,7 +49,10 @@ int runQmlApplication(int argc, char** argv) {
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("M-Finlogs"));
     app.setOrganizationName(QStringLiteral("Ekthar"));
-    app.setWindowIcon(QIcon(QStringLiteral(":/icons/dashboard.svg")));
+
+    // Set application icon (shows in taskbar + window chrome)
+    const QIcon appIcon(QStringLiteral(":/icons/logo.svg"));
+    app.setWindowIcon(appIcon);
 
     // Qt Quick Controls: use the Basic style so our custom QML theming fully
     // controls the look (Fusion/native styles ignore many custom properties).
@@ -55,11 +60,16 @@ int runQmlApplication(int argc, char** argv) {
 
     loadBundledFonts();
 
-    // Branded splash while the database / services warm up.
+    // Branded splash — show early and keep visible until QML window renders.
     SplashScreen splash;
     splash.show();
-    splash.runIndeterminate(1400);
+    splash.runIndeterminate(2200);
     app.processEvents();
+    // Process events several times to ensure splash paint completes
+    for (int i = 0; i < 5; ++i) {
+        QThread::msleep(50);
+        app.processEvents();
+    }
 
     try {
         static AppContext context(QStringLiteral("Ekthar"), QStringLiteral("M-Finlogs"));
@@ -78,7 +88,9 @@ int runQmlApplication(int argc, char** argv) {
             return -1;
         }
 
-        splash.close();
+        // Close splash after a short delay so the user sees it while QML renders
+        QTimer::singleShot(800, &splash, [&splash]() { splash.close(); });
+
         return app.exec();
     } catch (const std::exception& err) {
         splash.close();

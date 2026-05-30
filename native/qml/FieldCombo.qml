@@ -35,6 +35,12 @@ Item {
             font.pixelSize: Theme.fsBody
             activeFocusOnTab: true
 
+            // Keyboard: Enter/Return opens dropdown, arrow keys navigate items
+            Keys.onReturnPressed: { if (!popup.visible) popup.open(); else popup.close() }
+            Keys.onEnterPressed: { if (!popup.visible) popup.open(); else popup.close() }
+            // Space also toggles (built-in behavior), just ensure it works
+            Keys.onSpacePressed: { if (!popup.visible) popup.open(); else popup.close() }
+
             background: Rectangle {
                 radius: Theme.rMd
                 color: combo.activeFocus || combo.hovered ? Theme.alpha(Theme.accent, 0.08) : Theme.glass
