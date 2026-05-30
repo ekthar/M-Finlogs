@@ -39,6 +39,32 @@ Item {
             subtitle: "Press Enter to navigate: Bill \u2192 Party \u2192 Type \u2192 Mode \u2192 Amount \u2192 Save \u2192 Bill"
         }
 
+        // Keyboard hints bar
+        GlassPanel {
+            Layout.fillWidth: true
+            implicitHeight: 36
+            radius: Theme.rSm
+            fillColor: Theme.alpha(Theme.accent, 0.06)
+            borderColor: Theme.alpha(Theme.accent, 0.15)
+            elevated: false
+            sheen: false
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.s4
+                anchors.rightMargin: Theme.s4
+                spacing: Theme.s5
+                Text { text: "\u2328"; color: Theme.accent; font.pixelSize: 14 }
+                Text { text: "Enter = Next field"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
+                Text { text: "Amount + Enter = Save"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
+                Text { text: "Empty party = 'customer'"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
+                Text { text: "Alt+D = Dashboard"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Item { Layout.fillWidth: true }
+            }
+        }
+
         // Entry form panel
         GlassPanel {
             Layout.fillWidth: true

@@ -3,14 +3,20 @@
 #include "domain/DomainErrors.h"
 #include "domain/Types.h"
 
-#include <QDate>
 #include <QCoreApplication>
+#include <QDate>
+#include <QFile>
+#include <QFileDialog>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QLocale>
 #include <QMap>
+#include <QPainter>
+#include <QPdfWriter>
 #include <QProcess>
+#include <QStandardPaths>
+#include <QTextStream>
 #include <QVector>
 
 #include <exception>
@@ -278,6 +284,10 @@ QVariantMap QmlBackend::addTransaction(const QString& dateIso,
         const QString resolvedParty = party.trimmed().isEmpty()
             ? QStringLiteral("customer")
             : party.trimmed();
+        // Credit mode is not allowed for the generic "customer" party
+        if (resolvedParty == QStringLiteral("customer") && mode == QStringLiteral("Credit")) {
+            return fail(QStringLiteral("Credit mode is not allowed for generic 'customer'. Select a Credit Customer or choose Cash/UPI/Bank."));
+        }
         if (amount <= 0.0) {
             return fail(QStringLiteral("Amount must be greater than zero"));
         }
@@ -718,19 +728,142 @@ QVariantMap QmlBackend::stopNativeServer() {
 // ---- Export (PDF/Excel) ---------------------------------------------------
 
 QVariantMap QmlBackend::exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows) {
-    Q_UNUSED(columns);
-    Q_UNUSED(rows);
-    // PDF export uses Qt PrintSupport. The QML caller collects column/row data
-    // and passes it here. Actual file-save dialog is triggered via native dialog.
-    emit toast(QStringLiteral("PDF export: ") + title + QStringLiteral(" — feature active after first build"), QStringLiteral("info"));
-    return okResult();
+    try {
+        const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/") + title.simplified().replace(QLatin1Char(' '), QLatin1Char('_')) + QStringLiteral(".pdf");
+        const QString filePath = QFileDialog::getSaveFileName(nullptr, QStringLiteral("Export PDF"), defaultPath, QStringLiteral("PDF (*.pdf)"));
+        if (filePath.trimmed().isEmpty()) {
+            return okResult(); // User cancelled
+        }
+
+        QPdfWriter writer(filePath);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setPageOrientation(QPageLayout::Landscape);
+        writer.setResolution(96);
+        writer.setTitle(title);
+
+        QPainter painter(&writer);
+        if (!painter.isActive()) {
+            return errorResult(QStringLiteral("Could not start PDF painter"));
+        }
+
+        const int pageW = writer.width();
+        const int margin = 60;
+        int y = margin;
+
+        // Title
+        QFont titleFont(QStringLiteral("Inter Tight"), 18, QFont::Bold);
+        painter.setFont(titleFont);
+        painter.setPen(QColor(0x1e, 0x24, 0x35));
+        painter.drawText(margin, y + 22, title);
+        y += 50;
+
+        // Subtitle (date)
+        QFont subFont(QStringLiteral("Inter Tight"), 9);
+        painter.setFont(subFont);
+        painter.setPen(QColor(0x64, 0x74, 0x8b));
+        painter.drawText(margin, y + 12, QStringLiteral("Generated: ") + QDate::currentDate().toString(QStringLiteral("dd MMM yyyy")));
+        y += 30;
+
+        // Table
+        if (columns.isEmpty()) {
+            painter.end();
+            emit toast(QStringLiteral("PDF exported: ") + filePath, QStringLiteral("success"));
+            QVariantMap res = okResult();
+            res.insert(QStringLiteral("path"), filePath);
+            return res;
+        }
+
+        const int colCount = columns.size();
+        const int colW = (pageW - margin * 2) / colCount;
+        const int rowH = 28;
+
+        // Header row
+        QFont headerFont(QStringLiteral("Inter Tight"), 8, QFont::Bold);
+        painter.setFont(headerFont);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0x1b, 0x24, 0x40));
+        painter.drawRect(margin, y, pageW - margin * 2, rowH);
+        painter.setPen(QColor(0xee, 0xf2, 0xfb));
+        for (int c = 0; c < colCount; ++c) {
+            const QString col = columns[c].toString();
+            painter.drawText(QRect(margin + c * colW + 6, y, colW - 12, rowH), Qt::AlignVCenter | Qt::AlignLeft, col);
+        }
+        y += rowH;
+
+        // Data rows
+        QFont dataFont(QStringLiteral("Inter Tight"), 8);
+        painter.setFont(dataFont);
+        for (int r = 0; r < rows.size(); ++r) {
+            if (y + rowH > writer.height() - margin) {
+                writer.newPage();
+                y = margin;
+            }
+            const QVariantList row = rows[r].toList();
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(r % 2 == 0 ? QColor(0xf8, 0xfa, 0xfc) : QColor(0xff, 0xff, 0xff));
+            painter.drawRect(margin, y, pageW - margin * 2, rowH);
+            painter.setPen(QColor(0x1e, 0x24, 0x35));
+            for (int c = 0; c < qMin(colCount, row.size()); ++c) {
+                painter.drawText(QRect(margin + c * colW + 6, y, colW - 12, rowH), Qt::AlignVCenter | Qt::AlignLeft, row[c].toString());
+            }
+            // Bottom border
+            painter.setPen(QPen(QColor(0xe5, 0xe7, 0xeb), 1));
+            painter.drawLine(margin, y + rowH, pageW - margin, y + rowH);
+            y += rowH;
+        }
+
+        painter.end();
+        emit toast(QStringLiteral("PDF exported: ") + filePath, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), filePath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
 }
 
 QVariantMap QmlBackend::exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows) {
-    Q_UNUSED(columns);
-    Q_UNUSED(rows);
-    emit toast(QStringLiteral("Excel export: ") + title + QStringLiteral(" — feature active after first build"), QStringLiteral("info"));
-    return okResult();
+    // CSV export (universally openable in Excel) — no external lib needed
+    try {
+        const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/") + title.simplified().replace(QLatin1Char(' '), QLatin1Char('_')) + QStringLiteral(".csv");
+        const QString filePath = QFileDialog::getSaveFileName(nullptr, QStringLiteral("Export CSV/Excel"), defaultPath, QStringLiteral("CSV (*.csv)"));
+        if (filePath.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            return errorResult(QStringLiteral("Could not write file: ") + filePath);
+        }
+        QTextStream stream(&file);
+
+        // Header
+        QStringList headers;
+        for (const QVariant& col : columns) {
+            headers.append(QStringLiteral("\"%1\"").arg(col.toString().replace(QLatin1Char('"'), QStringLiteral("\"\""))));
+        }
+        stream << headers.join(QLatin1Char(',')) << QStringLiteral("\n");
+
+        // Data
+        for (const QVariant& rowVar : rows) {
+            const QVariantList row = rowVar.toList();
+            QStringList cells;
+            for (const QVariant& cell : row) {
+                cells.append(QStringLiteral("\"%1\"").arg(cell.toString().replace(QLatin1Char('"'), QStringLiteral("\"\""))));
+            }
+            stream << cells.join(QLatin1Char(',')) << QStringLiteral("\n");
+        }
+
+        file.close();
+        emit toast(QStringLiteral("CSV exported: ") + filePath, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), filePath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
 }
 
 // ---- Audit ---------------------------------------------------------------

@@ -19,6 +19,24 @@ Item {
     property int purchaseRowIdx: -1
     property bool purchaseDialogOpen: false
 
+    // Focus tracking for grid keyboard navigation
+    property int focusRow: 0
+    property int focusCol: 0  // 0=name, 1=cost, 2=min_stock, 3+=day cells
+    function gridColCount() {
+        var n = 0
+        if (showQty()) n++
+        if (showPurchase()) n++
+        return 3 + n * daysInMonth()  // 3 frozen + day cells
+    }
+    function moveFocus(dRow, dCol) {
+        var newRow = Math.max(0, Math.min(rows.length - 1, focusRow + dRow))
+        var newCol = Math.max(0, Math.min(gridColCount() - 1, focusCol + dCol))
+        focusRow = newRow
+        focusCol = newCol
+    }
+    // Signal to notify cells to check if they should grab focus
+    signal focusCellChanged()
+
     readonly property var monthNames: ["January","February","March","April","May",
         "June","July","August","September","October","November","December"]
     readonly property int today: new Date().getDate()
@@ -604,6 +622,11 @@ Item {
                                             font.pixelSize: Theme.fsTiny
                                             background: Item {}
                                             verticalAlignment: Text.AlignVCenter
+                                            activeFocusOnTab: true
+                                            Keys.onDownPressed: page.moveFocus(1, 0)
+                                            Keys.onUpPressed: page.moveFocus(-1, 0)
+                                            Keys.onReturnPressed: page.moveFocus(1, 0)
+                                            Keys.onEnterPressed: page.moveFocus(1, 0)
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].name = text
@@ -628,7 +651,12 @@ Item {
                                             background: Item {}
                                             horizontalAlignment: Text.AlignRight
                                             verticalAlignment: Text.AlignVCenter
+                                            activeFocusOnTab: true
                                             validator: DoubleValidator { bottom: 0 }
+                                            Keys.onDownPressed: page.moveFocus(1, 0)
+                                            Keys.onUpPressed: page.moveFocus(-1, 0)
+                                            Keys.onReturnPressed: page.moveFocus(1, 0)
+                                            Keys.onEnterPressed: page.moveFocus(1, 0)
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].cost = parseFloat(text) || 0
@@ -651,7 +679,12 @@ Item {
                                             background: Item {}
                                             horizontalAlignment: Text.AlignRight
                                             verticalAlignment: Text.AlignVCenter
+                                            activeFocusOnTab: true
                                             validator: IntValidator { bottom: 0 }
+                                            Keys.onDownPressed: page.moveFocus(1, 0)
+                                            Keys.onUpPressed: page.moveFocus(-1, 0)
+                                            Keys.onReturnPressed: page.moveFocus(1, 0)
+                                            Keys.onEnterPressed: page.moveFocus(1, 0)
                                             onTextEdited: {
                                                 var tmp = page.rows.slice()
                                                 tmp[rowIdx].min_stock = parseInt(text) || 0
@@ -703,7 +736,12 @@ Item {
                                                             background: Item {}
                                                             horizontalAlignment: Text.AlignHCenter
                                                             verticalAlignment: Text.AlignVCenter
+                                                            activeFocusOnTab: true
                                                             validator: IntValidator { bottom: 0 }
+                                                            Keys.onDownPressed: page.moveFocus(1, 0)
+                                                            Keys.onUpPressed: page.moveFocus(-1, 0)
+                                                            Keys.onReturnPressed: page.moveFocus(1, 0)
+                                                            Keys.onEnterPressed: page.moveFocus(1, 0)
                                                             onTextEdited: {
                                                                 var tmp = page.rows.slice()
                                                                 tmp[rowDelegate.rowIdx][page.qtyKey(dayNum)] = parseInt(text) || 0
@@ -737,7 +775,12 @@ Item {
                                                             background: Item {}
                                                             horizontalAlignment: Text.AlignHCenter
                                                             verticalAlignment: Text.AlignVCenter
+                                                            activeFocusOnTab: true
                                                             validator: IntValidator { bottom: 0 }
+                                                            Keys.onDownPressed: page.moveFocus(1, 0)
+                                                            Keys.onUpPressed: page.moveFocus(-1, 0)
+                                                            Keys.onReturnPressed: page.moveFocus(1, 0)
+                                                            Keys.onEnterPressed: page.moveFocus(1, 0)
                                                             onTextEdited: {
                                                                 var tmp = page.rows.slice()
                                                                 tmp[rowDelegate.rowIdx][page.purKey(dayNum)] = parseInt(text) || 0

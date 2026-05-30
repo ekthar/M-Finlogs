@@ -13,6 +13,7 @@
 #include <QScreen>
 #include <QSequentialAnimationGroup>
 #include <QShowEvent>
+#include <QSvgRenderer>
 #include <QTimer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
@@ -21,12 +22,12 @@ namespace mfinlogs::app {
 
 namespace {
 
-constexpr int kSplashWidth = 620;
-constexpr int kSplashHeight = 400;
+constexpr int kSplashWidth = 680;
+constexpr int kSplashHeight = 420;
 
 } // namespace
 
-// Custom painted widget for the cobalt splash background with geometric elements
+// Painted aurora backdrop with floating gradient blobs and frosted glass panel
 class SplashCanvas final : public QWidget {
 public:
     explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {}
@@ -37,50 +38,52 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, true);
         const QRect r = rect();
 
-        // Deep indigo radial gradient background (matches app hero/sidebar)
-        QRadialGradient bg(r.center(), r.width() * 0.75);
-        bg.setColorAt(0.0, QColor(0x37, 0x30, 0xa3));   // indigo-core
-        bg.setColorAt(0.55, QColor(0x1b, 0x24, 0x40));  // deep slate-indigo
-        bg.setColorAt(1.0, QColor(0x0f, 0x17, 0x30));   // near-black indigo
+        // Deep aurora radial gradient
+        QRadialGradient bg(r.center(), r.width() * 0.8);
+        bg.setColorAt(0.0, QColor(0x31, 0x2e, 0x81));
+        bg.setColorAt(0.4, QColor(0x1b, 0x24, 0x40));
+        bg.setColorAt(1.0, QColor(0x0b, 0x10, 0x20));
         p.fillRect(r, bg);
 
-        // Interlocking geometric layer 1 (top-left)
-        p.save();
-        p.translate(-120, -140);
-        p.rotate(45);
-        QLinearGradient g1(0, 0, 400, 400);
-        g1.setColorAt(0.0, QColor(99, 102, 241, 60));
-        g1.setColorAt(0.4, Qt::transparent);
-        p.setBrush(g1);
-        p.setPen(QPen(QColor(255, 255, 255, 14), 1));
-        p.drawRect(0, 0, 500, 500);
-        p.restore();
+        // Floating blob 1 (indigo, top-left)
+        QRadialGradient blob1(QPointF(r.width() * 0.2, r.height() * 0.25), 220);
+        blob1.setColorAt(0.0, QColor(99, 102, 241, 80));
+        blob1.setColorAt(1.0, Qt::transparent);
+        p.fillRect(r, blob1);
 
-        // Interlocking geometric layer 2 (bottom-right)
-        p.save();
-        p.translate(r.width() - 200, r.height() - 100);
-        p.rotate(45);
-        QLinearGradient g2(0, 0, -400, -400);
-        g2.setColorAt(0.0, QColor(91, 140, 250, 48));
-        g2.setColorAt(0.4, Qt::transparent);
-        p.setBrush(g2);
-        p.setPen(QPen(QColor(255, 255, 255, 8), 1));
-        p.drawRect(-400, -400, 500, 500);
-        p.restore();
+        // Floating blob 2 (violet, bottom-right)
+        QRadialGradient blob2(QPointF(r.width() * 0.8, r.height() * 0.7), 200);
+        blob2.setColorAt(0.0, QColor(139, 92, 246, 60));
+        blob2.setColorAt(1.0, Qt::transparent);
+        p.fillRect(r, blob2);
 
-        // Frosted glass brand panel (glassmorphism cue)
+        // Floating blob 3 (sky, top-right)
+        QRadialGradient blob3(QPointF(r.width() * 0.75, r.height() * 0.2), 160);
+        blob3.setColorAt(0.0, QColor(56, 189, 248, 40));
+        blob3.setColorAt(1.0, Qt::transparent);
+        p.fillRect(r, blob3);
+
+        // Frosted glass central panel
         QPainterPath glass;
-        glass.addRoundedRect(QRectF(28, 80, 392, 196), 20, 20);
-        p.fillPath(glass, QColor(255, 255, 255, 20));
-        p.setPen(QPen(QColor(255, 255, 255, 46), 1));
+        glass.addRoundedRect(QRectF(40, 60, r.width() - 80, r.height() - 120), 24, 24);
+        p.fillPath(glass, QColor(255, 255, 255, 18));
+        p.setPen(QPen(QColor(255, 255, 255, 50), 1.2));
         p.drawPath(glass);
 
-        // Glint sweep (static representation)
-        QLinearGradient glint(r.width() * 0.3, 0, r.width() * 0.5, r.height());
-        glint.setColorAt(0.0, Qt::transparent);
-        glint.setColorAt(0.5, QColor(255, 255, 255, 10));
-        glint.setColorAt(1.0, Qt::transparent);
-        p.fillRect(r, glint);
+        // Subtle grid pattern
+        p.setPen(QPen(QColor(255, 255, 255, 8), 0.5));
+        for (int x = 0; x < r.width(); x += 40) {
+            p.drawLine(x, 0, x, r.height());
+        }
+        for (int y = 0; y < r.height(); y += 40) {
+            p.drawLine(0, y, r.width(), y);
+        }
+
+        // Top sheen
+        QLinearGradient sheen(0, 0, 0, r.height() * 0.3);
+        sheen.setColorAt(0.0, QColor(255, 255, 255, 12));
+        sheen.setColorAt(1.0, Qt::transparent);
+        p.fillRect(r, sheen);
     }
 };
 
@@ -98,124 +101,137 @@ SplashScreen::SplashScreen(QWidget* parent)
 }
 
 void SplashScreen::buildUi() {
-    // Root layout
     QVBoxLayout* root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
 
-    // Card with rounded corners and shadow
     card_ = new QFrame(this);
     card_->setFixedSize(kSplashWidth, kSplashHeight);
-    card_->setStyleSheet(QStringLiteral("QFrame { border-radius: 12px; }"));
+    card_->setStyleSheet(QStringLiteral("QFrame { border-radius: 16px; }"));
 
     QGraphicsDropShadowEffect* shadow = new QGraphicsDropShadowEffect(card_);
-    shadow->setBlurRadius(50);
-    shadow->setOffset(0, 16);
-    shadow->setColor(QColor(0, 10, 30, 180));
+    shadow->setBlurRadius(60);
+    shadow->setOffset(0, 20);
+    shadow->setColor(QColor(0, 0, 20, 200));
     card_->setGraphicsEffect(shadow);
 
     // Painted canvas background
     SplashCanvas* canvas = new SplashCanvas(card_);
     canvas->setGeometry(0, 0, kSplashWidth, kSplashHeight);
 
-    // --- Brand container (left-aligned, vertically centered) ---
-    // Logo mark: two interlocking squares
-    QFrame* logoMark = new QFrame(card_);
-    logoMark->setGeometry(44, 100, 64, 64);
-    logoMark->setStyleSheet(QStringLiteral("background: transparent;"));
+    // --- Logo SVG (rendered from qrc) ---
+    QLabel* logoLabel = new QLabel(card_);
+    logoLabel->setGeometry(60, 90, 72, 72);
+    logoLabel->setStyleSheet(QStringLiteral("background: transparent;"));
+    QSvgRenderer logoRenderer(QStringLiteral(":/icons/logo.svg"));
+    if (logoRenderer.isValid()) {
+        QPixmap logoPix(72, 72);
+        logoPix.fill(Qt::transparent);
+        QPainter logoPainter(&logoPix);
+        logoRenderer.render(&logoPainter);
+        logoLabel->setPixmap(logoPix);
+    }
 
-    QFrame* sq1 = new QFrame(logoMark);
-    sq1->setGeometry(0, 0, 32, 32);
-    sq1->setStyleSheet(QStringLiteral(
-        "background: #1b2440; border: 3px solid #6f8cff;"));
-
-    QFrame* sq2 = new QFrame(logoMark);
-    sq2->setGeometry(32, 32, 32, 32);
-    sq2->setStyleSheet(QStringLiteral(
-        "background: transparent; border: 3px solid #e6eeff;"));
-
-    // Title: FINLOGS
-    QLabel* title = new QLabel(QStringLiteral("FINLOGS"), card_);
-    title->setGeometry(44, 180, 400, 50);
+    // Brand title
+    QLabel* title = new QLabel(QStringLiteral("M-FINLOGS"), card_);
+    title->setGeometry(60, 175, 400, 48);
     title->setStyleSheet(QStringLiteral(
-        "color: #eef2ff; font-size: 42px; font-weight: 800;"
-        "letter-spacing: -2px; background: transparent;"));
+        "color: #ffffff; font-size: 38px; font-weight: 800;"
+        "letter-spacing: -1px; background: transparent;"));
 
     // Subtitle
-    QLabel* subtitle = new QLabel(QStringLiteral("NEXT-GEN LEDGER SYSTEMS"), card_);
-    subtitle->setGeometry(44, 232, 400, 20);
+    QLabel* subtitle = new QLabel(QStringLiteral("NEXT-GEN FINANCIAL WORKSPACE"), card_);
+    subtitle->setGeometry(60, 226, 400, 20);
     subtitle->setStyleSheet(QStringLiteral(
-        "color: #8ea2ff; font-size: 11px; font-weight: 300;"
+        "color: #8ea2ff; font-size: 11px; font-weight: 500;"
         "letter-spacing: 3px; background: transparent;"));
 
-    // --- Bottom meta section ---
-    // Status lines (left)
-    statusLabel_ = new QLabel(QStringLiteral("INITIALIZING RUNTIME"), card_);
-    statusLabel_->setGeometry(44, 320, 300, 16);
-    statusLabel_->setStyleSheet(QStringLiteral(
-        "color: #8ea2ff; font-size: 10px; font-weight: 500;"
-        "letter-spacing: 2px; background: transparent;"));
-
-    QLabel* statusLine1 = new QLabel(QStringLiteral("Loading financial schemas..."), card_);
-    statusLine1->setGeometry(44, 340, 300, 14);
-    statusLine1->setStyleSheet(QStringLiteral(
-        "color: #708fcc; font-size: 10px; background: transparent;"));
-
-    QLabel* statusLine2 = new QLabel(QStringLiteral("Connecting SQL Server registers..."), card_);
-    statusLine2->setGeometry(44, 356, 300, 14);
-    statusLine2->setStyleSheet(QStringLiteral(
-        "color: #708fcc; font-size: 10px; background: transparent;"));
-
-    // Progress bar (right side)
-    QLabel* loadingLabel = new QLabel(QStringLiteral("INITIALIZING ASSETS"), card_);
-    loadingLabel->setGeometry(420, 320, 180, 16);
-    loadingLabel->setAlignment(Qt::AlignRight);
-    loadingLabel->setStyleSheet(QStringLiteral(
-        "color: #e6eeff; font-size: 10px; font-weight: 500;"
+    // Tagline
+    QLabel* tagline = new QLabel(QStringLiteral("Crafted by EKTHAR"), card_);
+    tagline->setGeometry(60, 254, 300, 16);
+    tagline->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.4); font-size: 10px;"
         "letter-spacing: 1px; background: transparent;"));
 
+    // --- Status section (bottom) ---
+    statusLabel_ = new QLabel(QStringLiteral("INITIALIZING RUNTIME"), card_);
+    statusLabel_->setGeometry(60, 330, 350, 16);
+    statusLabel_->setStyleSheet(QStringLiteral(
+        "color: #8ea2ff; font-size: 10px; font-weight: 600;"
+        "letter-spacing: 2px; background: transparent;"));
+
+    QLabel* statusLine1 = new QLabel(QStringLiteral("Connecting to SQL Server..."), card_);
+    statusLine1->setGeometry(60, 350, 350, 14);
+    statusLine1->setStyleSheet(QStringLiteral(
+        "color: rgba(255,255,255,0.35); font-size: 10px; background: transparent;"));
+
+    // Progress bar (full width, bottom)
     progress_ = new QProgressBar(card_);
-    progress_->setGeometry(380, 342, 200, 3);
+    progress_->setGeometry(60, 378, kSplashWidth - 120, 4);
     progress_->setRange(0, 100);
     progress_->setValue(0);
     progress_->setTextVisible(false);
     progress_->setStyleSheet(QStringLiteral(
-        "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 1px; }"
-        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #5b8cfa, stop:1 #8ea2ff); border-radius: 1px; }"));
+        "QProgressBar { background: rgba(255,255,255,0.08); border: none; border-radius: 2px; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+        " stop:0 #5b8cfa, stop:0.5 #8b5cf6, stop:1 #38bdf8); border-radius: 2px; }"));
 
-    // Version tag (bottom-right, rotated)
-    QLabel* version = new QLabel(QStringLiteral("STABLE_BUILD_v1.0.0_NATIVE"), card_);
-    version->setGeometry(kSplashWidth - 180, kSplashHeight - 30, 170, 14);
+    // Version (bottom-right)
+    QLabel* version = new QLabel(QStringLiteral("v2.0.0 \u2022 Aurora"), card_);
+    version->setGeometry(kSplashWidth - 180, kSplashHeight - 34, 160, 14);
     version->setAlignment(Qt::AlignRight);
     version->setStyleSheet(QStringLiteral(
-        "color: rgba(255,255,255,0.2); font-size: 9px; background: transparent;"));
+        "color: rgba(255,255,255,0.25); font-size: 10px; background: transparent;"));
 
     root->addWidget(card_);
 
-    // --- Window fade-in animation ---
+    // --- Window fade-in + scale animation ---
     setWindowOpacity(0.0);
     QPropertyAnimation* fadeIn = new QPropertyAnimation(this, "windowOpacity", this);
-    fadeIn->setDuration(500);
+    fadeIn->setDuration(600);
     fadeIn->setStartValue(0.0);
     fadeIn->setEndValue(1.0);
     fadeIn->setEasingCurve(QEasingCurve::OutCubic);
     fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
+
+    // Animate logo entrance (fade + slide up)
+    QGraphicsOpacityEffect* logoEffect = new QGraphicsOpacityEffect(logoLabel);
+    logoEffect->setOpacity(0.0);
+    logoLabel->setGraphicsEffect(logoEffect);
+    QPropertyAnimation* logoFade = new QPropertyAnimation(logoEffect, "opacity", this);
+    logoFade->setDuration(800);
+    logoFade->setStartValue(0.0);
+    logoFade->setEndValue(1.0);
+    logoFade->setEasingCurve(QEasingCurve::OutCubic);
+
+    QPropertyAnimation* logoSlide = new QPropertyAnimation(logoLabel, "geometry", this);
+    logoSlide->setDuration(800);
+    logoSlide->setStartValue(QRect(60, 110, 72, 72));
+    logoSlide->setEndValue(QRect(60, 90, 72, 72));
+    logoSlide->setEasingCurve(QEasingCurve::OutCubic);
+
+    QTimer::singleShot(200, this, [logoFade, logoSlide]() {
+        logoFade->start(QAbstractAnimation::DeleteWhenStopped);
+        logoSlide->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+
+    // Animate title entrance
+    QGraphicsOpacityEffect* titleEffect = new QGraphicsOpacityEffect(title);
+    titleEffect->setOpacity(0.0);
+    title->setGraphicsEffect(titleEffect);
+    QPropertyAnimation* titleFade = new QPropertyAnimation(titleEffect, "opacity", this);
+    titleFade->setDuration(700);
+    titleFade->setStartValue(0.0);
+    titleFade->setEndValue(1.0);
+    titleFade->setEasingCurve(QEasingCurve::OutCubic);
+    QTimer::singleShot(500, this, [titleFade]() {
+        titleFade->start(QAbstractAnimation::DeleteWhenStopped);
+    });
 }
 
-void SplashScreen::animateTileEntry(QWidget&, int, const QPoint&, const QPoint&) {
-    // Not used in cobalt design
-}
-
-void SplashScreen::animateFadeIn(QWidget&, int, int) {
-    // Not used in cobalt design
-}
-
-void SplashScreen::animateLogoPulse(QWidget&) {
-    // Not used in cobalt design
-}
-
-void SplashScreen::animateAuraPulse(QWidget&) {
-    // Not used in cobalt design
-}
+void SplashScreen::animateTileEntry(QWidget&, int, const QPoint&, const QPoint&) {}
+void SplashScreen::animateFadeIn(QWidget&, int, int) {}
+void SplashScreen::animateLogoPulse(QWidget&) {}
+void SplashScreen::animateAuraPulse(QWidget&) {}
 
 void SplashScreen::setProgress(int value, const QString& message) {
     if (progress_) {
@@ -231,9 +247,7 @@ void SplashScreen::runIndeterminate(int durationMs) {
     if (!tickTimer_) {
         tickTimer_ = new QTimer(this);
         connect(tickTimer_, &QTimer::timeout, this, [this]() {
-            if (!progress_) {
-                return;
-            }
+            if (!progress_) return;
             const int next = progress_->value() + 2;
             progress_->setValue(next);
             if (next >= tickTarget_) {
