@@ -24,14 +24,14 @@ QtObject {
     property color bg2: dark ? "#141b3a" : "#ffffff"   // raised
 
     property color surface: dark ? "#171f42" : "#ffffff"
-    property color glass: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(255/255,255/255,255/255,0.72)
-    property color glassStrong: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(1,1,1,0.92)
-    property color glassBorder: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(20/255,27/255,58/255,0.12)
-    property color glassBorderSoft: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(20/255,27/255,58/255,0.07)
+    property color glass: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(1,1,1,0.78)
+    property color glassStrong: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(1,1,1,0.95)
+    property color glassBorder: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(20/255,27/255,58/255,0.14)
+    property color glassBorderSoft: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(20/255,27/255,58/255,0.08)
 
-    property color text: dark ? "#eef2ff" : "#1d2440"
-    property color textDim: dark ? "#aab3d4" : "#566085"
-    property color textFaint: dark ? "#6f7aa3" : "#8b93ad"
+    property color text: dark ? "#eef2ff" : "#16203c"
+    property color textDim: dark ? "#aab3d4" : "#47506e"
+    property color textFaint: dark ? "#6f7aa3" : "#6b7494"
 
     property color accent: dark ? "#7c8cff" : "#5b63e6"        // indigo
     property color accent2: dark ? "#a78bfa" : "#8b5cf6"       // violet
