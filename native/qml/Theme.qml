@@ -19,15 +19,21 @@ QtObject {
 
     // ---- Palette (switches on `dark`) ------------------------------------
     // Dark = Aurora indigo night. Light = soft, low-glare off-white (easy on eyes).
-    property color bg0: dark ? "#0b1020" : "#eceef5"   // deepest backdrop
-    property color bg1: dark ? "#0f1530" : "#f2f4f9"   // base
-    property color bg2: dark ? "#141b3a" : "#ffffff"   // raised
+    property color bg0: dark ? "#0b1020" : "#e8ebf3"   // deepest backdrop
+    property color bg1: dark ? "#0f1530" : "#eef1f7"   // base
+    property color bg2: dark ? "#141b3a" : "#f4f6fb"   // raised
 
     property color surface: dark ? "#171f42" : "#ffffff"
-    property color glass: dark ? Qt.rgba(1,1,1,0.06) : Qt.rgba(1,1,1,0.78)
-    property color glassStrong: dark ? Qt.rgba(1,1,1,0.10) : Qt.rgba(1,1,1,0.95)
-    property color glassBorder: dark ? Qt.rgba(1,1,1,0.14) : Qt.rgba(20/255,27/255,58/255,0.14)
-    property color glassBorderSoft: dark ? Qt.rgba(1,1,1,0.08) : Qt.rgba(20/255,27/255,58/255,0.08)
+    // Light mode panels are (near) opaque so the aurora gradient/blobs don't
+    // bleed through and grey them out. Dark mode stays translucent for glass.
+    property color glass: dark ? Qt.rgba(1,1,1,0.06) : "#ffffff"
+    property color glassStrong: dark ? Qt.rgba(1,1,1,0.10) : "#eef1f8"
+    property color glassBorder: dark ? Qt.rgba(1,1,1,0.14) : "#d4d9e6"
+    property color glassBorderSoft: dark ? Qt.rgba(1,1,1,0.08) : "#e6e9f2"
+    // Subtle row-stripe + grid line tints that read correctly in both themes
+    property color rowAlt: dark ? Qt.rgba(1,1,1,0.025) : Qt.rgba(20/255,27/255,58/255,0.025)
+    property color rowHover: dark ? Qt.rgba(1,1,1,0.07) : Qt.rgba(91/255,99/255,230/255,0.08)
+    property color gridLine: dark ? Qt.rgba(1,1,1,0.04) : Qt.rgba(20/255,27/255,58/255,0.06)
 
     property color text: dark ? "#eef2ff" : "#16203c"
     property color textDim: dark ? "#aab3d4" : "#47506e"
