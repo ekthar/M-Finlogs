@@ -18,6 +18,9 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     PrintSupport
     HttpServer
     Svg
+    Qml
+    Quick
+    QuickControls2
 )
 
 qt_standard_project_setup()
@@ -34,6 +37,10 @@ set(MFINLOGS_NATIVE_SOURCES
     src/app/ApplicationMode.h
     src/app/DesktopApplication.h
     src/app/DesktopApplication.cpp
+    src/app/QmlApplication.h
+    src/app/QmlApplication.cpp
+    src/app/QmlBackend.h
+    src/app/QmlBackend.cpp
     src/app/SplashScreen.h
     src/app/SplashScreen.cpp
     src/app/ServerApplication.h
@@ -56,6 +63,53 @@ set(MFINLOGS_NATIVE_SOURCES
 qt_add_executable(mfinlogs-native
     WIN32
     ${MFINLOGS_NATIVE_SOURCES}
+)
+
+# --- Qt Quick (QML) presentation layer ------------------------------------
+# The premium "Aurora" desktop UI is implemented in QML and compiled into the
+# binary as a Qt Quick module. The C++ service backend is reused unchanged.
+qt_policy(SET QTP0001 NEW)
+
+# Theme.qml is a global design-token singleton.
+set_source_files_properties(qml/Theme.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
+qt_add_qml_module(mfinlogs-native
+    URI MFinlogs
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    QML_FILES
+        qml/Main.qml
+        qml/Theme.qml
+        qml/AuroraBackground.qml
+        qml/GlassPanel.qml
+        qml/PrimaryButton.qml
+        qml/GhostButton.qml
+        qml/FieldInput.qml
+        qml/FieldCombo.qml
+        qml/DatePickerField.qml
+        qml/MetricCard.qml
+        qml/NavButton.qml
+        qml/SectionHeader.qml
+        qml/StatusPill.qml
+        qml/ToastHost.qml
+        qml/DataTable.qml
+        qml/Sparkline.qml
+        qml/LoginView.qml
+        qml/AppShell.qml
+        qml/pages/DashboardPage.qml
+        qml/pages/DailyEntryPage.qml
+        qml/pages/PartiesPage.qml
+        qml/pages/LedgerPage.qml
+        qml/pages/DayBookPage.qml
+        qml/pages/DailySummaryPage.qml
+        qml/pages/OutstandingPage.qml
+        qml/pages/TrialBalancePage.qml
+        qml/pages/ProfitLossPage.qml
+        qml/pages/AuditPage.qml
+        qml/pages/SettingsPage.qml
+        qml/pages/PlaceholderPage.qml
 )
 
 # Compile the Qt resource (icons) explicitly into the target
@@ -101,6 +155,9 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::PrintSupport
     Qt6::HttpServer
     Qt6::Svg
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
 )
 
 if(WIN32)

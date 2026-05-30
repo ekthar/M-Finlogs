@@ -1,0 +1,100 @@
+#pragma once
+
+#include "app/AppContext.h"
+
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QVariant>
+#include <QVariantList>
+#include <QVariantMap>
+
+namespace mfinlogs::app {
+
+// QmlBackend is the single bridge object exposed to the QML "Aurora" UI.
+//
+// It wraps the existing domain::ServiceRegistry (auth, transactions, parties,
+// reports, audit, ...) and converts QJson* payloads into QVariant structures
+// that QML can bind to directly. Every call that can throw is wrapped so the
+// UI receives a structured { ok, error, ... } result instead of crashing.
+class QmlBackend final : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(bool authenticated READ authenticated NOTIFY authChanged)
+    Q_PROPERTY(QString currentUser READ currentUser NOTIFY authChanged)
+    Q_PROPERTY(QString currentRole READ currentRole NOTIFY authChanged)
+    Q_PROPERTY(bool isAdmin READ isAdmin NOTIFY authChanged)
+    Q_PROPERTY(QString companyName READ companyName NOTIFY authChanged)
+    Q_PROPERTY(bool setupRequired READ setupRequired NOTIFY setupChanged)
+
+public:
+    explicit QmlBackend(AppContext& context, QObject* parent = nullptr);
+
+    bool authenticated() const { return authenticated_; }
+    QString currentUser() const { return currentUser_; }
+    QString currentRole() const { return currentRole_; }
+    bool isAdmin() const { return currentRole_ == QStringLiteral("admin"); }
+    QString companyName() const { return companyName_; }
+    bool setupRequired() const;
+
+    // --- Auth & session ---------------------------------------------------
+    Q_INVOKABLE QVariantMap login(const QString& username, const QString& password);
+    Q_INVOKABLE QVariantMap setupAdmin(const QString& username, const QString& password);
+    Q_INVOKABLE void logout();
+    Q_INVOKABLE QVariantList companies();
+
+    // --- Dashboard --------------------------------------------------------
+    Q_INVOKABLE QVariantMap dashboard();
+    Q_INVOKABLE QVariantList salesTrend(int days);
+
+    // --- Transactions / Daily entry --------------------------------------
+    Q_INVOKABLE QVariantList transactions(int page, int limit, int days);
+    Q_INVOKABLE QVariantMap addTransaction(const QString& dateIso,
+                                           const QString& billNo,
+                                           const QString& party,
+                                           const QString& type,
+                                           const QString& mode,
+                                           double amount);
+    Q_INVOKABLE QVariantMap editTransaction(int id, const QString& field, const QString& newValue);
+    Q_INVOKABLE QVariantMap deleteTransaction(int id);
+    Q_INVOKABLE QString nextBillNumber(const QString& billNo);
+
+    // --- Parties ----------------------------------------------------------
+    Q_INVOKABLE QVariantList parties();
+    Q_INVOKABLE QStringList partyNames();
+    Q_INVOKABLE QVariantMap createParty(const QString& name, const QString& type, bool creditAllowed);
+    Q_INVOKABLE QVariantMap renameParty(const QString& oldName, const QString& newName);
+
+    // --- Reports ----------------------------------------------------------
+    Q_INVOKABLE QVariantMap ledger(const QString& party, const QString& startIso, const QString& endIso);
+    Q_INVOKABLE QVariantList dayBook(const QString& dateIso);
+    Q_INVOKABLE QVariantList dailySummary(const QString& startIso, const QString& endIso);
+    Q_INVOKABLE QVariantMap outstanding();
+    Q_INVOKABLE QVariantList trialBalance();
+    Q_INVOKABLE QVariantMap profitAndLoss();
+    Q_INVOKABLE QVariantMap saveCashInHand(const QString& dateIso, double amount);
+    Q_INVOKABLE double openingCashSeed();
+    Q_INVOKABLE QVariantMap saveOpeningCashSeed(double amount);
+
+    // --- Audit ------------------------------------------------------------
+    Q_INVOKABLE QVariantList auditLogs();
+
+    // --- Formatting helpers (used widely by QML) --------------------------
+    Q_INVOKABLE QString formatMoney(double value) const;
+    Q_INVOKABLE QString formatDate(const QString& iso) const;
+    Q_INVOKABLE QString todayIso() const;
+
+signals:
+    void authChanged();
+    void setupChanged();
+    void dataChanged();
+    void toast(const QString& message, const QString& kind);
+
+private:
+    AppContext& context_;
+    bool authenticated_ = false;
+    QString currentUser_;
+    QString currentRole_;
+    QString companyName_;
+};
+
+} // namespace mfinlogs::app
