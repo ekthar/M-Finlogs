@@ -33,6 +33,7 @@ Item {
             model: root.options
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsBody
+            activeFocusOnTab: true
 
             background: Rectangle {
                 radius: Theme.rMd

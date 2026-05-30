@@ -73,6 +73,23 @@ Item {
         }
     }
 
+    // Keyboard accessible: focusable + Enter/Space activates
+    activeFocusOnTab: true
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
+    Keys.onSpacePressed: root.clicked()
+
+    // Focus ring
+    Rectangle {
+        anchors.fill: bg
+        radius: bg.radius
+        color: "transparent"
+        border.width: root.activeFocus ? 1.5 : 0
+        border.color: Theme.accent
+        opacity: root.activeFocus ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
+    }
+
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
     TapHandler { onTapped: root.clicked() }
 }
