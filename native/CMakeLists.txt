@@ -107,6 +107,7 @@ qt_add_qml_module(mfinlogs-native
         qml/pages/OutstandingPage.qml
         qml/pages/TrialBalancePage.qml
         qml/pages/ProfitLossPage.qml
+        qml/pages/InventoryPage.qml
         qml/pages/AuditPage.qml
         qml/pages/SettingsPage.qml
         qml/pages/PlaceholderPage.qml
