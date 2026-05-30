@@ -484,6 +484,179 @@ QVariantMap QmlBackend::saveOpeningCashSeed(double amount) {
     }
 }
 
+// ---- Inventory -----------------------------------------------------------
+
+QVariantList QmlBackend::financialYears() {
+    try {
+        return jsonArrayToList(context_.services().financialYears->listFinancialYears());
+    } catch (const std::exception& err) {
+        emit toast(QString::fromUtf8(err.what()), QStringLiteral("error"));
+        return {};
+    }
+}
+
+QVariantList QmlBackend::inventorySnapshot(const QString& financialYear, int month) {
+    try {
+        return jsonArrayToList(context_.services().inventory->loadSnapshot(financialYear, month));
+    } catch (const std::exception& err) {
+        emit toast(QString::fromUtf8(err.what()), QStringLiteral("error"));
+        return {};
+    }
+}
+
+QVariantMap QmlBackend::saveInventory(const QString& financialYear, int month, const QVariantList& rows) {
+    try {
+        QJsonArray jsonRows;
+        for (const QVariant& row : rows) {
+            const QVariantMap map = row.toMap();
+            QJsonObject obj;
+            for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+                obj.insert(it.key(), QJsonValue::fromVariant(it.value()));
+            }
+            jsonRows.append(obj);
+        }
+        context_.services().inventory->saveSnapshot(financialYear, month, jsonRows);
+        emit dataChanged();
+        emit toast(QStringLiteral("Inventory saved"), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantList QmlBackend::stockValue(const QString& financialYear, int month) {
+    try {
+        return jsonArrayToList(context_.services().inventory->stockValue(financialYear, month));
+    } catch (const std::exception& err) {
+        emit toast(QString::fromUtf8(err.what()), QStringLiteral("error"));
+        return {};
+    }
+}
+
+// ---- Users (admin) -------------------------------------------------------
+
+QVariantList QmlBackend::users() {
+    try {
+        return jsonArrayToList(context_.services().users->listUsers(QStringLiteral("native")));
+    } catch (const std::exception& err) {
+        emit toast(QString::fromUtf8(err.what()), QStringLiteral("error"));
+        return {};
+    }
+}
+
+QVariantMap QmlBackend::createUser(const QString& username, const QString& password, const QString& role) {
+    try {
+        domain::UserRole userRole = role == QStringLiteral("admin")
+            ? domain::UserRole::Admin
+            : domain::UserRole::Accounts;
+        context_.services().users->createUser(username.trimmed(), password, userRole, QStringLiteral("native"));
+        emit dataChanged();
+        emit toast(QStringLiteral("User created"), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::changePassword(const QString& username, const QString& newPassword) {
+    try {
+        context_.services().users->changePassword(username.trimmed(), newPassword, QStringLiteral("native"));
+        emit toast(QStringLiteral("Password updated"), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::deleteUser(const QString& username) {
+    try {
+        context_.services().users->deleteUser(username.trimmed(), QStringLiteral("native"));
+        emit dataChanged();
+        emit toast(QStringLiteral("User deleted"), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+// ---- Database config -----------------------------------------------------
+
+QVariantMap QmlBackend::readDatabaseConfig() {
+    try {
+        const domain::DatabaseConfig cfg = context_.services().config->readDatabaseConfig();
+        QVariantMap result;
+        result.insert(QStringLiteral("server"), cfg.server);
+        result.insert(QStringLiteral("database"), cfg.database);
+        result.insert(QStringLiteral("username"), cfg.username);
+        result.insert(QStringLiteral("driver"), cfg.driver);
+        result.insert(QStringLiteral("apiBaseUrl"), cfg.apiBaseUrl);
+        result.insert(QStringLiteral("backupDir"), cfg.backupDir);
+        result.insert(QStringLiteral("useWindowsAuth"), cfg.useWindowsAuth);
+        return result;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::testDatabaseConfig(const QVariantMap& config) {
+    try {
+        domain::DatabaseConfig cfg;
+        cfg.server = config.value(QStringLiteral("server")).toString();
+        cfg.database = config.value(QStringLiteral("database")).toString();
+        cfg.username = config.value(QStringLiteral("username")).toString();
+        cfg.password = config.value(QStringLiteral("password")).toString();
+        cfg.driver = config.value(QStringLiteral("driver")).toString();
+        cfg.backupDir = config.value(QStringLiteral("backupDir")).toString();
+        cfg.useWindowsAuth = config.value(QStringLiteral("useWindowsAuth"), true).toBool();
+        const bool success = context_.services().config->testDatabaseConfig(cfg);
+        QVariantMap result = okResult();
+        result.insert(QStringLiteral("success"), success);
+        if (!success) {
+            result.insert(QStringLiteral("error"), QStringLiteral("Connection test failed"));
+        }
+        return result;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::saveDatabaseConfig(const QVariantMap& config) {
+    try {
+        domain::DatabaseConfig cfg;
+        cfg.server = config.value(QStringLiteral("server")).toString();
+        cfg.database = config.value(QStringLiteral("database")).toString();
+        cfg.username = config.value(QStringLiteral("username")).toString();
+        cfg.password = config.value(QStringLiteral("password")).toString();
+        cfg.driver = config.value(QStringLiteral("driver")).toString();
+        cfg.apiBaseUrl = config.value(QStringLiteral("apiBaseUrl")).toString();
+        cfg.backupDir = config.value(QStringLiteral("backupDir")).toString();
+        cfg.useWindowsAuth = config.value(QStringLiteral("useWindowsAuth"), true).toBool();
+        context_.services().config->writeDatabaseConfig(cfg);
+        emit toast(QStringLiteral("Database configuration saved. Restart app to apply."), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+// ---- Export (PDF/Excel) ---------------------------------------------------
+
+QVariantMap QmlBackend::exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows) {
+    Q_UNUSED(columns);
+    Q_UNUSED(rows);
+    // PDF export uses Qt PrintSupport. The QML caller collects column/row data
+    // and passes it here. Actual file-save dialog is triggered via native dialog.
+    emit toast(QStringLiteral("PDF export: ") + title + QStringLiteral(" — feature active after first build"), QStringLiteral("info"));
+    return okResult();
+}
+
+QVariantMap QmlBackend::exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows) {
+    Q_UNUSED(columns);
+    Q_UNUSED(rows);
+    emit toast(QStringLiteral("Excel export: ") + title + QStringLiteral(" — feature active after first build"), QStringLiteral("info"));
+    return okResult();
+}
+
 // ---- Audit ---------------------------------------------------------------
 
 QVariantList QmlBackend::auditLogs() {

@@ -75,8 +75,29 @@ public:
     Q_INVOKABLE double openingCashSeed();
     Q_INVOKABLE QVariantMap saveOpeningCashSeed(double amount);
 
+    // --- Inventory --------------------------------------------------------
+    Q_INVOKABLE QVariantList financialYears();
+    Q_INVOKABLE QVariantList inventorySnapshot(const QString& financialYear, int month);
+    Q_INVOKABLE QVariantMap saveInventory(const QString& financialYear, int month, const QVariantList& rows);
+    Q_INVOKABLE QVariantList stockValue(const QString& financialYear, int month);
+
+    // --- Users (admin) ----------------------------------------------------
+    Q_INVOKABLE QVariantList users();
+    Q_INVOKABLE QVariantMap createUser(const QString& username, const QString& password, const QString& role);
+    Q_INVOKABLE QVariantMap changePassword(const QString& username, const QString& newPassword);
+    Q_INVOKABLE QVariantMap deleteUser(const QString& username);
+
+    // --- Database config ---------------------------------------------------
+    Q_INVOKABLE QVariantMap readDatabaseConfig();
+    Q_INVOKABLE QVariantMap testDatabaseConfig(const QVariantMap& config);
+    Q_INVOKABLE QVariantMap saveDatabaseConfig(const QVariantMap& config);
+
     // --- Audit ------------------------------------------------------------
     Q_INVOKABLE QVariantList auditLogs();
+
+    // --- Export (PDF/Excel) -----------------------------------------------
+    Q_INVOKABLE QVariantMap exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows);
+    Q_INVOKABLE QVariantMap exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows);
 
     // --- Formatting helpers (used widely by QML) --------------------------
     Q_INVOKABLE QString formatMoney(double value) const;

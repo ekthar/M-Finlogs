@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Controls.Basic
 import MFinlogs
 
 Item {
@@ -7,23 +8,21 @@ Item {
 
     property bool setupMode: backend.setupRequired
     property bool busy: false
+    property bool showDbConfig: false
 
     // Center the glass auth card
     GlassPanel {
         id: card
         width: 420
         anchors.centerIn: parent
+        visible: !root.showDbConfig
         height: cardCol.implicitHeight + Theme.s10
         fillColor: Theme.glassStrong
         radius: Theme.rXl
 
-        // Entrance (opacity + scale; anchors keep it centered)
         opacity: 0
         scale: 0.96
-        Component.onCompleted: {
-            opacity = 1
-            scale = 1
-        }
+        Component.onCompleted: { opacity = 1; scale = 1 }
         Behavior on opacity { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeOut } }
         Behavior on scale { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeSpring } }
 
@@ -45,8 +44,6 @@ Item {
                     GradientStop { position: 1.0; color: Theme.grad1 }
                 }
                 Text { anchors.centerIn: parent; text: "M"; color: "#fff"; font.pixelSize: 28; font.weight: Font.Bold; font.family: Theme.fontFamily }
-
-                // Soft pulsing glow
                 SequentialAnimation on scale {
                     loops: Animation.Infinite
                     NumberAnimation { to: 1.05; duration: 1600; easing.type: Easing.InOutSine }
@@ -109,7 +106,22 @@ Item {
                 onClicked: root.submit()
             }
 
-            // Shake animation on error
+            // DB Config link
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.s2
+                text: "\u2699 Configure Database"
+                color: Theme.accent
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsTiny
+                font.weight: Font.DemiBold
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.showDbConfig = true
+                }
+            }
+
             SequentialAnimation {
                 id: shake
                 loops: 3
@@ -117,6 +129,166 @@ Item {
                 NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 6; duration: 50 }
                 NumberAnimation { target: card; property: "anchors.horizontalCenterOffset"; to: 0; duration: 50 }
             }
+        }
+    }
+
+    // ===================== DATABASE CONFIG DIALOG =========================
+    GlassPanel {
+        id: dbCard
+        width: 500
+        anchors.centerIn: parent
+        visible: root.showDbConfig
+        height: dbCol.implicitHeight + Theme.s10
+        fillColor: Theme.glassStrong
+        radius: Theme.rXl
+
+        ColumnLayout {
+            id: dbCol
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: Theme.s8
+            spacing: Theme.s3
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: "Database Configuration"
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsTitle
+                font.weight: Font.Bold
+            }
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.bottomMargin: Theme.s2
+                text: "Configure SQL Server connection"
+                color: Theme.textDim
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsSmall
+            }
+
+            FieldInput {
+                id: dbServer
+                Layout.fillWidth: true
+                label: "SQL Server Instance"
+                placeholder: "localhost or SERVERNAME\\SQLEXPRESS"
+                showCompletions: false
+            }
+            FieldInput {
+                id: dbName
+                Layout.fillWidth: true
+                label: "Database Name"
+                placeholder: "M_Finlogs_Accounts"
+                showCompletions: false
+            }
+            FieldCombo {
+                id: dbAuthType
+                Layout.fillWidth: true
+                label: "Authentication"
+                options: ["Windows Authentication", "SQL Server Authentication"]
+            }
+            FieldInput {
+                id: dbUsername
+                Layout.fillWidth: true
+                label: "SQL Username"
+                placeholder: "sa"
+                visible: dbAuthType.currentIndex === 1
+                showCompletions: false
+            }
+            FieldInput {
+                id: dbPassword
+                Layout.fillWidth: true
+                label: "SQL Password"
+                placeholder: "Password"
+                echoMode: TextInput.Password
+                visible: dbAuthType.currentIndex === 1
+                showCompletions: false
+            }
+            FieldInput {
+                id: dbBackupDir
+                Layout.fillWidth: true
+                label: "Backup Folder (UNC path)"
+                placeholder: "\\\\SERVER\\Backups"
+                showCompletions: false
+            }
+
+            Text {
+                id: dbStatus
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: ""
+                color: Theme.accent
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsTiny
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "Test Connection"
+                    from: Theme.success
+                    to: "#059669"
+                    onClicked: {
+                        dbStatus.text = "Testing..."
+                        dbStatus.color = Theme.warning
+                        var cfg = root.buildDbConfig()
+                        var res = backend.testDatabaseConfig(cfg)
+                        if (res && res.success === true) {
+                            dbStatus.text = "\u2713 Connection successful!"
+                            dbStatus.color = Theme.success
+                        } else {
+                            dbStatus.text = "\u2717 " + (res.error || "Connection failed")
+                            dbStatus.color = Theme.danger
+                        }
+                    }
+                }
+                PrimaryButton {
+                    Layout.fillWidth: true
+                    text: "Save & Apply"
+                    onClicked: {
+                        var cfg = root.buildDbConfig()
+                        var res = backend.saveDatabaseConfig(cfg)
+                        if (res && res.ok === true) {
+                            dbStatus.text = "\u2713 Saved! Restart app to apply."
+                            dbStatus.color = Theme.success
+                        } else {
+                            dbStatus.text = "\u2717 " + (res.error || "Save failed")
+                            dbStatus.color = Theme.danger
+                        }
+                    }
+                }
+            }
+            GhostButton {
+                Layout.fillWidth: true
+                text: "\u2190 Back to Login"
+                onClicked: root.showDbConfig = false
+            }
+        }
+
+        Component.onCompleted: {
+            var cfg = backend.readDatabaseConfig()
+            if (cfg && !cfg.error) {
+                dbServer.text = cfg.server || ""
+                dbName.text = cfg.database || ""
+                dbAuthType.currentIndex = cfg.useWindowsAuth === false ? 1 : 0
+                dbUsername.text = cfg.username || ""
+                dbBackupDir.text = cfg.backupDir || ""
+            }
+        }
+    }
+
+    function buildDbConfig() {
+        return {
+            server: dbServer.text,
+            database: dbName.text,
+            useWindowsAuth: dbAuthType.currentIndex === 0,
+            username: dbUsername.text,
+            password: dbPassword.text,
+            backupDir: dbBackupDir.text,
+            driver: ""
         }
     }
 
