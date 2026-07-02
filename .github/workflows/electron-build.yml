@@ -1,0 +1,121 @@
+name: Electron App Build (C)
+
+on:
+  push:
+    branches:
+      - C
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - C
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    name: Build Electron Installer (Windows)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Preflight checks
+        run: npm run preflight:build
+
+      - name: Build backend.exe with PyInstaller
+        run: npm run build:backend
+
+      - name: Verify backend.exe exists
+        run: |
+          if (-not (Test-Path "dist\backend.exe")) {
+            Write-Error "backend.exe not found after PyInstaller build (npm run build:backend)"
+            exit 1
+          }
+          Write-Host "backend.exe size: $([math]::Round((Get-Item 'dist\backend.exe').Length / 1MB, 2)) MB"
+
+      - name: Package Electron desktop app
+        run: npm run dist
+        env:
+          # No publish credentials on purpose: this workflow only builds and
+          # uploads artifacts, it never publishes/releases automatically.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: List build output
+        run: |
+          Write-Host "=== release/desktop-app-build ==="
+          Get-ChildItem -Path "release\desktop-app-build" -Recurse -Include "*.exe","*.msi","*.yml" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "$($_.FullName) ($([math]::Round($_.Length / 1MB, 2)) MB)"
+          }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: M-Finlogs-Installer-C
+          path: |
+            release/desktop-app-build/*.exe
+          if-no-files-found: warn
+
+      - name: Upload unpacked app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: M-Finlogs-Unpacked-C
+          path: |
+            release/desktop-app-build/win-unpacked/**
+          if-no-files-found: warn
+
+      - name: Upload backend.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: M-Finlogs-backend-exe
+          path: dist/backend.exe
+          if-no-files-found: warn
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: M-Finlogs-Installer-C
+          path: release-assets
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
