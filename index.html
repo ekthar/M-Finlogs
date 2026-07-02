@@ -19,7 +19,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <!-- XLSX (SheetJS) is lazy-loaded on first use via ensureXlsxLoaded() in renderer.js -->
 </head>
 
 <body>
@@ -68,6 +68,42 @@
         </div>
     </div>
 
+    <!-- App Mode (Server / Client) First-Run Setup Modal -->
+    <div id="appModeModal" class="login-background" style="display: none; z-index: 10002;">
+        <div class="login-glass-card" style="max-width: 640px; width: min(640px, 95vw);">
+            <div class="login-hero">
+                <img src="assets/finlogs.svg" alt="Finlogs">
+            </div>
+            <div class="login-brand">M-Finlogs</div>
+            <h2 class="login-title">How is this computer being used?</h2>
+            <p class="login-subtitle">This choice can be changed later from Database Configuration.</p>
+
+            <div style="display:flex; gap: 14px; margin: 18px 0;">
+                <div id="appModeCardServer" class="login-glass-card app-mode-card" style="flex:1; margin:0; padding: 18px; cursor:pointer;" onclick="selectAppMode('server')">
+                    <ion-icon name="server-outline" style="font-size:28px;"></ion-icon>
+                    <h3 style="margin: 10px 0 6px;">Server</h3>
+                    <p style="margin:0; font-size:13px; color: var(--text-secondary);">This computer hosts SQL Server and serves other machines on the network.</p>
+                </div>
+                <div id="appModeCardClient" class="login-glass-card app-mode-card" style="flex:1; margin:0; padding: 18px; cursor:pointer;" onclick="selectAppMode('client')">
+                    <ion-icon name="desktop-outline" style="font-size:28px;"></ion-icon>
+                    <h3 style="margin: 10px 0 6px;">Client</h3>
+                    <p style="margin:0; font-size:13px; color: var(--text-secondary);">This computer connects to another machine's server over the network.</p>
+                </div>
+            </div>
+
+            <div id="appModeServerUrlGroup" class="input-group" style="display:none;">
+                <label>Server Address</label>
+                <div class="login-field">
+                    <ion-icon name="globe-outline"></ion-icon>
+                    <input type="text" id="appModeServerUrl" class="login-input" placeholder="http://SERVER_IP:8000">
+                </div>
+            </div>
+
+            <button id="appModeContinueBtn" onclick="saveAppModeSelection()" class="login-btn" disabled>Continue</button>
+            <p id="appModeError" class="error-msg"></p>
+        </div>
+    </div>
+
     <!-- Database Configuration Modal -->
     <div id="dbConfigModal" class="login-background" style="display: none; z-index: 10001;">
         <div class="login-glass-card" style="max-width: 980px; width: min(980px, 95vw);">
@@ -77,45 +113,47 @@
             <div class="db-config-layout">
                 <div class="db-config-left">
                     <div class="input-group">
-                        <label>SQL Server Instance</label>
-                        <input type="text" id="cfgServer" class="login-input" placeholder="e.g., localhost or SERVERNAME">
-                        <small style="color: var(--text-secondary); font-size: 11px;">Use 'localhost' for default instance, 'localhost\SQLEXPRESS' for named instance</small>
-                    </div>
-
-                    <div class="input-group">
                         <label>API Server URL</label>
                         <input type="text" id="cfgApiBase" class="login-input" placeholder="http://SERVER_IP:8000">
                         <small style="color: var(--text-secondary); font-size: 11px;">Clients connect to this backend URL.</small>
                     </div>
 
-                    <div class="input-group">
-                        <label>Database Name</label>
-                        <input type="text" id="cfgDatabase" class="login-input" placeholder="e.g., M_Finlogs_Accounts">
-                    </div>
-
-                    <div class="input-group">
-                        <label>Authentication Type</label>
-                        <select id="cfgAuthType" class="login-input" onchange="toggleSqlAuth()">
-                            <option value="windows">Windows Authentication</option>
-                            <option value="sql">SQL Server Authentication</option>
-                        </select>
-                    </div>
-
-                    <div id="sqlAuthFields" style="display: none;">
+                    <div id="sqlConfigFields">
                         <div class="input-group">
-                            <label>SQL Username</label>
-                            <input type="text" id="cfgUsername" class="login-input" placeholder="SQL Server username">
+                            <label>SQL Server Instance</label>
+                            <input type="text" id="cfgServer" class="login-input" placeholder="e.g., localhost or SERVERNAME">
+                            <small style="color: var(--text-secondary); font-size: 11px;">Use 'localhost' for default instance, 'localhost\SQLEXPRESS' for named instance</small>
                         </div>
-                        <div class="input-group">
-                            <label>SQL Password</label>
-                            <input type="password" id="cfgPassword" class="login-input" placeholder="SQL Server password">
-                        </div>
-                    </div>
 
-                    <div class="input-group">
-                        <label>Backup Target Folder (UNC share)</label>
-                        <input type="text" id="cfgBackupDir" class="login-input" placeholder="\\LAPTOP\M-FinlogsBackups">
-                        <small style="color: var(--text-secondary); font-size: 11px;">SQL Server must have write access to this shared folder.</small>
+                        <div class="input-group">
+                            <label>Database Name</label>
+                            <input type="text" id="cfgDatabase" class="login-input" placeholder="e.g., M_Finlogs_Accounts">
+                        </div>
+
+                        <div class="input-group">
+                            <label>Authentication Type</label>
+                            <select id="cfgAuthType" class="login-input" onchange="toggleSqlAuth()">
+                                <option value="windows">Windows Authentication</option>
+                                <option value="sql">SQL Server Authentication</option>
+                            </select>
+                        </div>
+
+                        <div id="sqlAuthFields" style="display: none;">
+                            <div class="input-group">
+                                <label>SQL Username</label>
+                                <input type="text" id="cfgUsername" class="login-input" placeholder="SQL Server username">
+                            </div>
+                            <div class="input-group">
+                                <label>SQL Password</label>
+                                <input type="password" id="cfgPassword" class="login-input" placeholder="SQL Server password">
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <label>Backup Target Folder (UNC share)</label>
+                            <input type="text" id="cfgBackupDir" class="login-input" placeholder="\\LAPTOP\M-FinlogsBackups">
+                            <small style="color: var(--text-secondary); font-size: 11px;">SQL Server must have write access to this shared folder.</small>
+                        </div>
                     </div>
 
                     <div style="display: flex; gap: 10px;">

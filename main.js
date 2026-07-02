@@ -35,6 +35,23 @@ function wireAutoUpdaterEvents() {
 let mainWindow;
 let splashWindow;
 let backendProcess = null;
+let isQuitting = false;
+let backendRestartAttempted = false;
+
+function writeCrashLog(prefix, detail) {
+    try {
+        const logPath = path.join(app.getPath('userData'), 'main-crash.log');
+        fs.appendFileSync(logPath, `\n[${new Date().toISOString()}] ${prefix}: ${detail}\n`);
+    } catch (_) {}
+}
+
+process.on('uncaughtException', (err) => {
+    writeCrashLog('uncaughtException', (err && err.stack) || err);
+});
+
+process.on('unhandledRejection', (reason) => {
+    writeCrashLog('unhandledRejection', reason);
+});
 
 function applyTitleBarTheme(theme) {
     if (!mainWindow || process.platform !== 'win32') return;
@@ -103,6 +120,14 @@ function createMainWindow() {
     });
 
     wireAutoUpdaterEvents();
+
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        writeCrashLog('render-process-gone', JSON.stringify(details));
+        if (isQuitting) return;
+        dialog.showErrorBox('M-Finlogs crashed', `The application window crashed (reason: ${details.reason}). It will now restart.`);
+        app.relaunch();
+        app.exit(0);
+    });
 
     mainWindow.once('ready-to-show', () => {
         setTimeout(() => {
@@ -211,12 +236,37 @@ function isLocalApiBase(apiBase) {
     }
 }
 
+function getAppModePath() {
+    return path.join(app.getPath('userData'), 'app_mode.json');
+}
+
+function getAppMode() {
+    try {
+        const modePath = getAppModePath();
+        if (!fs.existsSync(modePath)) return null;
+        const parsed = JSON.parse(fs.readFileSync(modePath, 'utf8') || '{}');
+        if (!parsed || (parsed.mode !== 'server' && parsed.mode !== 'client')) return null;
+        return parsed;
+    } catch (_e) {
+        return null;
+    }
+}
+
+function saveAppMode(modeData) {
+    fs.writeFileSync(getAppModePath(), JSON.stringify(modeData || {}, null, 2), 'utf8');
+}
+
 async function startBackend() {
     // Start backend in both dev and production mode
     const { spawn } = require('child_process');
 
     const userDataPath = app.getPath('userData');
     const clientConfig = readClientConfig(userDataPath);
+    const appMode = getAppMode();
+    if (appMode && appMode.mode === 'client') {
+        console.log('App mode is "client"; skipping local backend startup.');
+        return true;
+    }
     if (!isLocalApiBase(clientConfig.api_base)) {
         console.log(`Remote API configured (${clientConfig.api_base}); skipping local backend startup.`);
         return true;
@@ -275,15 +325,27 @@ async function startBackend() {
 
         backendProcess.stdout.on('data', (data) => logStream.write(data));
         backendProcess.stderr.on('data', (data) => logStream.write(data));
-        backendProcess.on('exit', (code) => logStream.write(`\n[${new Date().toISOString()}] Backend exit: ${code}\n`));
+        backendProcess.on('exit', (code) => {
+            logStream.write(`\n[${new Date().toISOString()}] Backend exit: ${code}\n`);
+            if (code !== 0 && !isQuitting && !backendRestartAttempted) {
+                backendRestartAttempted = true;
+                logStream.write(`\n[${new Date().toISOString()}] Backend exited unexpectedly, attempting one auto-restart in 2s...\n`);
+                setTimeout(() => {
+                    if (!isQuitting) startBackend();
+                }, 2000);
+            }
+        });
         return true;
     } else {
         // Development: start uvicorn server
-        console.log("Dev Mode: Starting uvicorn backend server...");
+        // Respect FINLOGS_HOST so dev mode behaves the same as the packaged
+        // backend.exe when binding for LAN access (e.g. server mode).
+        const bindHost = envVars.FINLOGS_HOST || '127.0.0.1';
+        console.log(`Dev Mode: Starting uvicorn backend server on ${bindHost}...`);
         backendProcess = spawn('python', [
             '-m', 'uvicorn', 
             'backend:app', 
-            '--host', '127.0.0.1', 
+            '--host', bindHost, 
             '--port', '8000'
         ], {
             cwd: __dirname,
@@ -324,6 +386,14 @@ app.whenReady().then(async () => {
     });
 }).catch((err) => {
     console.error('App startup error:', err);
+});
+
+app.on('before-quit', () => {
+    isQuitting = true;
+});
+
+app.on('child-process-gone', (event, details) => {
+    writeCrashLog('child-process-gone', JSON.stringify(details));
 });
 
 app.on('will-quit', () => {
@@ -402,6 +472,19 @@ ipcMain.handle('app:getVersion', async () => {
     return app.getVersion();
 });
 
+ipcMain.handle('app:getAppMode', async () => {
+    return getAppMode();
+});
+
+ipcMain.handle('app:saveAppMode', async (event, modeData) => {
+    try {
+        saveAppMode(modeData);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('update:check', async () => {
     try {
         if (!autoUpdaterRef) {
@@ -475,6 +558,7 @@ ipcMain.handle('folder:openAutoBackup', async () => {
 
 ipcMain.handle('server:restart', async () => {
     try {
+        backendRestartAttempted = false;
         killBackend();
         await new Promise((r) => setTimeout(r, 220));
         const started = await startBackend();

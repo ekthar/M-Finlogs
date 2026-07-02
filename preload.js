@@ -6,6 +6,8 @@ const ALLOWED_INVOKE_CHANNELS = new Set([
     'update:check',
     'update:restart',
     'app:getVersion',
+    'app:getAppMode',
+    'app:saveAppMode',
     'window:setTheme',
     'folder:openAutoBackup',
     'dialog:openBackup',
