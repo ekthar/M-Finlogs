@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M-Finlogs - Setup</title>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(900px 600px at 10% 10%, rgba(79, 70, 229, 0.18), transparent 60%),
+                radial-gradient(700px 520px at 90% 20%, rgba(16, 185, 129, 0.2), transparent 60%),
+                rgba(255, 255, 255, 0.6);
+            height: 100vh;
+            margin: 0;
+            flex-direction: column;
+            user-select: none;
+            overflow: hidden;
+            position: relative;
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+            font-family: 'Google Sans', 'Inter', sans-serif;
+        }
+
+        body::before,
+        body::after {
+            content: "";
+            position: absolute;
+            width: 420px;
+            height: 420px;
+            border-radius: 50%;
+            filter: blur(50px);
+            opacity: 0.35;
+            z-index: 0;
+            animation: floatBlob 10s ease-in-out infinite;
+        }
+
+        body::before {
+            background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.5), transparent 60%);
+            top: -120px;
+            left: -120px;
+        }
+
+        body::after {
+            background: radial-gradient(circle at 70% 70%, rgba(16, 185, 129, 0.5), transparent 60%);
+            bottom: -140px;
+            right: -140px;
+            animation-delay: 2s;
+        }
+
+        @keyframes floatBlob {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(16px, -10px) scale(1.05); }
+        }
+
+        .setup-container {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            max-width: 560px;
+            width: 90%;
+        }
+
+        .setup-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1F2937;
+            margin: 0 0 8px 0;
+            letter-spacing: -0.5px;
+        }
+
+        .setup-subtitle {
+            font-size: 14px;
+            color: #6B7280;
+            margin: 0 0 32px 0;
+        }
+
+        .mode-cards {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .mode-card {
+            background: rgba(255, 255, 255, 0.85);
+            border: 2px solid #E5E7EB;
+            border-radius: 16px;
+            padding: 28px 24px;
+            width: 220px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .mode-card:hover {
+            border-color: #4F46E5;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15);
+        }
+
+        .mode-card.selected {
+            border-color: #4F46E5;
+            background: rgba(79, 70, 229, 0.05);
+        }
+
+        .mode-card ion-icon {
+            font-size: 42px;
+            color: #4F46E5;
+            margin-bottom: 12px;
+        }
+
+        .mode-card h3 {
+            margin: 0 0 8px 0;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1F2937;
+        }
+
+        .mode-card p {
+            margin: 0;
+            font-size: 12px;
+            color: #6B7280;
+            line-height: 1.5;
+        }
+
+        .server-url-section {
+            display: none;
+            margin-top: 24px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .server-url-section.visible {
+            display: block;
+        }
+
+        .server-url-section input {
+            width: 100%;
+            max-width: 320px;
+            padding: 12px 16px;
+            border: 2px solid #E5E7EB;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: 'Google Sans', 'Inter', sans-serif;
+            outline: none;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+
+        .server-url-section input:focus {
+            border-color: #4F46E5;
+        }
+
+        .server-url-section label {
+            display: block;
+            font-size: 13px;
+            color: #6B7280;
+            margin-bottom: 8px;
+        }
+
+        .btn-continue {
+            margin-top: 28px;
+            padding: 12px 40px;
+            background: #4F46E5;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: 'Google Sans', 'Inter', sans-serif;
+        }
+
+        .btn-continue:hover {
+            background: #4338CA;
+            transform: translateY(-1px);
+        }
+
+        .btn-continue:disabled {
+            background: #9CA3AF;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .error-msg {
+            color: #EF4444;
+            font-size: 13px;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .error-msg.visible {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="setup-container">
+        <ion-icon name="stats-chart" style="font-size:48px; color:#4F46E5; margin-bottom:12px;"></ion-icon>
+        <h1 class="setup-title">M-Finlogs Setup</h1>
+        <p class="setup-subtitle">How will this computer be used?</p>
+
+        <div class="mode-cards">
+            <div class="mode-card" id="cardServer" onclick="selectMode('server')">
+                <ion-icon name="server-outline"></ion-icon>
+                <h3>Server</h3>
+                <p>This computer has SQL Server and will serve data to other machines on the network.</p>
+            </div>
+            <div class="mode-card" id="cardClient" onclick="selectMode('client')">
+                <ion-icon name="laptop-outline"></ion-icon>
+                <h3>Client</h3>
+                <p>This computer connects to another server on the network to access data.</p>
+            </div>
+        </div>
+
+        <div class="server-url-section" id="serverUrlSection">
+            <label for="serverUrl">Server Address (IP or hostname with port)</label>
+            <input type="text" id="serverUrl" placeholder="e.g. 192.168.1.100:8000" />
+        </div>
+
+        <p class="error-msg" id="errorMsg"></p>
+        <button class="btn-continue" id="btnContinue" onclick="saveSetup()" disabled>Continue</button>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        let selectedMode = null;
+
+        function selectMode(mode) {
+            selectedMode = mode;
+            document.getElementById('cardServer').classList.toggle('selected', mode === 'server');
+            document.getElementById('cardClient').classList.toggle('selected', mode === 'client');
+            document.getElementById('serverUrlSection').classList.toggle('visible', mode === 'client');
+            document.getElementById('btnContinue').disabled = false;
+            document.getElementById('errorMsg').classList.remove('visible');
+        }
+
+        function saveSetup() {
+            const errorEl = document.getElementById('errorMsg');
+            errorEl.classList.remove('visible');
+
+            if (!selectedMode) {
+                errorEl.textContent = 'Please select a mode.';
+                errorEl.classList.add('visible');
+                return;
+            }
+
+            let apiBase = 'http://127.0.0.1:8000';
+            if (selectedMode === 'client') {
+                const serverUrl = document.getElementById('serverUrl').value.trim();
+                if (!serverUrl) {
+                    errorEl.textContent = 'Please enter the server address.';
+                    errorEl.classList.add('visible');
+                    return;
+                }
+                // Normalize: add http:// if missing
+                if (/^https?:\/\//i.test(serverUrl)) {
+                    apiBase = serverUrl.replace(/\/$/, '');
+                } else {
+                    apiBase = 'http://' + serverUrl.replace(/\/$/, '');
+                }
+            }
+
+            ipcRenderer.invoke('app:saveAppMode', {
+                mode: selectedMode,
+                api_base: apiBase
+            }).then(() => {
+                ipcRenderer.invoke('app:setupComplete');
+            });
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('serverUrl').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') saveSetup();
+        });
+    </script>
+</body>
+
+</html>

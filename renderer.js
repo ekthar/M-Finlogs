@@ -1052,39 +1052,6 @@ window.onload = function () {
         document.documentElement.setAttribute('data-theme', 'dark');
         document.getElementById("darkModeToggle").checked = true;
     }
-    
-    // Failsafe: periodically check if modals are blocking the app
-    setInterval(() => {
-        if (sessionStorage.getItem('username')) {
-            const editModal = document.getElementById('editTxnModal');
-            const confirmModal = document.getElementById('confirmDeleteModal');
-            const appContent = document.getElementById('appContent');
-            
-            // If modals are not shown but somehow blocking
-            if (editModal) {
-                const computedDisplay = window.getComputedStyle(editModal).display;
-                if (computedDisplay !== 'flex' && computedDisplay !== 'block') {
-                    editModal.style.pointerEvents = 'none';
-                    editModal.style.visibility = 'hidden';
-                }
-            }
-            
-            if (confirmModal) {
-                const computedDisplay = window.getComputedStyle(confirmModal).display;
-                if (computedDisplay !== 'flex' && computedDisplay !== 'block') {
-                    confirmModal.style.pointerEvents = 'none';
-                    confirmModal.style.visibility = 'hidden';
-                }
-            }
-            
-            // Ensure app content is always interactive when logged in
-            if (appContent && window.getComputedStyle(appContent).pointerEvents === 'none') {
-                appContent.style.pointerEvents = 'auto';
-                appContent.style.filter = 'none';
-                console.warn('Failsafe: restored app interactivity');
-            }
-        }
-    }, 1000); // Check every second
 }
 
 // Other Reports (Keeping existing logic mostly same but adding Error Handling)
@@ -1659,9 +1626,19 @@ function checkAuth() {
 
 function startAutoBackup() {
     if (autoBackupTimer) return;
-    autoBackupTimer = setInterval(() => {
-        fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' });
-    }, 60 * 60 * 1000);
+    // Only run auto-backup in server mode
+    ipcRenderer.invoke('app:getAppMode').then((modeData) => {
+        if (modeData && modeData.mode === 'server') {
+            autoBackupTimer = setInterval(() => {
+                fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' });
+            }, 60 * 60 * 1000);
+        }
+    }).catch(() => {
+        // Fallback: start backup anyway if mode check fails (backward compat)
+        autoBackupTimer = setInterval(() => {
+            fetch('http://127.0.0.1:8000/backup/auto', { method: 'POST' });
+        }, 60 * 60 * 1000);
+    });
 }
 
 async function loadCompanies(retries = 5) {
@@ -2090,46 +2067,76 @@ async function saveDbConfig() {
     
     const server = document.getElementById('cfgServer').value.trim();
     const database = document.getElementById('cfgDatabase').value.trim();
-    
+    const authType = document.getElementById('cfgAuthType').value;
+    const username = document.getElementById('cfgUsername').value.trim();
+    const password = document.getElementById('cfgPassword').value;
+    const apiBaseInput = document.getElementById('cfgApiBase').value.trim();
+    const backupDir = document.getElementById('cfgBackupDir').value.trim();
+
+    status.textContent = 'Saving configuration...';
+    status.style.color = '#FFA500';
+
+    // Check app mode
+    let appMode = null;
+    try {
+        const modeData = await ipcRenderer.invoke('app:getAppMode');
+        appMode = modeData ? modeData.mode : null;
+    } catch (e) {
+        appMode = null;
+    }
+
+    // Always save api_base locally
+    const localConfig = {
+        api_base: apiBaseInput || apiBase,
+        server: server,
+        database: database,
+        auth_type: authType,
+        username: username,
+        password: password,
+        backup_dir: backupDir
+    };
+
+    try {
+        await saveClientConfig(localConfig);
+        if (localConfig.api_base) {
+            apiBase = normalizeApiBase(localConfig.api_base);
+        }
+    } catch (e) {
+        console.error('Failed to save client config:', e);
+    }
+
+    // Client mode: only save locally, do NOT post SQL config to server
+    if (appMode === 'client') {
+        status.textContent = '✓ Client configuration saved!';
+        status.style.color = '#4CAF50';
+        setTimeout(() => {
+            closeDbConfig();
+        }, 1500);
+        return;
+    }
+
+    // Server mode (or unknown): also POST config to the backend
     if (!server || !database) {
         status.textContent = '✗ Please enter server and database name';
         status.style.color = '#FF6B6B';
         return;
     }
-    
-    const authType = document.getElementById('cfgAuthType').value;
-    const username = document.getElementById('cfgUsername').value.trim();
-    const password = document.getElementById('cfgPassword').value;
-    
+
     if (authType === 'sql' && (!username || !password)) {
         status.textContent = '✗ Please enter SQL username and password';
         status.style.color = '#FF6B6B';
         return;
     }
-    
-    status.textContent = 'Saving configuration...';
-    status.style.color = '#FFA500';
-    
+
     const config = {
         server: server,
         database: database,
         auth_type: authType,
         username: username,
         password: password,
-        backup_dir: document.getElementById('cfgBackupDir').value.trim(),
-        api_base: document.getElementById('cfgApiBase').value.trim()
+        backup_dir: backupDir
     };
 
-    // Save client-side config first
-    try {
-        await saveClientConfig(config);
-        if (config.api_base) {
-            apiBase = normalizeApiBase(config.api_base);
-        }
-    } catch (e) {
-        console.error('Failed to save client config:', e);
-    }
-    
     try {
         const res = await fetch('http://127.0.0.1:8000/config/database', {
             method: 'POST',
@@ -2150,27 +2157,15 @@ async function saveDbConfig() {
             status.style.color = '#FF6B6B';
         }
     } catch (e) {
-        // Backend not available - use Node.js fs to write config directly
-        console.log('Backend not available, using direct file write');
-        status.textContent = 'Backend offline. Saving directly to config file...';
-        status.style.color = '#FFA500';
-        
-        try {
-            await saveClientConfig(config);
-            if (config.api_base) {
-                apiBase = normalizeApiBase(config.api_base);
-            }
-            
-            status.textContent = '✓ Configuration saved! Please restart the application.';
-            status.style.color = '#4CAF50';
-            setTimeout(() => {
-                closeDbConfig();
-                alert('Database configuration saved. Please close and restart the application.');
-            }, 2000);
-        } catch (fsError) {
-            status.textContent = '✗ Failed to save: ' + fsError.message;
-            status.style.color = '#FF6B6B';
-        }    }
+        // Backend not available - config already saved locally
+        console.log('Backend not available, config saved locally');
+        status.textContent = '✓ Configuration saved locally! Please restart the application.';
+        status.style.color = '#4CAF50';
+        setTimeout(() => {
+            closeDbConfig();
+            alert('Database configuration saved. Please close and restart the application.');
+        }, 2000);
+    }
 }
 
 // Expose DB config functions globally for inline handlers

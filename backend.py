@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pyodbc
 import hashlib
 import datetime
 import os
 import re
+import threading
+from collections import deque
 from typing import Optional
 from config import SQL_DATABASE, SQL_DRIVER, SQL_SERVER, SQL_USERNAME, SQL_PASSWORD
 try:
@@ -48,6 +51,64 @@ def get_backup_target_dir() -> str:
 
 app = FastAPI()
 
+# CORS middleware - allows clients on different IPs to access the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Connection Pool ---
+# Simple thread-safe connection pool to avoid creating a new connection per request
+class ConnectionPool:
+    def __init__(self, max_size=10):
+        self._pool = deque()
+        self._lock = threading.Lock()
+        self._max_size = max_size
+
+    def get(self, conn_string):
+        with self._lock:
+            while self._pool:
+                conn = self._pool.popleft()
+                try:
+                    # Test if connection is still alive
+                    conn.execute("SELECT 1")
+                    return conn
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        # No pooled connection available, create new one
+        conn = pyodbc.connect(conn_string, autocommit=True, timeout=5)
+        conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
+        conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
+        conn.setencoding(encoding='utf-8')
+        return conn
+
+    def release(self, conn):
+        with self._lock:
+            if len(self._pool) < self._max_size:
+                self._pool.append(conn)
+            else:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def close_all(self):
+        with self._lock:
+            while self._pool:
+                conn = self._pool.popleft()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+_conn_pool = ConnectionPool(max_size=8)
+
 current_company = None
 initialized_dbs = set()  # Cache to track initialized databases
 
@@ -57,6 +118,10 @@ def startup_init_db():
         init_db(SQL_DATABASE)
     except Exception:
         pass
+
+@app.on_event("shutdown")
+def shutdown_cleanup():
+    _conn_pool.close_all()
 
 if __name__ == "__main__":
     import uvicorn
@@ -190,13 +255,20 @@ def init_db(company_name: str):
 
 def get_db_connection(company: Optional[str] = None):
     comp = company or current_company or "default"
-    # Don't call init_db on every connection - it's already initialized at startup
-    # Use autocommit=True to prevent lock waits and improve performance
-    conn = pyodbc.connect(build_connection_string(), autocommit=True, timeout=5)
-    # Set fast execution mode
-    conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
-    conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
-    conn.setencoding(encoding='utf-8')
+    conn_string = build_connection_string()
+    conn = _conn_pool.get(conn_string)
+    # Monkey-patch close() to release back to pool instead of closing
+    original_close = conn.close
+    def pooled_close():
+        try:
+            conn.close = original_close  # Restore original for pool management
+            _conn_pool.release(conn)
+        except Exception:
+            try:
+                original_close()
+            except Exception:
+                pass
+    conn.close = pooled_close
     return conn
 
 def get_master_connection():
