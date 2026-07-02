@@ -556,6 +556,37 @@ class ConnectionPool:
 _conn_pool = ConnectionPool(max_size=8)
 
 
+class _PooledConnectionProxy:
+    """
+    Thin wrapper around a raw pyodbc connection.
+
+    pyodbc.Connection (like most C-extension DB driver objects) does not
+    support arbitrary attribute assignment - `conn.close = <callable>` raises
+    AttributeError at runtime. Every existing call site does `conn.close()`
+    expecting that to fully close the connection; to make pooling transparent
+    to those call sites without touching them, this proxy forwards everything
+    to the real connection except close(), which releases it back to the pool
+    instead of truly closing it.
+    """
+    __slots__ = ("_conn", "_released")
+
+    def __init__(self, conn):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_released", False)
+
+    def close(self):
+        if self._released:
+            return
+        object.__setattr__(self, "_released", True)
+        _conn_pool.release(self._conn)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._conn, name, value)
+
+
 def get_db_connection(company: Optional[str] = None):
     comp = company or current_company or "default"
     # Don't call init_db on every connection - it's already initialized at startup.
@@ -563,24 +594,7 @@ def get_db_connection(company: Optional[str] = None):
     # connection on every call - this is a significant perf win under load.
     conn_string = build_connection_string()
     conn = _conn_pool.get(conn_string)
-
-    # Monkey-patch this specific connection instance's .close() so every
-    # existing call site's `conn.close()` continues to work unchanged, but
-    # instead of truly closing the connection it is released back to the pool.
-    original_close = conn.close
-
-    def pooled_close():
-        try:
-            conn.close = original_close  # Restore original for pool management
-            _conn_pool.release(conn)
-        except Exception:
-            try:
-                original_close()
-            except Exception:
-                pass
-
-    conn.close = pooled_close
-    return conn
+    return _PooledConnectionProxy(conn)
 
 def get_master_connection():
     return _connect_with_retry(build_connection_string("master"), timeout=5)
