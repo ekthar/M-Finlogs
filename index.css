@@ -2041,6 +2041,28 @@ select.login-input {
     transform: translateY(-1px);
 }
 
+.login-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.app-mode-card {
+    text-align: center;
+    border: 2px solid rgba(210, 224, 246, 0.25);
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.app-mode-card:hover {
+    transform: translateY(-2px);
+}
+
+.app-mode-card.selected {
+    border-color: #8cd8ff;
+    box-shadow: 0 0 0 2px rgba(140, 216, 255, 0.35);
+}
+
 .db-config-layout {
     display: grid;
     grid-template-columns: 1.2fr 1fr;

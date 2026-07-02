@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Response, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pyodbc
 import hashlib
@@ -12,6 +13,8 @@ import smtplib
 import urllib.request
 import uuid
 import jwt
+import threading
+from collections import deque
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHashError
 from functools import wraps
@@ -61,6 +64,17 @@ def get_runtime_database_name() -> str:
     return load_runtime_config().get("database", SQL_DATABASE) or SQL_DATABASE
 
 app = FastAPI()
+
+# LAN-only trusted-network app: permissive CORS is intentional here (no public
+# internet exposure), so an explicit origin allowlist would add complexity
+# without a corresponding security benefit for this deployment model.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # JWT Configuration
 JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
@@ -176,6 +190,7 @@ def safe_error_response(context: str, err: Exception, message: str = "Operation 
     return {"status": "Error", "detail": message}
 
 REPORT_CACHE_TTL_SEC = 300
+REPORT_CACHE_MAX_SIZE = 200
 report_cache = {}
 
 def cache_get(key):
@@ -189,6 +204,12 @@ def cache_get(key):
     return data
 
 def cache_set(key, data):
+    if len(report_cache) > REPORT_CACHE_MAX_SIZE:
+        # Evict oldest entries (by timestamp) until back under the cap.
+        oldest_first = sorted(report_cache.items(), key=lambda item: item[1][0])
+        num_to_evict = len(report_cache) - REPORT_CACHE_MAX_SIZE
+        for evict_key, _ in oldest_first[:num_to_evict]:
+            report_cache.pop(evict_key, None)
     report_cache[key] = (time.time(), data)
 
 def invalidate_report_cache():
@@ -302,6 +323,13 @@ initialized_dbs = set()  # Cache to track initialized databases
 def startup_init_db():
     try:
         init_db(SQL_DATABASE)
+    except Exception:
+        pass
+
+@app.on_event("shutdown")
+def shutdown_close_db_pool():
+    try:
+        _conn_pool.close_all()
     except Exception:
         pass
 
@@ -471,20 +499,91 @@ def init_db(company_name: str):
     # Mark as initialized
     initialized_dbs.add(db_key)
 
-def get_db_connection(company: Optional[str] = None):
-    comp = company or current_company or "default"
-    # Don't call init_db on every connection - it's already initialized at startup
-    # Use autocommit=True to prevent lock waits and improve performance
-    return _connect_with_retry(build_connection_string(), timeout=5)
-
-def get_master_connection():
-    return _connect_with_retry(build_connection_string("master"), timeout=5)
-
 def _configure_connection(conn):
     conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
     conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
     conn.setencoding(encoding='utf-8')
     return conn
+
+
+# --- Connection Pool ---
+# Thread-safe pool of pyodbc connections keyed by connection string, to avoid
+# opening a brand-new TCP/TDS connection to SQL Server on nearly every request.
+class ConnectionPool:
+    def __init__(self, max_size: int = 8):
+        self._pool = deque()
+        self._lock = threading.Lock()
+        self._max_size = max_size
+
+    def get(self, conn_string: str):
+        with self._lock:
+            while self._pool:
+                conn = self._pool.popleft()
+                try:
+                    # Cheap probe to make sure the pooled connection is still alive.
+                    conn.cursor().execute("SELECT 1")
+                    return conn
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        # No healthy pooled connection available - create a fresh one, keeping
+        # the existing retry-with-backoff behavior for transient DB errors.
+        conn = _connect_with_retry(conn_string, timeout=5)
+        return conn
+
+    def release(self, conn):
+        with self._lock:
+            if len(self._pool) < self._max_size:
+                self._pool.append(conn)
+                return
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def close_all(self):
+        with self._lock:
+            while self._pool:
+                conn = self._pool.popleft()
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+_conn_pool = ConnectionPool(max_size=8)
+
+
+def get_db_connection(company: Optional[str] = None):
+    comp = company or current_company or "default"
+    # Don't call init_db on every connection - it's already initialized at startup.
+    # Reuse a pooled connection when possible instead of opening a brand-new
+    # connection on every call - this is a significant perf win under load.
+    conn_string = build_connection_string()
+    conn = _conn_pool.get(conn_string)
+
+    # Monkey-patch this specific connection instance's .close() so every
+    # existing call site's `conn.close()` continues to work unchanged, but
+    # instead of truly closing the connection it is released back to the pool.
+    original_close = conn.close
+
+    def pooled_close():
+        try:
+            conn.close = original_close  # Restore original for pool management
+            _conn_pool.release(conn)
+        except Exception:
+            try:
+                original_close()
+            except Exception:
+                pass
+
+    conn.close = pooled_close
+    return conn
+
+def get_master_connection():
+    return _connect_with_retry(build_connection_string("master"), timeout=5)
 
 def _is_transient_db_error(exc: Exception) -> bool:
     text = str(exc).lower()

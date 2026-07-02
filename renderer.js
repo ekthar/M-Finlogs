@@ -2,6 +2,29 @@ var electronAPI = window.electronAPI;
 var ExcelJS = null;
 var XLSX = window.XLSX || null;
 
+// XLSX (SheetJS) is a sizeable library only needed for import/export
+// features. Lazy-load it on first use instead of unconditionally on every
+// launch, to reduce startup RAM/parse-time cost.
+let xlsxLoadPromise = null;
+function ensureXlsxLoaded() {
+    if (window.XLSX) {
+        XLSX = window.XLSX;
+        return Promise.resolve();
+    }
+    if (xlsxLoadPromise) return xlsxLoadPromise;
+    xlsxLoadPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+        s.onload = () => {
+            XLSX = window.XLSX;
+            resolve();
+        };
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+    return xlsxLoadPromise;
+}
+
 // Global cache for party types
 const partyTypes = {};
 let salesChartInstance = null;
@@ -67,6 +90,23 @@ window.fetch = (url, options) => {
 };
 
 // Database Configuration Functions - defined early for inline handlers
+async function applyAppModeToDbConfigModal() {
+    let mode = null;
+    try {
+        const modeData = await electronAPI.invoke('app:getAppMode');
+        mode = modeData && modeData.mode;
+    } catch (_e) {
+        mode = null;
+    }
+    const sqlFieldsContainer = document.getElementById('sqlConfigFields');
+    if (sqlFieldsContainer) {
+        // In client mode, hide the SQL Server-specific fields entirely and
+        // only show the API Server URL field (defense in depth alongside
+        // the backend's own require_admin gating on /config/database).
+        sqlFieldsContainer.style.display = (mode === 'client') ? 'none' : '';
+    }
+}
+
 function showDbConfig() {
     const dbModal = document.getElementById('dbConfigModal');
     if (!dbModal) {
@@ -75,6 +115,7 @@ function showDbConfig() {
     }
 
     setModalVisible('dbConfigModal', true);
+    applyAppModeToDbConfigModal();
     loadDbConfig();
 }
 
@@ -1934,14 +1975,16 @@ window.onload = function () {
     if (appInitDone) return;
     appInitDone = true;
 
-    initApiBase().then(() => {
-        startAutoBackup();
-        checkAuth();
-        // Load essential data after auth check
-        if (sessionStorage.getItem('username')) {
-            loadParties();
-            loadTransactions();
-        }
+    checkAppModeSetup().then(() => {
+        initApiBase().then(() => {
+            startAutoBackup();
+            checkAuth();
+            // Load essential data after auth check
+            if (sessionStorage.getItem('username')) {
+                loadParties();
+                loadTransactions();
+            }
+        });
     });
     const status = localStorage.getItem('backendStatus');
     if (status === 'offline') {
@@ -2003,7 +2046,7 @@ window.onload = function () {
                 console.warn('Failsafe: restored app interactivity');
             }
         }
-    }, 2500);
+    }, 8000);
 }
 
 window.addEventListener('beforeunload', () => {
@@ -3992,6 +4035,12 @@ function saveInventorySnapshot(silent = false) {
 async function importInventorySheet(event) {
     const file = event && event.target && event.target.files ? event.target.files[0] : null;
     if (!file) return;
+    try {
+        await ensureXlsxLoaded();
+    } catch (_e) {
+        showToast('XLSX parser is not available in this build', 'error');
+        return;
+    }
     if (!XLSX) {
         showToast('XLSX parser is not available in this build', 'error');
         return;
@@ -5032,6 +5081,14 @@ async function writeRowsToExcelFile(rows, filename, sheetName) {
     if (!filePath) return;
     const safeSheetName = (sheetName || "Report").replace(/[\/\\\?\*\[\]]/g, "_").substring(0, 31);
 
+    if (!ExcelJS && !XLSX) {
+        try {
+            await ensureXlsxLoaded();
+        } catch (_e) {
+            // fall through - handled by the "module missing" branch below
+        }
+    }
+
     if (ExcelJS) {
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet(safeSheetName);
@@ -5243,6 +5300,87 @@ async function handleFirstRunSetup() {
     showToast(data.message || 'Admin account configured. Please login.', 'success');
 }
 
+// --- Server / Client App Mode (first-run setup, separate from admin setup) ---
+let selectedAppMode = null;
+
+async function checkAppModeSetup() {
+    let modeData = null;
+    try {
+        modeData = await electronAPI.invoke('app:getAppMode');
+    } catch (_e) {
+        modeData = null;
+    }
+
+    if (modeData) {
+        // Already configured - nothing to do, proceed to normal flow.
+        return;
+    }
+
+    // No app-mode file exists yet (first launch) - show the setup modal and
+    // wait for the user to choose before continuing the normal login flow.
+    return new Promise((resolve) => {
+        setModalVisible('appModeModal', true);
+        window.__resolveAppModeSetup = resolve;
+    });
+}
+
+function selectAppMode(mode) {
+    selectedAppMode = mode;
+    const serverCard = document.getElementById('appModeCardServer');
+    const clientCard = document.getElementById('appModeCardClient');
+    const serverUrlGroup = document.getElementById('appModeServerUrlGroup');
+    const continueBtn = document.getElementById('appModeContinueBtn');
+
+    if (serverCard) serverCard.classList.toggle('selected', mode === 'server');
+    if (clientCard) clientCard.classList.toggle('selected', mode === 'client');
+    if (serverUrlGroup) serverUrlGroup.style.display = mode === 'client' ? 'block' : 'none';
+    if (continueBtn) continueBtn.disabled = false;
+}
+
+async function saveAppModeSelection() {
+    const errorP = document.getElementById('appModeError');
+    if (errorP) errorP.textContent = '';
+
+    if (!selectedAppMode) {
+        if (errorP) errorP.textContent = 'Please choose Server or Client';
+        return;
+    }
+
+    let serverUrlValue = '';
+    if (selectedAppMode === 'client') {
+        const urlInput = document.getElementById('appModeServerUrl');
+        serverUrlValue = (urlInput && urlInput.value ? urlInput.value : '').trim();
+        if (!serverUrlValue) {
+            if (errorP) errorP.textContent = 'Please enter the server address';
+            return;
+        }
+    }
+
+    try {
+        await electronAPI.invoke('app:saveAppMode', { mode: selectedAppMode });
+
+        if (selectedAppMode === 'client') {
+            const existing = await loadClientConfig();
+            const merged = { ...existing, api_base: normalizeApiBase(serverUrlValue) };
+            await saveClientConfig(merged);
+        }
+
+        setModalVisible('appModeModal', false);
+    } catch (e) {
+        if (errorP) errorP.textContent = 'Failed to save selection: ' + e.message;
+        return;
+    }
+
+    if (typeof window.__resolveAppModeSetup === 'function') {
+        const resolveFn = window.__resolveAppModeSetup;
+        window.__resolveAppModeSetup = null;
+        resolveFn();
+    }
+}
+
+window.selectAppMode = selectAppMode;
+window.saveAppModeSelection = saveAppModeSelection;
+
 function checkAuth() {
     currentUser = sessionStorage.getItem('username');
     currentRole = sessionStorage.getItem('role');
@@ -5285,7 +5423,17 @@ function checkAuth() {
     loadParties();
 }
 
-function startAutoBackup() {
+async function startAutoBackup() {
+    // Client machines should never trigger backups against a remote server -
+    // backup is server-authoritative only.
+    try {
+        const modeData = await electronAPI.invoke('app:getAppMode');
+        if (modeData && modeData.mode === 'client') { return; }
+    } catch (_e) {
+        // If app-mode can't be read, fall through to existing behavior so
+        // nothing regresses for users who never go through the setup flow.
+    }
+
     if (sessionStorage.getItem('role') !== 'admin') return;
 
     const startupBackupKey = 'startupAutoBackupDone';
