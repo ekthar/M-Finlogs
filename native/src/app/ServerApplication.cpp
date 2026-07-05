@@ -12,6 +12,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QStringList>
+#include <QTcpServer>
 
 #include <exception>
 
@@ -228,9 +229,13 @@ void ServerApplication::registerRoutes() {
 }
 
 int ServerApplication::run(quint16 port) {
-    const quint16 boundPort = server_.listen(QHostAddress::Any, port);
-    if (boundPort == 0) {
+    QTcpServer tcpServer;
+    if (!tcpServer.listen(QHostAddress::Any, port)) {
         qCritical("Could not start native server on port %u", port);
+        return 1;
+    }
+    if (!server_.bind(&tcpServer)) {
+        qCritical("Could not bind QHttpServer to TCP server");
         return 1;
     }
     writeServerPid();
