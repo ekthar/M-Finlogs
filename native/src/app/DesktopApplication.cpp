@@ -713,8 +713,11 @@ void focusEntryWidget(QWidget& widget) {
 // backdrops, indigo/blue accent system, and refined typography. Light and dark
 // variants are emitted as complete stylesheets to keep the generator robust.
 static QString buildModernQss(bool darkMode = false) {
+    static QString cachedDark;
+    static QString cachedLight;
     if (darkMode) {
-        return QStringLiteral(
+        if (!cachedDark.isEmpty()) return cachedDark;
+        cachedDark = QStringLiteral(
             // Base + typography
             "* { font-family: 'Inter Tight','Segoe UI','-apple-system','Helvetica Neue',sans-serif; font-weight: 400; outline: none; }"
             "QMainWindow { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #090e1c, stop:0.5 #0b1326, stop:1 #0a1322); }"
@@ -828,7 +831,8 @@ static QString buildModernQss(bool darkMode = false) {
         );
     }
 
-    return QStringLiteral(
+    if (!cachedLight.isEmpty()) return cachedLight;
+    cachedLight = QStringLiteral(
         // Base + typography
         "* { font-family: 'Inter Tight','Segoe UI','-apple-system','Helvetica Neue',sans-serif; font-weight: 400; outline: none; }"
         "QMainWindow { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #e7ecfb, stop:0.5 #eae8fa, stop:1 #e8f0fb); }"
@@ -940,6 +944,7 @@ static QString buildModernQss(bool darkMode = false) {
         "QLabel#stepDesc { color: #64748b; font-size: 12px; }"
         "QLabel#formStatus { color: #64748b; font-size: 12px; font-weight: 700; }"
     );
+    return cachedLight;
 }
 
 #if 0
@@ -1431,60 +1436,49 @@ void DesktopApplication::buildNavigation() {
     nav->setIconSize(QSize(18, 18));
 
     QStackedWidget* pages = new QStackedWidget(root);
+    pages_ = pages;
     int pageIndex = 0;
+
+    // Build Welcome page eagerly (initial page)
     pages->addWidget(buildWelcomePage(*pages, *nav));
     addNavItem(*nav, QStringLiteral("Welcome"), pageIndex, QStringLiteral("welcome"));
     pageIndex += 1;
-    pages->addWidget(buildDailyEntryPage());
-    addNavItem(*nav, QStringLiteral("Daily Entry"), pageIndex, QStringLiteral("entry"));
-    pageIndex += 1;
-    pages->addWidget(buildDashboardPage());
-    addNavItem(*nav, QStringLiteral("Dashboard"), pageIndex, QStringLiteral("dashboard"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Reports"), QStringLiteral("Report overview and transaction analysis.")));
-    addNavItem(*nav, QStringLiteral("Reports"), pageIndex, QStringLiteral("reports"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Party Ledger"), QStringLiteral("Party ledger with date filters and running balances.")));
-    addNavItem(*nav, QStringLiteral("Party Ledger"), pageIndex, QStringLiteral("ledger"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Day Book"), QStringLiteral("Daily transaction register for selected dates.")));
-    addNavItem(*nav, QStringLiteral("Day Book"), pageIndex, QStringLiteral("daybook"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Daily Summary"), QStringLiteral("Daily sales, returns, receipts, and expenses.")));
-    addNavItem(*nav, QStringLiteral("Daily Summary"), pageIndex, QStringLiteral("summary"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Short / Excess"), QStringLiteral("Cash-in-hand snapshots by day.")));
-    addNavItem(*nav, QStringLiteral("Short / Excess"), pageIndex, QStringLiteral("cash"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Purchase Report"), QStringLiteral("Purchase summary and supplier analysis.")));
-    addNavItem(*nav, QStringLiteral("Purchase Report"), pageIndex, QStringLiteral("reports"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Expenses"), QStringLiteral("Expense transactions and totals.")));
-    addNavItem(*nav, QStringLiteral("Expenses"), pageIndex, QStringLiteral("expenses"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Outstanding"), QStringLiteral("Customer balances for the selected financial year.")));
-    addNavItem(*nav, QStringLiteral("Outstanding"), pageIndex, QStringLiteral("outstanding"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Trial Balance"), QStringLiteral("Account debit and credit balances.")));
-    addNavItem(*nav, QStringLiteral("Trial Balance"), pageIndex, QStringLiteral("trend"));
-    pageIndex += 1;
-    pages->addWidget(buildReportPage(QStringLiteral("Profit & Loss"), QStringLiteral("Sales, expenses, and net profit summary.")));
-    addNavItem(*nav, QStringLiteral("P & L"), pageIndex, QStringLiteral("trend"));
-    pageIndex += 1;
-    pages->addWidget(buildInventoryPage());
-    addNavItem(*nav, QStringLiteral("Inventory"), pageIndex, QStringLiteral("inventory"));
-    pageIndex += 1;
-    pages->addWidget(buildInventoryValuePage());
-    addNavItem(*nav, QStringLiteral("Stock Value Report"), pageIndex, QStringLiteral("stock"));
-    pageIndex += 1;
-    pages->addWidget(buildPartiesPage());
-    addNavItem(*nav, QStringLiteral("Add Party"), pageIndex, QStringLiteral("party"));
-    pageIndex += 1;
-    pages->addWidget(buildAuditPage());
-    addNavItem(*nav, QStringLiteral("Audit Logs"), pageIndex, QStringLiteral("audit"));
-    pageIndex += 1;
-    pages->addWidget(buildSettingsPage());
-    addNavItem(*nav, QStringLiteral("Settings"), pageIndex, QStringLiteral("settings"));
+
+    // Register factories for all other pages - built on first visit
+    auto addLazyPage = [&](auto factory, const QString& label, const QString& icon) {
+        pages->addWidget(new QWidget());
+        pageFactories_.append(factory);
+        addNavItem(*nav, label, pageIndex, icon);
+        pageIndex += 1;
+    };
+
+    addLazyPage([this]() { return buildDailyEntryPage(); },        QStringLiteral("Daily Entry"),    QStringLiteral("entry"));
+    addLazyPage([this]() { return buildDashboardPage(); },         QStringLiteral("Dashboard"),     QStringLiteral("dashboard"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Reports"),             QStringLiteral("Report overview and transaction analysis.")); },
+                                                                     QStringLiteral("Reports"),       QStringLiteral("reports"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Party Ledger"),        QStringLiteral("Party ledger with date filters and running balances.")); },
+                                                                     QStringLiteral("Party Ledger"),  QStringLiteral("ledger"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Day Book"),            QStringLiteral("Daily transaction register for selected dates.")); },
+                                                                     QStringLiteral("Day Book"),      QStringLiteral("daybook"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Daily Summary"),       QStringLiteral("Daily sales, returns, receipts, and expenses.")); },
+                                                                     QStringLiteral("Daily Summary"), QStringLiteral("summary"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Short / Excess"),      QStringLiteral("Cash-in-hand snapshots by day.")); },
+                                                                     QStringLiteral("Short / Excess"),QStringLiteral("cash"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Purchase Report"),     QStringLiteral("Purchase summary and supplier analysis.")); },
+                                                                     QStringLiteral("Purchase Report"),QStringLiteral("reports"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Expenses"),            QStringLiteral("Expense transactions and totals.")); },
+                                                                     QStringLiteral("Expenses"),      QStringLiteral("expenses"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Outstanding"),         QStringLiteral("Customer balances for the selected financial year.")); },
+                                                                     QStringLiteral("Outstanding"),   QStringLiteral("outstanding"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Trial Balance"),       QStringLiteral("Account debit and credit balances.")); },
+                                                                     QStringLiteral("Trial Balance"), QStringLiteral("trend"));
+    addLazyPage([this]() { return buildReportPage(QStringLiteral("Profit & Loss"),       QStringLiteral("Sales, expenses, and net profit summary.")); },
+                                                                     QStringLiteral("P & L"),         QStringLiteral("trend"));
+    addLazyPage([this]() { return buildInventoryPage(); },          QStringLiteral("Inventory"),      QStringLiteral("inventory"));
+    addLazyPage([this]() { return buildInventoryValuePage(); },     QStringLiteral("Stock Value Report"), QStringLiteral("stock"));
+    addLazyPage([this]() { return buildPartiesPage(); },            QStringLiteral("Add Party"),       QStringLiteral("party"));
+    addLazyPage([this]() { return buildAuditPage(); },              QStringLiteral("Audit Logs"),      QStringLiteral("audit"));
+    addLazyPage([this]() { return buildSettingsPage(); },           QStringLiteral("Settings"),        QStringLiteral("settings"));
     sidebarLayout->addWidget(nav, 1);
 
     const std::shared_ptr<bool> sidebarCollapsed = std::make_shared<bool>(false);
@@ -1522,16 +1516,16 @@ void DesktopApplication::buildNavigation() {
         applySidebarState();
     });
 
-    connect(nav, &QListWidget::currentRowChanged, this, [nav, pages](int row) {
+    connect(nav, &QListWidget::currentRowChanged, this, [this, nav, pages](int row) {
         const QListWidgetItem* item = nav->item(row);
         if (!item) {
             return;
         }
         const int targetPage = item->data(Qt::UserRole).toInt();
         if (targetPage >= 0) {
-            pages->setCurrentIndex(targetPage);
-            QWidget* page = pages->currentWidget();
+            QWidget* page = ensurePageBuilt(targetPage);
             if (page) {
+                pages->setCurrentIndex(targetPage);
                 animatePanel(*page, 0);
             }
         }
@@ -4403,6 +4397,19 @@ void DesktopApplication::printTable(QTableWidget& table, const QString& title) {
         }
         y += rowHeight;
     }
+}
+
+QWidget* DesktopApplication::ensurePageBuilt(int index) {
+    if (index == 0) return pages_->widget(0);
+    if (builtPages_.contains(index)) return pages_->widget(index);
+    const int factoryIdx = index - 1;
+    if (factoryIdx < 0 || factoryIdx >= pageFactories_.size()) return nullptr;
+    QWidget* page = pageFactories_[factoryIdx]();
+    if (!page) return nullptr;
+    pages_->removeWidget(pages_->widget(index));
+    pages_->insertWidget(index, page);
+    builtPages_.insert(index);
+    return page;
 }
 
 void DesktopApplication::showError(const QString& title, const std::exception& err) {

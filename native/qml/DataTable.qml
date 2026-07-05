@@ -234,15 +234,6 @@ Item {
                 HoverHandler { id: rowHover }
                 TapHandler { onDoubleTapped: root.rowActivated(rowItem.rowData) }
 
-                // Staggered entrance
-                opacity: 0
-                Component.onCompleted: appear.start()
-                NumberAnimation {
-                    id: appear
-                    target: rowItem; property: "opacity"; from: 0; to: 1
-                    duration: Theme.durBase
-                    easing.type: Theme.easeOut
-                }
             }
 
             // Empty state

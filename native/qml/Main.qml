@@ -12,15 +12,12 @@ ApplicationWindow {
     visible: true
     title: "M-Finlogs"
     color: Theme.bg0
-    // Frameless premium window with custom title bar (removes the white OS bar)
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    // Living aurora backdrop behind everything
     AuroraBackground {
         anchors.fill: parent
     }
 
-    // ---- Custom title bar (draggable, with window controls) ----
     Rectangle {
         id: titleBar
         anchors.top: parent.top
@@ -30,7 +27,6 @@ ApplicationWindow {
         z: 10000
         color: Theme.alpha(Theme.bg0, 0.6)
 
-        // Drag to move window
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
@@ -64,13 +60,11 @@ ApplicationWindow {
             }
         }
 
-        // Window controls
         Row {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             spacing: 0
 
-            // Minimize
             Rectangle {
                 width: 46; height: 38
                 color: minHover.hovered ? Theme.glass : "transparent"
@@ -78,7 +72,6 @@ ApplicationWindow {
                 HoverHandler { id: minHover }
                 TapHandler { onTapped: window.showMinimized() }
             }
-            // Maximize/Restore
             Rectangle {
                 width: 46; height: 38
                 color: maxHover.hovered ? Theme.glass : "transparent"
@@ -89,7 +82,6 @@ ApplicationWindow {
                         ? window.showNormal() : window.showMaximized()
                 }
             }
-            // Close
             Rectangle {
                 width: 46; height: 38
                 color: closeHover.hovered ? Theme.danger : "transparent"
@@ -100,7 +92,6 @@ ApplicationWindow {
         }
     }
 
-    // Root content switcher: login <-> app shell with a cross-fade
     Item {
         id: rootStack
         anchors.top: titleBar.bottom
@@ -108,15 +99,16 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
 
-        LoginView {
-            id: loginView
+        Loader {
+            id: loginLoader
             anchors.fill: parent
+            active: !backend.authenticated
             visible: opacity > 0
             opacity: backend.authenticated ? 0 : 1
             scale: backend.authenticated ? 1.04 : 1.0
-            enabled: !backend.authenticated
             Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             Behavior on scale { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
+            sourceComponent: LoginView {}
         }
 
         Loader {
@@ -132,7 +124,6 @@ ApplicationWindow {
         }
     }
 
-    // Global toast host
     ToastHost {
         id: toasts
         anchors.fill: parent

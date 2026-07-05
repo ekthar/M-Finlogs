@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
+import QtQuick.Dialogs
 import MFinlogs
 
 Item {
@@ -10,6 +11,8 @@ Item {
     property var partyList: []
     property string partyBalanceText: ""
     property bool partyBalanceVisible: false
+
+    property var editingRow: null
 
     function refresh() {
         rows = backend.transactions(1, 100, 0)
@@ -41,6 +44,142 @@ Item {
     Connections {
         target: backend
         function onDataChanged() { page.refresh() }
+    }
+
+    // Edit Transaction Dialog
+    Dialog {
+        id: editDialog
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        title: "Edit Transaction"
+        closePolicy: Dialog.CloseOnEscape
+        width: Math.min(520, page.width * 0.9)
+        height: Math.min(420, page.height * 0.9)
+
+        property var originalValues: ({})
+
+        function loadRow(row) {
+            if (!row) return
+            // Parse dd-MM-yyyy to Date and store ISO format for comparison
+            var parts = row.date.split('-')
+            var d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
+            originalValues = {
+                date: Qt.formatDate(d, "yyyy-MM-dd"),
+                bill_no: row.bill_no || "",
+                party: row.party || "",
+                type: row.type || "Sale",
+                mode: row.mode || "Credit",
+                amount: String(row.amount || "0")
+            }
+            editDateField.selectedDate = d
+            editBillField.text = originalValues.bill_no
+            editPartyField.text = originalValues.party
+            editTypeField.currentIndex = Math.max(0, editTypeField.options.indexOf(row.type))
+            editModeField.currentIndex = Math.max(0, editModeField.options.indexOf(row.mode))
+            editAmountField.text = originalValues.amount
+            title = "Edit Transaction #" + row.id
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Theme.s4
+
+            DatePickerField {
+                id: editDateField
+                Layout.fillWidth: true
+                label: "Date"
+            }
+
+            FieldInput {
+                id: editBillField
+                Layout.fillWidth: true
+                label: "Bill / Ref"
+                placeholder: "INV-001"
+            }
+
+            FieldInput {
+                id: editPartyField
+                Layout.fillWidth: true
+                label: "Party"
+                placeholder: "Search or type party"
+                completions: page.partyList
+            }
+
+            FieldCombo {
+                id: editTypeField
+                Layout.fillWidth: true
+                label: "Type"
+                options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
+            }
+
+            FieldCombo {
+                id: editModeField
+                Layout.fillWidth: true
+                label: "Mode"
+                options: ["Credit", "Cash", "UPI", "Bank"]
+            }
+
+            FieldInput {
+                id: editAmountField
+                Layout.fillWidth: true
+                label: "Amount"
+                placeholder: "0.00"
+                numeric: true
+                showCompletions: false
+            }
+        }
+
+        onAccepted: {
+            if (!page.editingRow) return
+            var row = page.editingRow
+            var changed = false
+
+            var fields = [
+                { field: "txn_date", orig: originalValues.date, curr: editDateField.isoText },
+                { field: "bill_no", orig: originalValues.bill_no, curr: editBillField.text },
+                { field: "party", orig: originalValues.party, curr: editPartyField.text },
+                { field: "txn_type", orig: originalValues.type, curr: editTypeField.currentText },
+                { field: "payment_mode", orig: originalValues.mode, curr: editModeField.currentText },
+                { field: "amount", orig: originalValues.amount, curr: editAmountField.text }
+            ]
+
+            for (var i = 0; i < fields.length; i++) {
+                if (fields[i].orig !== fields[i].curr) {
+                    var res = backend.editTransaction(row.id, fields[i].field, fields[i].curr)
+                    if (res && res.ok === true) changed = true
+                }
+            }
+
+            if (changed) page.refresh()
+            page.editingRow = null
+        }
+        onRejected: {
+            page.editingRow = null
+        }
+    }
+
+    // Delete Confirmation Dialog
+    MessageDialog {
+        id: deleteDialog
+        modal: true
+        standardButtons: MessageDialog.Ok | MessageDialog.Cancel
+        title: "Delete Transaction"
+        text: "Are you sure you want to delete this transaction? This action cannot be undone."
+        informativeText: "Transaction details will be permanently removed."
+        icon: MessageDialog.Warning
+
+        onAccepted: {
+            if (page.editingRow) {
+                var res = backend.deleteTransaction(page.editingRow.id)
+                if (res && res.ok === true) {
+                    page.refresh()
+                }
+            }
+            page.editingRow = null
+        }
+        onRejected: {
+            page.editingRow = null
+        }
     }
 
     ColumnLayout {
@@ -214,6 +353,7 @@ Item {
                 }
 
                 DataTable {
+                    id: transactionTable
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     emptyText: "No transactions yet \u2014 add your first entry above"
@@ -226,9 +366,122 @@ Item {
                         { title: "Mode", key: "mode", weight: 1 },
                         { title: "Amount", key: "amount", money: true, align: "right", weight: 1.2 }
                     ]
+                    onRowActivated: function(row) {
+                        contextMenu.popup(row)
+                    }
                 }
             }
         }
+    }
+
+    // Context menu for edit/delete actions
+    Rectangle {
+        id: contextMenu
+        visible: false
+        width: 160
+        height: col.implicitHeight + 8
+        radius: Theme.rMd
+        color: Theme.glassStrong
+        border.width: 1
+        border.color: Theme.glassBorder
+        z: 999
+
+        property var targetRow: null
+
+        function popup(row) {
+            targetRow = row
+            var pos = transactionTable.mapToItem(page, transactionTable.width - width, 0)
+            x = Math.max(0, page.width - width - Theme.s4)
+            y = Math.min(page.height - height - Theme.s4, Theme.s5)
+            visible = true
+            forceActiveFocus()
+        }
+
+        ColumnLayout {
+            id: col
+            anchors.fill: parent
+            anchors.margins: 4
+            spacing: 2
+
+            // Edit action
+            Rectangle {
+                Layout.fillWidth: true
+                height: 36
+                radius: Theme.rSm
+                color: mEdit.containsMouse ? Theme.rowHover : "transparent"
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.s3
+                    spacing: Theme.s2
+                    Text { text: "\u270E"; color: Theme.accent; font.pixelSize: 14 }
+                    Text { text: "Edit"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Item { Layout.fillWidth: true }
+                }
+
+                HoverHandler { id: mEdit }
+
+                TapHandler {
+                    onTapped: {
+                        contextMenu.visible = false
+                        page.openEditDialog(contextMenu.targetRow)
+                    }
+                }
+            }
+
+            // Delete action
+            Rectangle {
+                Layout.fillWidth: true
+                height: 36
+                radius: Theme.rSm
+                color: mDel.containsMouse ? Theme.rowHover : "transparent"
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.s3
+                    spacing: Theme.s2
+                    Text { text: "\u2716"; color: "#e74c3c"; font.pixelSize: 14 }
+                    Text { text: "Delete"; color: "#e74c3c"; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Item { Layout.fillWidth: true }
+                }
+
+                HoverHandler { id: mDel }
+
+                TapHandler {
+                    onTapped: {
+                        contextMenu.visible = false
+                        page.openDeleteDialog(contextMenu.targetRow)
+                    }
+                }
+            }
+        }
+
+        TapHandler {
+            onTapped: contextMenu.visible = false
+        }
+
+        Keys.onEscapePressed: contextMenu.visible = false
+        focus: true
+    }
+
+    // Click outside to close context menu
+    TapHandler {
+        enabled: contextMenu.visible
+        onTapped: contextMenu.visible = false
+    }
+
+    function openEditDialog(row) {
+        if (!row) return
+        editingRow = row
+        editDialog.loadRow(row)
+        editDialog.open()
+    }
+
+    function openDeleteDialog(row) {
+        if (!row) return
+        editingRow = row
+        deleteDialog.informativeText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
+        deleteDialog.open()
     }
 
     function save() {

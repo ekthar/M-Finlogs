@@ -204,7 +204,7 @@ QVariantList QmlBackend::salesTrend(int days) {
     try {
         const int span = days > 0 ? days : 30;
         const QVector<domain::TransactionRow> rows =
-            context_.services().transactions->listTransactions(1, 2000, span);
+            context_.services().transactions->listTransactions(1, qMin(span * 10, 500), span);
 
         QMap<QDate, double> byDate;
         const QDate today = QDate::currentDate();
@@ -960,7 +960,7 @@ QVariantMap QmlBackend::exportRecentPdf(int days) {
     try {
         const int span = days > 0 ? days : 7;
         const QVector<domain::TransactionRow> rows =
-            context_.services().transactions->listTransactions(1, 5000, span);
+            context_.services().transactions->listTransactions(1, qMin(span * 100, 2000), span);
 
         const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
             + QStringLiteral("/M-Finlogs_Last_%1_Days.pdf").arg(span);

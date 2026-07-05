@@ -315,13 +315,20 @@ protected:
     }
 
     void writeAudit(QSqlDatabase database, const QString& username, const QString& action, const QString& details) const {
-        QString company = QStringLiteral("default");
-        QSqlQuery companyQuery(database);
-        companyQuery.prepare(QStringLiteral("SELECT setting_value FROM app_settings WHERE setting_key=?"));
-        companyQuery.addBindValue(QStringLiteral("company_name"));
-        executePrepared(companyQuery, QStringLiteral("Read company for audit"));
-        if (companyQuery.next() && !companyQuery.value(0).toString().isEmpty()) {
-            company = companyQuery.value(0).toString();
+        QString company;
+        if (!cachedCompany_.isEmpty()) {
+            company = cachedCompany_;
+        } else {
+            QSqlQuery companyQuery(database);
+            companyQuery.prepare(QStringLiteral("SELECT setting_value FROM app_settings WHERE setting_key=?"));
+            companyQuery.addBindValue(QStringLiteral("company_name"));
+            executePrepared(companyQuery, QStringLiteral("Read company for audit"));
+            if (companyQuery.next() && !companyQuery.value(0).toString().isEmpty()) {
+                company = companyQuery.value(0).toString();
+                cachedCompany_ = company;
+            } else {
+                company = QStringLiteral("default");
+            }
         }
 
         QSqlQuery query(database);
@@ -335,6 +342,7 @@ protected:
 
 private:
     std::shared_ptr<domain::ConfigService> configService_;
+    mutable QString cachedCompany_;
 };
 
 class NativeAuthService final : public domain::AuthService, private SqlServiceBase {

@@ -6,6 +6,8 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QTableWidget>
+#include <QSet>
+#include <functional>
 
 class QGridLayout;
 class QListWidget;
@@ -48,8 +50,12 @@ private:
     void showError(const QString& title, const std::exception& err);
     void applyTheme(bool darkMode = false);
     void wireActions();
+    QWidget* ensurePageBuilt(int index);
 
     AppContext& context_;
+    QStackedWidget* pages_ = nullptr;
+    QVector<std::function<QWidget*()>> pageFactories_;
+    QSet<int> builtPages_;
 };
 
 int runDesktopApplication(int argc, char** argv);
