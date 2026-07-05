@@ -7,6 +7,13 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 
+// --- RAM & performance optimizations ---
+app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=384 --expose-gc');
+app.commandLine.appendSwitch('no-pings');
+
 let autoUpdaterRef = null;
 let autoUpdaterReady = false;
 
@@ -82,6 +89,7 @@ function createSplashWindow() {
         alwaysOnTop: true,
         transparent: true,
         resizable: false,
+        show: false,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -89,6 +97,7 @@ function createSplashWindow() {
         }
     });
     splashWindow.loadFile('splash.html');
+    splashWindow.once('ready-to-show', () => splashWindow.show());
 }
 
 function createMainWindow() {
@@ -100,13 +109,16 @@ function createMainWindow() {
         show: false,
         backgroundColor: '#f4eedf',
         icon: path.join(__dirname, 'assets', 'finlogs.ico'),
-        roundedCorners: true,
+        roundedCorners: false,
         titleBarStyle: 'hidden',
         titleBarOverlay: true,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            preload: path.join(__dirname, 'preload.js')
+            preload: path.join(__dirname, 'preload.js'),
+            spellcheck: false,
+            v8CacheOptions: 'bypassHeatCheck',
+            backgroundThrottling: false
         }
     });
     mainWindow.loadFile('index.html');
@@ -130,10 +142,8 @@ function createMainWindow() {
     });
 
     mainWindow.once('ready-to-show', () => {
-        setTimeout(() => {
-            if (splashWindow) splashWindow.close();
-            mainWindow.show();
-        }, 4200);
+        if (splashWindow) splashWindow.close();
+        mainWindow.show();
     });
 }
 

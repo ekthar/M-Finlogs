@@ -1991,7 +1991,7 @@ window.onload = function () {
         updateSystemStatus(false);
     }
     if (backendStatusIntervalId) clearInterval(backendStatusIntervalId);
-    backendStatusIntervalId = setInterval(checkBackendStatus, 15000);
+    backendStatusIntervalId = setInterval(checkBackendStatus, 30000);
     const savedTheme = localStorage.getItem('theme') || 'white';
     applyTheme(savedTheme);
     applySidebarCollapsed(localStorage.getItem('sidebarCollapsed') === '1');
@@ -2046,7 +2046,7 @@ window.onload = function () {
                 console.warn('Failsafe: restored app interactivity');
             }
         }
-    }, 8000);
+    }, 15000);
 }
 
 window.addEventListener('beforeunload', () => {
