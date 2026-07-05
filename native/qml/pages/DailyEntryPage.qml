@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
-import QtQuick.Dialogs
 import MFinlogs
 
 Item {
@@ -159,14 +158,58 @@ Item {
     }
 
     // Delete Confirmation Dialog
-    MessageDialog {
+    Dialog {
         id: deleteDialog
         modal: true
-        standardButtons: MessageDialog.Ok | MessageDialog.Cancel
+        standardButtons: Dialog.Ok | Dialog.Cancel
         title: "Delete Transaction"
-        text: "Are you sure you want to delete this transaction? This action cannot be undone."
-        informativeText: "Transaction details will be permanently removed."
-        icon: MessageDialog.Warning
+        closePolicy: Dialog.CloseOnEscape
+        width: Math.min(440, page.width * 0.85)
+        height: Math.min(220, page.height * 0.5)
+
+        property string infoText: "Transaction details will be permanently removed."
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Theme.s4
+            spacing: Theme.s3
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+
+                Text {
+                    text: "\u26A0"
+                    color: "#e74c3c"
+                    font.pixelSize: 32
+                    Layout.alignment: Qt.AlignTop
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s2
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Are you sure you want to delete this transaction? This action cannot be undone."
+                        color: Theme.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fsBody
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: deleteDialog.infoText
+                        color: Theme.textDim
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fsSmall
+                        wrapMode: Text.WordWrap
+                        visible: text.length > 0
+                    }
+                }
+            }
+        }
 
         onAccepted: {
             if (page.editingRow) {
@@ -480,7 +523,7 @@ Item {
     function openDeleteDialog(row) {
         if (!row) return
         editingRow = row
-        deleteDialog.informativeText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
+        deleteDialog.infoText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
         deleteDialog.open()
     }
 

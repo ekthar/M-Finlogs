@@ -39,6 +39,20 @@ Item {
 
     function navigate(page) {
         if (page === currentPage) return
+
+        // Close any open overlays (Dialogs, Popups) on the current page
+        // before transitioning, to prevent overlay pileup when the old page
+        // is destroyed mid-transition.
+        if (stack.currentItem) {
+            var overlays = stack.currentItem
+            for (var i = 0; i < overlays.children.length; i++) {
+                var child = overlays.children[i]
+                if (child.hasOwnProperty("close") && child.hasOwnProperty("visible") && child.visible) {
+                    child.close()
+                }
+            }
+        }
+
         currentPage = page
         stack.replace(Qt.resolvedUrl("pages/" + page + ".qml"),
                       {}, StackView.PushTransition)

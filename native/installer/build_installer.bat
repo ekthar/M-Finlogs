@@ -26,7 +26,7 @@ copy "%PROJECT_ROOT%\fonts\InterTight-Regular.ttf" "%PACKAGE_DIR%\fonts\" /Y
 copy "%PROJECT_ROOT%\fonts\InterTight-Bold.ttf" "%PACKAGE_DIR%\fonts\" /Y
 
 echo === Step 4: Run windeployqt ===
-windeployqt --release --compiler-runtime "%PACKAGE_DIR%\mfinlogs-native.exe"
+windeployqt --release --qmldir "%PROJECT_ROOT%\native\qml" --compiler-runtime "%PACKAGE_DIR%\mfinlogs-native.exe"
 
 echo === Step 5: Build installer with Inno Setup ===
 if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
