@@ -49,16 +49,18 @@ Item {
     Dialog {
         id: editDialog
         modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        title: "Edit Transaction"
         closePolicy: Dialog.CloseOnEscape
+        title: "Edit Transaction"
         width: Math.min(520, page.width * 0.9)
-        height: Math.min(540, page.height * 0.95)
+        height: Math.min(600, page.height * 0.95)
+        padding: 0
 
         property var originalValues: ({})
+        property var targetRow: null
 
         function loadRow(row) {
             if (!row) return
+            targetRow = row
             var parts = row.date.split('-')
             var d
             if (parts[0].length === 4) {
@@ -83,76 +85,152 @@ Item {
             title = "Edit Transaction #" + row.id
         }
 
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: Theme.s4
-
-            DatePickerField {
-                id: editDateField
-                Layout.fillWidth: true
-                label: "Date"
-            }
-
-            FieldInput {
-                id: editBillField
-                Layout.fillWidth: true
-                label: "Bill / Ref"
-                placeholder: "INV-001"
-            }
-
-            FieldInput {
-                id: editPartyField
-                Layout.fillWidth: true
-                label: "Party"
-                placeholder: "Search or type party"
-                completions: page.partyList
-            }
-
-            FieldCombo {
-                id: editTypeField
-                Layout.fillWidth: true
-                label: "Type"
-                options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
-            }
-
-            FieldCombo {
-                id: editModeField
-                Layout.fillWidth: true
-                label: "Mode"
-                options: ["Credit", "Cash", "UPI", "Bank"]
-            }
-
-            FieldInput {
-                id: editAmountField
-                Layout.fillWidth: true
-                label: "Amount"
-                placeholder: "0.00"
-                numeric: true
-                showCompletions: false
-            }
+        background: GlassPanel {
+            fillColor: Theme.bg2
+            radius: Theme.rLg
         }
 
-        onAccepted: {
-            if (!page.editingRow) return
-            var row = page.editingRow
+        contentItem: ColumnLayout {
+            spacing: 0
 
-            var res = backend.editTransaction(
-                row.id,
-                editDateField.isoText,
-                editBillField.text,
-                editPartyField.text,
-                editTypeField.currentText,
-                editModeField.currentText,
-                parseFloat(editAmountField.text)
-            )
+            Item { Layout.preferredHeight: Theme.s5 }
 
-            if (res && res.ok === true) {
-                page.refresh()
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                text: editDialog.title
+                color: Theme.text
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fsSection
+                font.weight: Font.Bold
             }
-            page.editingRow = null
-        }
-        onRejected: {
-            page.editingRow = null
+
+            Item { Layout.preferredHeight: Theme.s3 }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                height: 1
+                color: Theme.glassBorder
+            }
+
+            Item { Layout.preferredHeight: Theme.s5 }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                clip: true
+                contentWidth: width
+                contentHeight: fieldCol.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+
+                ColumnLayout {
+                    id: fieldCol
+                    width: parent.width
+                    spacing: Theme.s4
+
+                    DatePickerField {
+                        id: editDateField
+                        Layout.fillWidth: true
+                        label: "Date"
+                    }
+
+                    FieldInput {
+                        id: editBillField
+                        Layout.fillWidth: true
+                        label: "Bill / Ref"
+                        placeholder: "INV-001"
+                        showCompletions: false
+                    }
+
+                    FieldInput {
+                        id: editPartyField
+                        Layout.fillWidth: true
+                        label: "Party"
+                        placeholder: "Search or type party"
+                        completions: page.partyList
+                    }
+
+                    FieldCombo {
+                        id: editTypeField
+                        Layout.fillWidth: true
+                        label: "Type"
+                        options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
+                    }
+
+                    FieldCombo {
+                        id: editModeField
+                        Layout.fillWidth: true
+                        label: "Mode"
+                        options: ["Credit", "Cash", "UPI", "Bank"]
+                    }
+
+                    FieldInput {
+                        id: editAmountField
+                        Layout.fillWidth: true
+                        label: "Amount"
+                        placeholder: "0.00"
+                        numeric: true
+                        showCompletions: false
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: Theme.s4 }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                height: 1
+                color: Theme.glassBorder
+            }
+
+            Item { Layout.preferredHeight: Theme.s4 }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                Layout.bottomMargin: Theme.s5
+                spacing: Theme.s3
+
+                Item { Layout.fillWidth: true }
+
+                GhostButton {
+                    text: "Cancel"
+                    onClicked: {
+                        page.editingRow = null
+                        editDialog.close()
+                    }
+                }
+
+                PrimaryButton {
+                    text: "Save Changes"
+                    onClicked: {
+                        if (!editDialog.targetRow) return
+                        var row = editDialog.targetRow
+                        var res = backend.editTransaction(
+                            row.id,
+                            editDateField.isoText,
+                            editBillField.text,
+                            editPartyField.text,
+                            editTypeField.currentText,
+                            editModeField.currentText,
+                            parseFloat(editAmountField.text)
+                        )
+                        if (res && res.ok === true) {
+                            page.refresh()
+                        }
+                        page.editingRow = null
+                        editDialog.close()
+                    }
+                }
+            }
         }
     }
 
