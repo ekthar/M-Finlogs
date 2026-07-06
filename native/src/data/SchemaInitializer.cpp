@@ -3,6 +3,8 @@
 #include "domain/DomainErrors.h"
 
 #include <QDate>
+#include <QMutex>
+#include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
@@ -17,6 +19,16 @@ QString financialYearForDate(const QDate& date) {
     return QStringLiteral("%1-%2").arg(startYear).arg(startYear + 1);
 }
 
+QSet<QString>& initializedConnections() {
+    static QSet<QString> set;
+    return set;
+}
+
+QMutex& initMutex() {
+    static QMutex mutex;
+    return mutex;
+}
+
 } // namespace
 
 SchemaInitializer::SchemaInitializer(QSqlDatabase database)
@@ -27,10 +39,27 @@ void SchemaInitializer::initialize(const QString& companyName) {
         throw domain::DomainError("Cannot initialize schema because SQL Server connection is not open");
     }
 
+    {
+        QMutexLocker lock(&initMutex());
+        if (initializedConnections().contains(database_.connectionName())) {
+            return;
+        }
+    }
+
     ensureCoreTables();
     ensureMigrations(companyName);
     ensureIndexes();
     ensureDefaultSettings(companyName);
+
+    {
+        QMutexLocker lock(&initMutex());
+        initializedConnections().insert(database_.connectionName());
+    }
+}
+
+void SchemaInitializer::resetInitialized() {
+    QMutexLocker lock(&initMutex());
+    initializedConnections().clear();
 }
 
 void SchemaInitializer::executeStatement(const QString& sql) {

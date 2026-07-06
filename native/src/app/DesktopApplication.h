@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QTableWidget>
 #include <QSet>
+#include <QVariantList>
 #include <functional>
 
 class QGridLayout;
@@ -43,6 +44,7 @@ private:
     void exportTableToPdf(QTableWidget& table, const QString& title);
     void printTable(QTableWidget& table, const QString& title);
     int importTransactionsFromCsv(const QString& path);
+    void importTransactionsWithValidation();
     QJsonArray inventoryRowsFromTable(QTableWidget& table);
     void applyTableSearch(QTableWidget& table, const QString& query);
     QStringList partyNames();

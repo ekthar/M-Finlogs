@@ -11,6 +11,8 @@ public:
 
     void initialize(const QString& companyName);
 
+    static void resetInitialized();
+
 private:
     void executeStatement(const QString& sql);
     void ensureCoreTables();
@@ -19,7 +21,7 @@ private:
     void ensureDefaultSettings(const QString& companyName);
 
     QSqlDatabase database_;
+    static bool s_initialized_;
 };
 
 } // namespace mfinlogs::data
-

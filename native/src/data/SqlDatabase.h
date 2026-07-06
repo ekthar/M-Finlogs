@@ -14,11 +14,10 @@ public:
 
     bool open();
     QSqlDatabase handle() const;
-    QString connectionString() const;
 
 private:
-    QString connectionName_;
     domain::DatabaseConfig config_;
+    QString connectionName_;
 };
 
 } // namespace mfinlogs::data

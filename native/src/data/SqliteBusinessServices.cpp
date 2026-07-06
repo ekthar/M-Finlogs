@@ -681,72 +681,68 @@ public:
 
     void editTransaction(const domain::TransactionEditRequest& request) override {
         SqliteDb db = openDb();
-        const QString field = request.field.trimmed();
+        QSqlDatabase handle = db.handle();
 
-        if (field == QStringLiteral("txn_date")) {
-            const QDate date = QDate::fromString(request.newValue, Qt::ISODate);
-            if (!date.isValid()) {
-                throw domain::DomainError(QStringLiteral("Invalid transaction date: %1").arg(request.newValue).toStdString());
-            }
-            QSqlQuery query(db.handle());
-            query.prepare(QStringLiteral("UPDATE transactions SET txn_date=?, financial_year=? WHERE txn_id=?"));
-            query.addBindValue(date.toString(Qt::ISODate));
-            query.addBindValue(financialYearForDate(date));
-            query.addBindValue(request.transactionId);
-            executePrepared(query, QStringLiteral("Edit transaction date"));
-        } else if (field == QStringLiteral("party")) {
-            const int partyId = getExistingPartyId(db.handle(), request.newValue);
-            QSqlQuery query(db.handle());
-            query.prepare(QStringLiteral("UPDATE transactions SET party_id=? WHERE txn_id=?"));
+        const int partyId = getExistingPartyId(handle, request.data.party);
+
+        if (!handle.transaction()) {
+            throw domain::DomainError(QStringLiteral("Could not begin transaction for edit: %1").arg(handle.lastError().text()).toStdString());
+        }
+
+        try {
+            QSqlQuery query(handle);
+            query.prepare(QStringLiteral(
+                "UPDATE transactions SET txn_date=?, bill_no=?, party_id=?, txn_type=?, payment_mode=?, financial_year=?, amount=? WHERE txn_id=?"
+            ));
+            query.addBindValue(request.data.date.toString(Qt::ISODate));
+            query.addBindValue(request.data.billNo.trimmed());
             query.addBindValue(partyId);
-            query.addBindValue(request.transactionId);
-            executePrepared(query, QStringLiteral("Edit transaction party"));
-        } else {
-            static const QHash<QString, QString> fields = {
-                {QStringLiteral("bill_no"), QStringLiteral("bill_no")},
-                {QStringLiteral("txn_type"), QStringLiteral("txn_type")},
-                {QStringLiteral("payment_mode"), QStringLiteral("payment_mode")},
-                {QStringLiteral("amount"), QStringLiteral("amount")}
-            };
-            if (!fields.contains(field)) {
-                throw domain::DomainError(QStringLiteral("Invalid transaction field: %1").arg(field).toStdString());
-            }
-            QVariant value;
-            if (field == QStringLiteral("txn_type")) {
-                value = transactionTypeToString(transactionTypeFromString(request.newValue));
-            } else if (field == QStringLiteral("payment_mode")) {
-                value = paymentModeToString(paymentModeFromString(request.newValue));
-            } else if (field == QStringLiteral("amount")) {
-                bool ok = false;
-                const double amount = request.newValue.trimmed().toDouble(&ok);
-                if (!ok || amount < 0.0) {
-                    throw domain::DomainError(QStringLiteral("Invalid transaction amount: %1").arg(request.newValue).toStdString());
-                }
-                value = amount;
-            } else {
-                value = request.newValue.trimmed();
-            }
-            QSqlQuery query(db.handle());
-            query.prepare(QStringLiteral("UPDATE transactions SET %1=? WHERE txn_id=?").arg(fields.value(field)));
-            query.addBindValue(value);
+            query.addBindValue(transactionTypeToString(request.data.type));
+            query.addBindValue(paymentModeToString(request.data.mode));
+            query.addBindValue(financialYearForDate(request.data.date));
+            query.addBindValue(request.data.amount);
             query.addBindValue(request.transactionId);
             executePrepared(query, QStringLiteral("Edit transaction"));
+
+            if (!handle.commit()) {
+                throw domain::DomainError(QStringLiteral("Could not commit transaction edit: %1").arg(handle.lastError().text()).toStdString());
+            }
+        } catch (...) {
+            handle.rollback();
+            throw;
         }
-        writeAudit(db.handle(), request.adminUser, QStringLiteral("Edit Transaction"),
+
+        writeAudit(handle, request.adminUser, QStringLiteral("Edit Transaction"),
             QStringLiteral("Edited transaction ") + QString::number(request.transactionId));
     }
 
 
     void deleteTransaction(const domain::TransactionDeleteRequest& request) override {
         SqliteDb db = openDb();
-        QSqlQuery query(db.handle());
-        query.prepare(QStringLiteral("DELETE FROM transactions WHERE txn_id=?"));
-        query.addBindValue(request.transactionId);
-        executePrepared(query, QStringLiteral("Delete transaction"));
-        if (query.numRowsAffected() == 0) {
-            throw domain::DomainError(QStringLiteral("Transaction not found: %1").arg(request.transactionId).toStdString());
+        QSqlDatabase handle = db.handle();
+
+        if (!handle.transaction()) {
+            throw domain::DomainError(QStringLiteral("Could not begin transaction for delete: %1").arg(handle.lastError().text()).toStdString());
         }
-        writeAudit(db.handle(), request.adminUser, QStringLiteral("Delete Transaction"),
+
+        try {
+            QSqlQuery query(handle);
+            query.prepare(QStringLiteral("DELETE FROM transactions WHERE txn_id=?"));
+            query.addBindValue(request.transactionId);
+            executePrepared(query, QStringLiteral("Delete transaction"));
+            if (query.numRowsAffected() == 0) {
+                throw domain::DomainError(QStringLiteral("Transaction not found: %1").arg(request.transactionId).toStdString());
+            }
+
+            if (!handle.commit()) {
+                throw domain::DomainError(QStringLiteral("Could not commit transaction delete: %1").arg(handle.lastError().text()).toStdString());
+            }
+        } catch (...) {
+            handle.rollback();
+            throw;
+        }
+
+        writeAudit(handle, request.adminUser, QStringLiteral("Delete Transaction"),
             QStringLiteral("Deleted transaction ") + QString::number(request.transactionId));
     }
 };

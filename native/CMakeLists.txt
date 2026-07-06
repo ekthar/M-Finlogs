@@ -49,8 +49,12 @@ set(MFINLOGS_NATIVE_SOURCES
     src/app/SplashScreen.cpp
     src/app/ServerApplication.h
     src/app/ServerApplication.cpp
+    src/app/XlsxReader.h
+    src/app/XlsxReader.cpp
     src/data/ConfigService.h
     src/data/ConfigService.cpp
+    src/data/ConnectionPool.h
+    src/data/ConnectionPool.cpp
     src/data/SchemaInitializer.h
     src/data/SchemaInitializer.cpp
     src/data/SqlBusinessServices.h

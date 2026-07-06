@@ -314,10 +314,23 @@ QVariantMap QmlBackend::addTransaction(const QString& dateIso,
     }
 }
 
-QVariantMap QmlBackend::editTransaction(int id, const QString& field, const QString& newValue) {
+QVariantMap QmlBackend::editTransaction(int id, const QString& dateIso, const QString& billNo, const QString& party, const QString& type, const QString& mode, double amount) {
     try {
+        const QDate date = QDate::fromString(dateIso, Qt::ISODate);
+        if (!date.isValid()) {
+            return errorResult(QStringLiteral("Please choose a valid date"));
+        }
         context_.services().transactions->editTransaction(domain::TransactionEditRequest{
-            id, field, newValue, currentUser_
+            id,
+            domain::TransactionCreateRequest{
+                date,
+                billNo.trimmed(),
+                party.trimmed(),
+                transactionTypeFromText(type),
+                paymentModeFromText(mode),
+                amount
+            },
+            currentUser_
         });
         emit dataChanged();
         emit toast(QStringLiteral("Transaction updated"), QStringLiteral("success"));

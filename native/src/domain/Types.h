@@ -72,8 +72,7 @@ struct TransactionCreateRequest final {
 
 struct TransactionEditRequest final {
     int transactionId;
-    QString field;
-    QString newValue;
+    TransactionCreateRequest data;
     QString adminUser;
 };
 

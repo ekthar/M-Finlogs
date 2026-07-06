@@ -1,11 +1,12 @@
 ; M-Finlogs Native Installer Script (Inno Setup 6)
-; Creates a single .exe installer that bundles the app + Qt DLLs + fonts
+; Creates a single .exe installer that bundles the app + Qt DLLs + fonts + ODBC driver
 
 #define MyAppName "M-Finlogs"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "M-Finlogs"
 #define MyAppExeName "mfinlogs-native.exe"
 #define MyAppURL "https://github.com/ekthar/M-Finlogs"
+#define OdbcDriverMsi "msodbcsql_17.10.5.1_x64.msi"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -22,7 +23,7 @@ SolidCompression=yes
 SetupIconFile=..\..\assets\finlogs.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 WizardStyle=modern
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -36,11 +37,30 @@ Name: "startmenu"; Description: "Create Start Menu shortcut"; GroupDescription: 
 [Files]
 ; Main executable and all Qt DLLs/plugins from the windeployqt package folder
 Source: "..\build\package\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Microsoft ODBC Driver 17 for SQL Server redistributable
+Source: "{#OdbcDriverMsi}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: not OdbcDriverInstalled
+
+[Run]
+; Install ODBC driver silently (only if not already present)
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\{#OdbcDriverMsi}"" /quiet IAcceptSQLServerODBCLicenseTerms=Yes /norestart"; StatusMsg: "Installing Microsoft ODBC Driver 17 for SQL Server..."; Flags: runhidden; Check: not OdbcDriverInstalled
+; Launch the app after install
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
-[Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+[Code]
+function OdbcDriverInstalled: Boolean;
+var
+  Version: String;
+begin
+  Result := RegQueryStringValue(HKLM,
+    'SOFTWARE\ODBC\ODBCINST.INI\ODBC Driver 17 for SQL Server',
+    'Driver', Version);
+  if not Result then
+    Result := RegQueryStringValue(HKLM64,
+      'SOFTWARE\ODBC\ODBCINST.INI\ODBC Driver 17 for SQL Server',
+      'Driver', Version);
+end;

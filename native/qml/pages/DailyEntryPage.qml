@@ -131,25 +131,20 @@ Item {
         onAccepted: {
             if (!page.editingRow) return
             var row = page.editingRow
-            var changed = false
 
-            var fields = [
-                { field: "txn_date", orig: originalValues.date, curr: editDateField.isoText },
-                { field: "bill_no", orig: originalValues.bill_no, curr: editBillField.text },
-                { field: "party", orig: originalValues.party, curr: editPartyField.text },
-                { field: "txn_type", orig: originalValues.type, curr: editTypeField.currentText },
-                { field: "payment_mode", orig: originalValues.mode, curr: editModeField.currentText },
-                { field: "amount", orig: originalValues.amount, curr: editAmountField.text }
-            ]
+            var res = backend.editTransaction(
+                row.id,
+                editDateField.isoText,
+                editBillField.text,
+                editPartyField.text,
+                editTypeField.currentText,
+                editModeField.currentText,
+                parseFloat(editAmountField.text)
+            )
 
-            for (var i = 0; i < fields.length; i++) {
-                if (fields[i].orig !== fields[i].curr) {
-                    var res = backend.editTransaction(row.id, fields[i].field, fields[i].curr)
-                    if (res && res.ok === true) changed = true
-                }
+            if (res && res.ok === true) {
+                page.refresh()
             }
-
-            if (changed) page.refresh()
             page.editingRow = null
         }
         onRejected: {

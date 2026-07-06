@@ -54,7 +54,7 @@ public:
                                            const QString& type,
                                            const QString& mode,
                                            double amount);
-    Q_INVOKABLE QVariantMap editTransaction(int id, const QString& field, const QString& newValue);
+    Q_INVOKABLE QVariantMap editTransaction(int id, const QString& dateIso, const QString& billNo, const QString& party, const QString& type, const QString& mode, double amount);
     Q_INVOKABLE QVariantMap deleteTransaction(int id);
     Q_INVOKABLE QString nextBillNumber(const QString& billNo);
 
