@@ -501,88 +501,112 @@ Item {
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
 
-                    Flow {
+                    Item {
                         Layout.fillWidth: true
-                        spacing: Theme.s3
-                        Text {
-                            text: "Recent Transactions"
-                            color: Theme.text
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fsSection
-                            font.weight: Font.Bold
-                            verticalAlignment: Text.AlignVCenter
-                            height: 32
-                        }
-                        Item { width: Theme.s2; height: 1 }
-                        GhostButton {
-                            text: "Import"
-                            tint: Theme.accent
-                            implicitWidth: 80
-                            onClicked: {
-                                var res = backend.importTransactions()
-                                if (res && res.ok === true) {
-                                    page.refresh()
-                                }
-                            }
-                        }
-                        GhostButton {
-                            text: "Template"
-                            tint: Theme.accent
-                            implicitWidth: 90
-                            onClicked: backend.downloadImportTemplate()
-                        }
-                        Rectangle {
-                            id: smartBtn
-                            width: 28; height: 28; radius: 14
-                            color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
-                            border.width: 1
-                            border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                        implicitHeight: toolRow.implicitHeight
+
+                        RowLayout {
+                            id: toolRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            spacing: Theme.s3
+
                             Text {
-                                anchors.centerIn: parent
-                                text: "\u2699"
-                                color: Theme.accent2
-                                font.pixelSize: 14
+                                text: "Recent Transactions"
+                                color: Theme.text
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fsSection
+                                font.weight: Font.Bold
                             }
-                            HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
-                            TapHandler {
-                                onTapped: {
-                                    var res = backend.smartImportExcel()
+                            Item { Layout.fillWidth: true }
+                            GhostButton {
+                                text: "Import"
+                                tint: Theme.accent
+                                implicitWidth: 80
+                                onClicked: {
+                                    var res = backend.importTransactions()
                                     if (res && res.ok === true) {
                                         page.refresh()
                                     }
                                 }
                             }
-                            ToolTip.visible: smartHover.hovered
-                            ToolTip.text: "Smart Import — bulk post Excel register (COL=Receipt, SL:L=Sale)"
-                            ToolTip.delay: 600
-                        }
-                        GhostButton {
-                            text: "Export PDF"
-                            tint: Theme.accent2
-                            implicitWidth: 100
-                            onClicked: backend.exportRecentPdf(7)
-                        }
-                        GhostButton {
-                            text: "Export Excel"
-                            tint: Theme.accent3
-                            implicitWidth: 100
-                            onClicked: backend.exportRecentExcel(30)
-                        }
-                        GhostButton {
-                            id: undoBtn
-                            text: "\u21A9 Undo"
-                            tint: Theme.warning
-                            implicitWidth: 90
-                            visible: false
-                            onClicked: {
-                                var res = backend.undoDeleteTransaction()
-                                if (res && res.ok === true) {
-                                    page.refresh()
-                                    undoBtn.visible = false
+                            GhostButton {
+                                text: "Template"
+                                tint: Theme.accent
+                                implicitWidth: 90
+                                onClicked: backend.downloadImportTemplate()
+                            }
+                            Rectangle {
+                                id: smartBtn
+                                Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                                radius: 14
+                                color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
+                                border.width: 1
+                                border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u2699"
+                                    color: Theme.accent2
+                                    font.pixelSize: 14
+                                }
+                                HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
+                                TapHandler {
+                                    onTapped: {
+                                        var res = backend.smartImportExcel()
+                                        if (res && res.ok === true) {
+                                            page.refresh()
+                                        }
+                                    }
+                                }
+                                Rectangle {
+                                    visible: smartHover.hovered
+                                    x: parent.width + 8; y: -4
+                                    width: tipText.implicitWidth + 16
+                                    height: tipText.implicitHeight + 8
+                                    radius: Theme.rSm
+                                    color: Theme.bg2
+                                    border.width: 1
+                                    border.color: Theme.glassBorder
+                                    z: 1000
+                                    Text {
+                                        id: tipText
+                                        anchors.centerIn: parent
+                                        text: "Smart Import"
+                                        color: Theme.textDim
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: Theme.fsTiny
+                                    }
                                 }
                             }
+                            GhostButton {
+                                text: "Export PDF"
+                                tint: Theme.accent2
+                                implicitWidth: 100
+                                onClicked: backend.exportRecentPdf(7)
+                            }
+                            GhostButton {
+                                text: "Export Excel"
+                                tint: Theme.accent3
+                                implicitWidth: 100
+                                onClicked: backend.exportRecentExcel(30)
+                            }
+                            GhostButton {
+                                id: undoBtn
+                                text: "\u21A9 Undo"
+                                tint: Theme.warning
+                                implicitWidth: 90
+                                visible: false
+                                onClicked: {
+                                    var res = backend.undoDeleteTransaction()
+                                    if (res && res.ok === true) {
+                                        page.refresh()
+                                        undoBtn.visible = false
+                                    }
+                                }
+                            }
+                            StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                         }
-                        StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
+                        HoverHandler { id: toolHover; cursorShape: Qt.ArrowCursor }
                     }
 
                 RowLayout {
