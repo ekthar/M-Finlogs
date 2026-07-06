@@ -52,7 +52,7 @@ Item {
             backend.toast("Choose a party first", "error")
             return
         }
-        var res = backend.ledger(partyField.text, fromDate.isoText, toDate.isoText)
+        var res = backend.ledger(partyField.text, dateRange.fromIso, dateRange.toIso)
         if (res && res.ok === false) return
         openingBalance = Number(res.opening_balance || 0)
         rawRows = res.data || []
@@ -91,8 +91,11 @@ Item {
                     completions: page.partyList
                     onAccepted: page.load()
                 }
-                DatePickerField { id: fromDate; Layout.preferredWidth: 160; label: "From" }
-                DatePickerField { id: toDate; Layout.preferredWidth: 160; label: "To" }
+                DateRangePicker {
+                    id: dateRange
+                    Layout.fillWidth: true
+                    onRangeChanged: Qt.callLater(page.load)
+                }
                 PrimaryButton { Layout.alignment: Qt.AlignBottom; Layout.preferredWidth: 120; text: "Show"; onClicked: page.load() }
                 GhostButton { Layout.alignment: Qt.AlignBottom; text: "Export"; onClicked: {} }
             }

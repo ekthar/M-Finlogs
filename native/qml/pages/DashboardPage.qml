@@ -34,9 +34,18 @@ Item {
             width: parent.width
             spacing: Theme.s5
 
-            SectionHeader {
-                title: "Overview"
-                subtitle: "Your business at a glance"
+            RowLayout {
+                Layout.fillWidth: true
+                SectionHeader {
+                    title: "Overview"
+                    subtitle: "Your business at a glance"
+                }
+                Item { Layout.fillWidth: true }
+                PrimaryButton {
+                    text: "Closing Report"
+                    implicitWidth: 140
+                    onClicked: closingReport.show()
+                }
             }
 
             // Metric cards
@@ -217,5 +226,10 @@ Item {
                 }
             }
         }
+    }
+
+    // Closing Report Overlay
+    ClosingReport {
+        id: closingReport
     }
 }

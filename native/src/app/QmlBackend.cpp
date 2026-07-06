@@ -386,12 +386,90 @@ QVariantMap QmlBackend::editTransaction(int id, const QString& dateIso, const QS
 
 QVariantMap QmlBackend::deleteTransaction(int id) {
     try {
+        // Capture the transaction for undo before deleting
+        const QVector<domain::TransactionRow> txns =
+            context_.services().transactions->listTransactions(1, 5000, 0);
+        for (const auto& txn : txns) {
+            if (txn.id == id) {
+                undoBuffer_.transactionId = id;
+                undoBuffer_.request = domain::TransactionCreateRequest{
+                    txn.date, txn.billNo, txn.party, txn.type, txn.mode, txn.amount
+                };
+                break;
+            }
+        }
+
         context_.services().transactions->deleteTransaction(domain::TransactionDeleteRequest{
             id, currentUser_
         });
         emit dataChanged();
         emit toast(QStringLiteral("Transaction deleted"), QStringLiteral("success"));
         return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::batchDeleteTransactions(const QVariantList& ids) {
+    try {
+        int count = 0;
+        for (const QVariant& idVar : ids) {
+            const int id = idVar.toInt();
+            context_.services().transactions->deleteTransaction(domain::TransactionDeleteRequest{
+                id, currentUser_
+            });
+            ++count;
+        }
+        emit dataChanged();
+        emit toast(QStringLiteral("Deleted %1 transactions").arg(count), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::undoDeleteTransaction() {
+    try {
+        if (undoBuffer_.transactionId < 0) {
+            return errorResult(QStringLiteral("Nothing to undo"));
+        }
+        context_.services().transactions->addTransaction(undoBuffer_.request);
+        undoBuffer_.transactionId = -1;
+        emit dataChanged();
+        emit toast(QStringLiteral("Delete undone"), QStringLiteral("success"));
+        return okResult();
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+QVariantMap QmlBackend::downloadImportTemplate() {
+    try {
+        const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/M-Finlogs_Import_Template.csv");
+        const QString filePath = QFileDialog::getSaveFileName(QApplication::activeWindow(),
+            QStringLiteral("Save Import Template"), defaultPath, QStringLiteral("CSV (*.csv)"));
+        if (filePath.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            return errorResult(QStringLiteral("Could not write file: ") + filePath);
+        }
+        QTextStream stream(&file);
+        stream.setEncoding(QStringConverter::Utf8);
+
+        stream << QStringLiteral("date,bill no,party,type,mode,amount\n");
+        stream << QStringLiteral("2026-04-01,INV-001,Acme Corp,Sale,Credit,15000.00\n");
+        stream << QStringLiteral("02-04-2026,INV-002,PQR Traders,Sale Return,Cash,3200.00\n");
+        stream << QStringLiteral("03-04-2026,,Office Expenses,Expense,UPI,850.00\n");
+
+        file.close();
+        emit toast(QStringLiteral("Import template saved"), QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), filePath);
+        return res;
     } catch (const std::exception& err) {
         return errorResult(QString::fromUtf8(err.what()));
     }
@@ -1161,6 +1239,315 @@ QVariantMap QmlBackend::importTransactions() {
     }
 }
 
+// ---- Smart Bulk Import (XLS/XLSX → auto-create parties + post all entries) -
+//
+// Parses the user's daily register format:
+//   COL entries   → Receipt transaction (cash/UPI collected from debtors)
+//   SL:L with Cr  → Sale transaction with Credit mode (named customer, pay later)
+//   SL:L with Cash→ Sale transaction with Cash mode (walk-in, paid now)
+//   SL:L with Card→ Sale transaction with UPI mode (walk-in, paid now)
+//   Split payments→ Two Sale transactions (cash portion + card portion)
+//
+// Party names are cleaned (strips "/BLNC..." suffix), normalized, and
+// auto-created with creditAllowed=true when they don't exist.
+
+QVariantMap QmlBackend::smartImportExcel() {
+    try {
+        const QString path = QFileDialog::getOpenFileName(QApplication::activeWindow(),
+            QStringLiteral("Smart Import — Daily Register"), QString(),
+            QStringLiteral("Excel Files (*.xls *.xlsx);;CSV Files (*.csv)"));
+        if (path.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        emit toast(QStringLiteral("Smart import started — processing file..."), QStringLiteral("info"));
+
+        // Step 1: convert to CSV if needed
+        QString csvPath = path;
+        const QString lower = path.toLower();
+
+        if (lower.endsWith(QStringLiteral(".xls")) || lower.endsWith(QStringLiteral(".xlsx"))) {
+            csvPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+                .filePath(QStringLiteral("mfinlogs_smart_import.csv"));
+
+            // Build PowerShell one-liner: open Excel, save as CSV (type 6), quit
+            const QString psScript = QStringLiteral(
+                "$e=New-Object -ComObject Excel.Application;"
+                "$e.Visible=$false;"
+                "$w=$e.Workbooks.Open('%1');"
+                "$w.Worksheets(1).SaveAs('%2',6);"
+                "$w.Close($false);"
+                "$e.Quit();"
+                "[System.Runtime.Interopservices.Marshal]::ReleaseComObject($e)|Out-Null"
+            ).arg(path.replace(QLatin1Char('\''), QStringLiteral("''")),
+                  csvPath.replace(QLatin1Char('\''), QStringLiteral("''")));
+
+            QProcess ps;
+            ps.start(QStringLiteral("powershell"), QStringList{
+                QStringLiteral("-NoProfile"),
+                QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"),
+                QStringLiteral("-Command"), psScript
+            });
+            if (!ps.waitForFinished(60000)) {
+                return errorResult(QStringLiteral("Could not convert Excel to CSV (timeout)"));
+            }
+            if (ps.exitCode() != 0) {
+                return errorResult(QStringLiteral("Excel conversion failed: ") + QString::fromUtf8(ps.readAllStandardError()));
+            }
+        }
+
+        // Step 2: read CSV
+        QFile csvFile(csvPath);
+        if (!csvFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            return errorResult(QStringLiteral("Could not read converted file"));
+        }
+        QTextStream csvStream(&csvFile);
+        csvStream.setEncoding(QStringConverter::Utf8);
+
+        // Skip header rows (first 2 rows are layout headers)
+        csvStream.readLine(); // skip row 1
+        csvStream.readLine(); // skip row 2
+
+        struct SmartRow {
+            int billNo = 0;
+            QString type;
+            QDate date;
+            QString rawParty;
+            double saleCol = 0;
+            double credit = 0;
+            double cash = 0;
+            double card = 0;
+            bool valid = false;
+        };
+        QVector<SmartRow> smartRows;
+
+        // Normalize party name: trim, collapse spaces, strip /BLNC suffix
+        auto cleanParty = [](const QString& raw) -> QString {
+            QString name = raw.trimmed();
+            // Remove "/BLNC ..." or "/blnc..." suffix
+            int slash = name.indexOf(QLatin1Char('/'));
+            if (slash > 0) {
+                name = name.left(slash).trimmed();
+            }
+            // Collapse multiple spaces
+            QString cleaned;
+            bool lastSpace = false;
+            for (const QChar& ch : name) {
+                if (ch.isSpace()) {
+                    if (!lastSpace) { cleaned.append(QLatin1Char(' ')); lastSpace = true; }
+                } else {
+                    cleaned.append(ch);
+                    lastSpace = false;
+                }
+            }
+            return cleaned.trimmed();
+        };
+
+        // Parse date from CSV (Excel saves as M/d/yyyy or dd-MM-yyyy)
+        auto parseDate = [](const QString& text) -> QDate {
+            QDate d = QDate::fromString(text.trimmed(), Qt::ISODate);
+            if (d.isValid()) return d;
+            d = QDate::fromString(text.trimmed(), QStringLiteral("M/d/yyyy"));
+            if (d.isValid()) return d;
+            d = QDate::fromString(text.trimmed(), QStringLiteral("M/d/yy"));
+            if (d.isValid()) return d;
+            d = QDate::fromString(text.trimmed(), QStringLiteral("dd-MM-yyyy"));
+            if (d.isValid()) return d;
+            d = QDate::fromString(text.trimmed(), QStringLiteral("dd/MM/yyyy"));
+            return d;
+        };
+
+        int lineNum = 2;
+        while (!csvStream.atEnd()) {
+            lineNum++;
+            const QString rawLine = csvStream.readLine().trimmed();
+            if (rawLine.isEmpty()) continue;
+
+            // Parse CSV line (simple — quoted fields handled)
+            QStringList vals;
+            QString cur;
+            bool quoted = false;
+            for (const QChar& ch : rawLine) {
+                if (ch == QLatin1Char('"')) {
+                    quoted = !quoted;
+                } else if (ch == QLatin1Char(',') && !quoted) {
+                    vals.append(cur.trimmed());
+                    cur.clear();
+                } else {
+                    cur.append(ch);
+                }
+            }
+            vals.append(cur.trimmed());
+            if (vals.size() < 8) continue;
+
+            const QString typeVal = vals.at(1).trimmed().toUpper();
+            if (typeVal != QStringLiteral("COL") && typeVal != QStringLiteral("SL:L")) continue;
+
+            SmartRow row;
+            row.billNo = vals.at(0).toInt();
+            row.type = typeVal;
+            row.date = parseDate(vals.at(2));
+            row.rawParty = cleanParty(vals.at(3));
+            row.saleCol = vals.at(4).toDouble();
+            row.credit = vals.at(5).toDouble();
+            row.cash = vals.at(6).toDouble();
+            row.card = vals.at(7).toDouble();
+            row.valid = row.date.isValid() && row.saleCol > 0;
+            if (row.valid) {
+                smartRows.append(row);
+            }
+        }
+        csvFile.close();
+
+        if (smartRows.isEmpty()) {
+            return errorResult(QStringLiteral("No valid transactions found in file"));
+        }
+
+        // Step 3: fetch existing parties once
+        QStringList existingParties = partyNames();
+
+        // Helper: find party (case-insensitive) or create it
+        auto findOrCreateParty = [&](const QString& name, bool creditAllowed) -> QString {
+            if (name.isEmpty()) return QString();
+            for (const QString& p : existingParties) {
+                if (p.compare(name, Qt::CaseInsensitive) == 0) {
+                    return p;
+                }
+            }
+            // Create new party
+            try {
+                context_.services().parties->createParty(name, QString(), creditAllowed);
+                existingParties.prepend(name); // cache
+                stat.partiesCreated++;
+                return name;
+            } catch (...) {
+                return QString();
+            }
+        };
+
+        // Date -> ISO string
+        auto dateToIso = [](const QDate& d) -> QString {
+            return d.toString(Qt::ISODate);
+        };
+
+        // Step 4: process each row
+        struct ImportStat {
+            int receipts = 0;
+            int cashSales = 0;
+            int upiSales = 0;
+            int creditSales = 0;
+            int partiesCreated = 0;
+            int errors = 0;
+            double totalReceipts = 0;
+            double totalCashSales = 0;
+            double totalUpiSales = 0;
+            double totalCreditSales = 0;
+        };
+        ImportStat stat;
+
+        for (const SmartRow& row : smartRows) {
+            if (row.type == QStringLiteral("COL")) {
+                // COL = Receipt (money collected from credit customer)
+                QString party = findOrCreateParty(row.rawParty, false);
+                if (party.isEmpty() && !row.rawParty.isEmpty()) {
+                    party = row.rawParty;
+                }
+                if (party.isEmpty()) { stat.errors++; continue; }
+
+                QString mode = row.cash > 0 ? QStringLiteral("Cash") : QStringLiteral("UPI");
+                double amount = row.cash > 0 ? row.cash : row.card;
+
+                try {
+                    context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                        row.date, QString::number(row.billNo), party,
+                        domain::TransactionType::Receipt, paymentModeFromText(mode), amount
+                    });
+                    stat.receipts++;
+                    stat.totalReceipts += amount;
+                } catch (...) { stat.errors++; }
+
+            } else if (row.type == QStringLiteral("SL:L")) {
+                // SL:L = Sale (cash, UPI, or credit)
+
+                // Credit portion
+                if (row.credit > 0) {
+                    QString party = findOrCreateParty(row.rawParty, true);
+                    if (party.isEmpty()) { stat.errors++; continue; }
+                    try {
+                        context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                            row.date, QString::number(row.billNo), party,
+                            domain::TransactionType::Sale, domain::PaymentMode::Credit, row.credit
+                        });
+                        stat.creditSales++;
+                        stat.totalCreditSales += row.credit;
+                    } catch (...) { stat.errors++; }
+                }
+
+                // Cash portion
+                if (row.cash > 0) {
+                    try {
+                        context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                            row.date, QString::number(row.billNo), QStringLiteral("customer"),
+                            domain::TransactionType::Sale, domain::PaymentMode::Cash, row.cash
+                        });
+                        stat.cashSales++;
+                        stat.totalCashSales += row.cash;
+                    } catch (...) { stat.errors++; }
+                }
+
+                // Card/UPI portion
+                if (row.card > 0) {
+                    try {
+                        context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                            row.date, QString::number(row.billNo), QStringLiteral("customer"),
+                            domain::TransactionType::Sale, domain::PaymentMode::Upi, row.card
+                        });
+                        stat.upiSales++;
+                        stat.totalUpiSales += row.card;
+                    } catch (...) { stat.errors++; }
+                }
+            }
+        }
+
+        emit dataChanged();
+
+        // Step 5: summary
+        QString summary = QStringLiteral(
+            "Smart Import complete!\n"
+            "  Receipts (COL)     : %1 entries — ₹%2\n"
+            "  Cash Sales (SL:L)  : %3 entries — ₹%4\n"
+            "  UPI Sales (SL:L)   : %5 entries — ₹%6\n"
+            "  Credit Sales (SL:L): %7 entries — ₹%8\n"
+            "  New parties created: %9\n"
+            "  Errors             : %10\n"
+            "  ────────────────────────────────────\n"
+            "  Total posted       : %11 entries — ₹%12"
+        ).arg(stat.receipts).arg(QLocale(QLocale::English, QLocale::India).toString(stat.totalReceipts, 'f', 2))
+         .arg(stat.cashSales).arg(QLocale(QLocale::English, QLocale::India).toString(stat.totalCashSales, 'f', 2))
+         .arg(stat.upiSales).arg(QLocale(QLocale::English, QLocale::India).toString(stat.totalUpiSales, 'f', 2))
+         .arg(stat.creditSales).arg(QLocale(QLocale::English, QLocale::India).toString(stat.totalCreditSales, 'f', 2))
+         .arg(stat.partiesCreated)
+         .arg(stat.errors)
+         .arg(stat.receipts + stat.cashSales + stat.upiSales + stat.creditSales)
+         .arg(QLocale(QLocale::English, QLocale::India).toString(
+             stat.totalReceipts + stat.totalCashSales + stat.totalUpiSales + stat.totalCreditSales, 'f', 2));
+
+        emit toast(summary, QStringLiteral("success"));
+
+        QVariantMap result = okResult();
+        result.insert(QStringLiteral("receipts"), stat.receipts);
+        result.insert(QStringLiteral("cashSales"), stat.cashSales);
+        result.insert(QStringLiteral("upiSales"), stat.upiSales);
+        result.insert(QStringLiteral("creditSales"), stat.creditSales);
+        result.insert(QStringLiteral("errors"), stat.errors);
+        return result;
+
+    } catch (const std::exception& err) {
+        emit toast(QStringLiteral("Smart import failed: ") + QString::fromUtf8(err.what()), QStringLiteral("error"));
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
 // ---- Export (PDF/Excel) ---------------------------------------------------
 
 QVariantMap QmlBackend::exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows) {
@@ -1516,6 +1903,158 @@ QVariantMap QmlBackend::exportRecentExcel(int days) {
         return res;
     } catch (const std::exception& err) {
         return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
+// ---- All Party Balances (closed from/to the full date range) --------------
+
+QVariantList QmlBackend::allPartyBalances() {
+    try {
+        const QStringList names = partyNames();
+        QVariantList result;
+        for (const QString& name : names) {
+            const QVariantMap bal = partyBalance(name);
+            if (bal.value(QStringLiteral("hasData")).toBool()) {
+                QVariantMap entry;
+                entry.insert(QStringLiteral("party"), name);
+                entry.insert(QStringLiteral("balance"), bal.value(QStringLiteral("balance")));
+                entry.insert(QStringLiteral("balanceLabel"), bal.value(QStringLiteral("balanceLabel")));
+                entry.insert(QStringLiteral("lastDate"), bal.value(QStringLiteral("lastDate")));
+                entry.insert(QStringLiteral("lastType"), bal.value(QStringLiteral("lastType")));
+                entry.insert(QStringLiteral("lastAmount"), bal.value(QStringLiteral("lastAmount")));
+                result.append(entry);
+            }
+        }
+        return result;
+    } catch (...) {
+        return {};
+    }
+}
+
+// ---- Credit Follow-up List (Dr balance > 0, sorted descending) -----------
+
+QVariantList QmlBackend::creditFollowupList() {
+    try {
+        const QVariantList all = allPartyBalances();
+        QVariantList debtors;
+        for (const QVariant& v : all) {
+            const QVariantMap entry = v.toMap();
+            const double bal = entry.value(QStringLiteral("balance")).toDouble();
+            if (bal > 0) {
+                debtors.append(entry);
+            }
+        }
+        // Sort descending by balance
+        std::sort(debtors.begin(), debtors.end(), [](const QVariant& a, const QVariant& b) {
+            return a.toMap().value(QStringLiteral("balance")).toDouble() >
+                   b.toMap().value(QStringLiteral("balance")).toDouble();
+        });
+        return debtors;
+    } catch (...) {
+        return {};
+    }
+}
+
+// ---- Today's Closing Report -----------------------------------------------
+//
+// Returns a snapshot of the current day's financials:
+//   openingCash  – cash seed carried forward
+//   cashReceipts – COL cash collected from debtors
+//   upiReceipts  – COL UPI collected from debtors
+//   cashSales    – SL:L cash sales (walk-in)
+//   upiSales     – SL:L UPI sales (walk-in)
+//   creditSales  – SL:L credit sales
+//   closingCash  – opening + cashReceipts + cashSales
+//   upiTotal     – upiReceipts + upiSales
+//   recentTxns   – list of today's raw transactions for the overlay
+
+QVariantMap QmlBackend::closingReport() {
+    try {
+        const QDate today = QDate::currentDate();
+        const QString todayIso = today.toString(Qt::ISODate);
+        const double opening = openingCashSeed();
+
+        // Fetch today's transactions with a wide net (last 1 day, high limit)
+        const QVector<domain::TransactionRow> txns =
+            context_.services().transactions->listTransactions(1, 2000, 1);
+
+        double cashReceipts = 0, upiReceipts = 0;
+        double cashSales = 0, upiSales = 0, creditSales = 0;
+        int receiptCount = 0, cashSaleCount = 0, upiSaleCount = 0, creditSaleCount = 0;
+        QVariantList recentTxns;
+
+        for (const domain::TransactionRow& txn : txns) {
+            if (txn.date != today) continue;
+
+            // Build display map for the overlay
+            QVariantMap display;
+            display.insert(QStringLiteral("id"), txn.id);
+            display.insert(QStringLiteral("billNo"), txn.billNo);
+            display.insert(QStringLiteral("party"), txn.party);
+
+            switch (txn.type) {
+            case domain::TransactionType::Sale: display.insert(QStringLiteral("type"), QStringLiteral("Sale")); break;
+            case domain::TransactionType::Receipt: display.insert(QStringLiteral("type"), QStringLiteral("Receipt")); break;
+            default: display.insert(QStringLiteral("type"), QStringLiteral("Other")); break;
+            }
+            switch (txn.mode) {
+            case domain::PaymentMode::Cash: display.insert(QStringLiteral("mode"), QStringLiteral("Cash")); break;
+            case domain::PaymentMode::Upi: display.insert(QStringLiteral("mode"), QStringLiteral("UPI")); break;
+            case domain::PaymentMode::Credit: display.insert(QStringLiteral("mode"), QStringLiteral("Credit")); break;
+            default: display.insert(QStringLiteral("mode"), QStringLiteral("Other")); break;
+            }
+            display.insert(QStringLiteral("amount"), txn.amount);
+            recentTxns.append(display);
+
+            // Categorise
+            if (txn.type == domain::TransactionType::Receipt) {
+                if (txn.mode == domain::PaymentMode::Cash) {
+                    cashReceipts += txn.amount;
+                    receiptCount++;
+                } else if (txn.mode == domain::PaymentMode::Upi) {
+                    upiReceipts += txn.amount;
+                    receiptCount++;
+                }
+            } else if (txn.type == domain::TransactionType::Sale) {
+                if (txn.mode == domain::PaymentMode::Credit) {
+                    creditSales += txn.amount;
+                    creditSaleCount++;
+                } else if (txn.mode == domain::PaymentMode::Cash) {
+                    cashSales += txn.amount;
+                    cashSaleCount++;
+                } else if (txn.mode == domain::PaymentMode::Upi) {
+                    upiSales += txn.amount;
+                    upiSaleCount++;
+                }
+            }
+        }
+
+        const double closingCash = opening + cashReceipts + cashSales;
+        const double upiTotal = upiReceipts + upiSales;
+
+        QVariantMap result;
+        result.insert(QStringLiteral("date"), todayIso);
+        result.insert(QStringLiteral("openingCash"), opening);
+        result.insert(QStringLiteral("cashReceipts"), cashReceipts);
+        result.insert(QStringLiteral("upiReceipts"), upiReceipts);
+        result.insert(QStringLiteral("cashSales"), cashSales);
+        result.insert(QStringLiteral("upiSales"), upiSales);
+        result.insert(QStringLiteral("creditSales"), creditSales);
+        result.insert(QStringLiteral("closingCash"), closingCash);
+        result.insert(QStringLiteral("upiTotal"), upiTotal);
+        result.insert(QStringLiteral("totalCollected"), cashReceipts + upiReceipts + cashSales + upiSales);
+        result.insert(QStringLiteral("receiptCount"), receiptCount);
+        result.insert(QStringLiteral("cashSaleCount"), cashSaleCount);
+        result.insert(QStringLiteral("upiSaleCount"), upiSaleCount);
+        result.insert(QStringLiteral("creditSaleCount"), creditSaleCount);
+        result.insert(QStringLiteral("recentTxns"), recentTxns);
+        result.insert(QStringLiteral("ok"), true);
+        return result;
+    } catch (const std::exception& err) {
+        QVariantMap errRes;
+        errRes.insert(QStringLiteral("ok"), false);
+        errRes.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
+        return errRes;
     }
 }
 

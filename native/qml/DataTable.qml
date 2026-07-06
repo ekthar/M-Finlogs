@@ -2,26 +2,24 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MFinlogs
 
-// Premium data table with precise column alignment and an optional grid.
-//   columns: [{ title, key, align?("left"|"right"|"center"),
-//               weight?, money?, date?, chip? }]
-//   rows: array of objects (QVariantMap from backend)
-//   totals: optional object keyed by column.key -> value (renders a footer)
-// Emits rowActivated(row) on double-tap.
 Item {
     id: root
     property var columns: []
     property var rows: []
     property string emptyText: "No records yet"
     property bool loading: false
-    property bool gridLines: true          // vertical column separators
-    property var totals: ({})              // { key: value } -> sticky footer
+    property bool gridLines: true
+    property var totals: ({})
     property string totalsLabel: "Total"
+    property bool checkable: false
+    property var checkedRows: []
     signal rowActivated(var row)
+    signal checkChanged(var checked, var row)
+    signal inlineEdit(var row, var columnKey, var newValue)
 
-    // Shared horizontal insets so header, body and footer align perfectly.
     readonly property int hPad: 16
-    readonly property int cellGap: 12      // inner right padding inside a cell
+    readonly property int cellGap: 12
+    readonly property int checkColWidth: 44
 
     function alignFor(c) {
         return c.align === "right" ? Text.AlignRight
@@ -42,7 +40,7 @@ Item {
         return t > 0 ? t : 1
     }
     function colWidth(c, fullWidth) {
-        return (fullWidth - hPad * 2) * (c.weight ? c.weight : 1) / totalWeight
+        return (fullWidth - hPad * 2 - (checkable ? checkColWidth : 0)) * (c.weight ? c.weight : 1) / totalWeight
     }
     property bool hasTotals: {
         if (!totals) return false
@@ -50,8 +48,37 @@ Item {
         return false
     }
 
-    // Rounded clip container (version-safe: avoids per-corner radius which is
-    // Qt 6.7+ only). Header/footer are square; the container masks corners.
+    function isChecked(rowId) {
+        for (var i = 0; i < checkedRows.length; i++) {
+            if (checkedRows[i] === rowId) return true
+        }
+        return false
+    }
+
+    function toggleCheck(rowId) {
+        var idx = -1
+        for (var i = 0; i < checkedRows.length; i++) {
+            if (checkedRows[i] === rowId) { idx = i; break }
+        }
+        if (idx >= 0) {
+            checkedRows.splice(idx, 1)
+        } else {
+            checkedRows.push(rowId)
+        }
+        checkChanged(isChecked(rowId), rowId)
+    }
+
+    function selectAll() {
+        checkedRows = []
+        for (var i = 0; i < rows.length; i++) {
+            checkedRows.push(rows[i].id)
+        }
+    }
+
+    function deselectAll() {
+        checkedRows = []
+    }
+
     Rectangle {
         anchors.fill: parent
         radius: Theme.rMd
@@ -73,13 +100,36 @@ Item {
                 anchors.fill: parent
                 anchors.leftMargin: root.hPad
                 anchors.rightMargin: root.hPad
+                // Check-all column (if checkable)
+                Item {
+                    visible: root.checkable
+                    width: root.checkColWidth
+                    height: parent.height
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 18; height: 18; radius: 4
+                        color: "transparent"
+                        border.width: 2
+                        border.color: Theme.textFaint
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u2713"
+                            color: Theme.accent
+                            font.pixelSize: 12
+                            font.weight: Font.Bold
+                            visible: checkedRows.length > 0 && checkedRows.length === rows.length
+                        }
+                        TapHandler {
+                            onTapped: checkedRows.length === rows.length ? deselectAll() : selectAll()
+                        }
+                    }
+                }
                 Repeater {
                     model: root.columns
                     delegate: Item {
                         width: root.colWidth(modelData, root.width)
                         height: parent.height
 
-                        // vertical separator (skip first column)
                         Rectangle {
                             visible: root.gridLines && index > 0
                             width: 1
@@ -106,7 +156,6 @@ Item {
                     }
                 }
             }
-            // header bottom rule
             Rectangle {
                 anchors.bottom: parent.bottom
                 width: parent.width
@@ -121,11 +170,10 @@ Item {
             width: parent.width
             height: root.height - 44 - (root.hasTotals ? 46 : 0)
             clip: true
-            model: root.rows
+            model: root.loading ? 8 : root.rows
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.VerticalFlick
 
-            // Visible scrollbar (not just an indicator) so content is obviously scrollable
             ScrollBar.vertical: ScrollBar {
                 policy: ScrollBar.AsNeeded
                 width: 8
@@ -147,26 +195,55 @@ Item {
             highlightMoveDuration: Theme.durFast
             currentIndex: -1
 
-            // Keyboard: Enter activates row, Up/Down moves
             Keys.onReturnPressed: { if (currentIndex >= 0 && root.rows[currentIndex]) root.rowActivated(root.rows[currentIndex]) }
             Keys.onEnterPressed: { if (currentIndex >= 0 && root.rows[currentIndex]) root.rowActivated(root.rows[currentIndex]) }
 
             delegate: Rectangle {
                 id: rowItem
                 width: list.width
-                height: 46
-                property var rowData: modelData
+                height: root.loading ? 46 : 46
+                property var rowData: root.loading ? null : modelData
                 property bool isCurrent: list.currentIndex === index
-                color: isCurrent ? Theme.alpha(Theme.accent, 0.14)
+
+                // Skeleton shimmer
+                Rectangle {
+                    anchors.fill: parent
+                    visible: root.loading
+                    color: Theme.bg2
+                    Row {
+                        anchors.fill: parent
+                        anchors.leftMargin: root.hPad
+                        anchors.rightMargin: root.hPad
+                        spacing: root.cellGap
+                        Repeater {
+                            model: root.columns.length
+                            Rectangle {
+                                width: (parent.width - (root.columns.length - 1) * root.cellGap) / Math.max(1, root.columns.length)
+                                height: 14
+                                y: 16
+                                radius: 4
+                                color: Theme.alpha(Theme.textFaint, 0.1)
+                                SequentialAnimation on opacity {
+                                    loops: Animation.Infinite
+                                    PropertyAnimation { from: 0.3; to: 0.7; duration: 1000; easing.type: Easing.InOutSine }
+                                    PropertyAnimation { from: 0.7; to: 0.3; duration: 1000; easing.type: Easing.InOutSine }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                color: root.loading ? "transparent"
+                     : isCurrent ? Theme.alpha(Theme.accent, 0.14)
                      : rowHover.hovered ? Theme.rowHover
                      : (index % 2 === 0 ? "transparent" : Theme.rowAlt)
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
-                // row bottom separator
                 Rectangle {
                     anchors.bottom: parent.bottom
                     width: parent.width
                     height: 1
+                    visible: !root.loading
                     color: Theme.glassBorderSoft
                 }
 
@@ -174,16 +251,43 @@ Item {
                     anchors.fill: parent
                     anchors.leftMargin: root.hPad
                     anchors.rightMargin: root.hPad
+                    visible: !root.loading
+
+                    // Checkbox column
+                    Item {
+                        visible: root.checkable
+                        width: root.checkColWidth
+                        height: parent.height
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: 18; height: 18; radius: 4
+                            color: isChecked(rowData.id) ? Theme.accent : "transparent"
+                            border.width: 2
+                            border.color: isChecked(rowData.id) ? Theme.accent : Theme.textFaint
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u2713"
+                                color: Theme.accentInk
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                visible: isChecked(rowData.id)
+                            }
+                            TapHandler {
+                                onTapped: toggleCheck(rowData.id)
+                            }
+                        }
+                    }
+
                     Repeater {
                         model: root.columns
                         delegate: Item {
                             id: cell
                             property var col: modelData
                             property string value: root.cellText(modelData, rowItem.rowData)
+                            property bool editing: false
                             width: root.colWidth(modelData, list.width)
                             height: parent.height
 
-                            // vertical grid line (skip first column)
                             Rectangle {
                                 visible: root.gridLines && index > 0
                                 width: 1
@@ -192,7 +296,6 @@ Item {
                                 color: Theme.gridLine
                             }
 
-                            // Chip rendering for type/status columns
                             Rectangle {
                                 visible: cell.col.chip === true && cell.value.length > 0
                                 anchors.verticalCenter: parent.verticalCenter
@@ -213,11 +316,39 @@ Item {
                                 }
                             }
 
+                            // Inline editor (for editable columns)
+                            TextField {
+                                id: inlineEditor
+                                anchors.fill: parent
+                                anchors.leftMargin: root.cellGap - 4
+                                anchors.rightMargin: root.cellGap - 4
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: cell.editing && cell.col.editable
+                                height: 30
+                                color: Theme.text
+                                font.family: cell.col.money ? Theme.monoFamily : Theme.fontFamily
+                                font.pixelSize: Theme.fsSmall
+                                font.weight: cell.col.money ? Font.DemiBold : Font.Normal
+                                background: Rectangle {
+                                    radius: Theme.rSm
+                                    color: Theme.bg2
+                                    border.width: 2
+                                    border.color: Theme.accent
+                                }
+                                onAccepted: {
+                                    root.inlineEdit(rowItem.rowData, cell.col.key, text)
+                                    cell.editing = false
+                                }
+                                onEditingFinished: {
+                                    cell.editing = false
+                                }
+                            }
+
                             Text {
                                 anchors.fill: parent
                                 anchors.leftMargin: root.cellGap
                                 anchors.rightMargin: root.cellGap
-                                visible: cell.col.chip !== true
+                                visible: !cell.editing && cell.col.chip !== true
                                 verticalAlignment: Text.AlignVCenter
                                 horizontalAlignment: root.alignFor(cell.col)
                                 text: cell.value
@@ -232,14 +363,27 @@ Item {
                 }
 
                 HoverHandler { id: rowHover }
-                TapHandler { onDoubleTapped: root.rowActivated(rowItem.rowData) }
-
+                TapHandler {
+                    onDoubleTapped: {
+                        if (!root.loading && rowItem.rowData) {
+                            // Check if double-clicked column supports inline editing
+                            root.rowActivated(rowItem.rowData)
+                        }
+                    }
+                }
+                TapHandler {
+                    onTapped: {
+                        if (!root.loading && rowItem.rowData) {
+                            list.currentIndex = index
+                        }
+                    }
+                }
             }
 
-            // Empty state
+            // Empty state (when not loading)
             Column {
                 anchors.centerIn: parent
-                visible: (!root.rows || root.rows.length === 0) && !root.loading
+                visible: (!root.loading) && (!root.rows || root.rows.length === 0)
                 spacing: 10
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -255,11 +399,31 @@ Item {
                     font.pixelSize: Theme.fsSmall
                 }
             }
+
+            // Loading skeleton
+            Column {
+                anchors.centerIn: parent
+                visible: root.loading
+                spacing: 8
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "\u23F3"
+                    color: Theme.textFaint
+                    font.pixelSize: 24
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Loading..."
+                    color: Theme.textFaint
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fsSmall
+                }
+            }
         }
 
         // ---------- Totals footer (optional) ----------
         Rectangle {
-            visible: root.hasTotals
+            visible: root.hasTotals && !root.loading
             width: parent.width
             height: 46
             color: Theme.glassStrong
@@ -275,6 +439,10 @@ Item {
                 anchors.fill: parent
                 anchors.leftMargin: root.hPad
                 anchors.rightMargin: root.hPad
+                Item {
+                    visible: root.checkable
+                    width: root.checkColWidth
+                }
                 Repeater {
                     model: root.columns
                     delegate: Item {

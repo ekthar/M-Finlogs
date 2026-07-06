@@ -238,21 +238,29 @@ Item {
     Dialog {
         id: deleteDialog
         modal: true
-        standardButtons: Dialog.Ok | Dialog.Cancel
-        title: "Delete Transaction"
         closePolicy: Dialog.CloseOnEscape
+        title: "Delete Transaction"
         width: Math.min(440, page.width * 0.85)
-        height: Math.min(220, page.height * 0.5)
+        height: Math.min(260, page.height * 0.5)
+        padding: 0
 
         property string infoText: "Transaction details will be permanently removed."
+        property bool batchMode: false
 
-        ColumnLayout {
-            anchors.fill: parent
-            anchors.margins: Theme.s4
-            spacing: Theme.s3
+        background: GlassPanel {
+            fillColor: Theme.bg2
+            radius: Theme.rLg
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 0
+
+            Item { Layout.preferredHeight: Theme.s5 }
 
             RowLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
                 spacing: Theme.s3
 
                 Text {
@@ -268,7 +276,9 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
-                        text: "Are you sure you want to delete this transaction? This action cannot be undone."
+                        text: deleteDialog.batchMode
+                            ? "Are you sure you want to delete " + transactionTable.checkedRows.length + " selected transactions?"
+                            : "Are you sure you want to delete this transaction?"
                         color: Theme.text
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
@@ -286,19 +296,57 @@ Item {
                     }
                 }
             }
-        }
 
-        onAccepted: {
-            if (page.editingRow) {
-                var res = backend.deleteTransaction(page.editingRow.id)
-                if (res && res.ok === true) {
-                    page.refresh()
+            Item { Layout.fillHeight: true }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.glassBorder
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s5
+                Layout.rightMargin: Theme.s5
+                Layout.topMargin: Theme.s4
+                Layout.bottomMargin: Theme.s5
+                spacing: Theme.s3
+
+                Item { Layout.fillWidth: true }
+
+                GhostButton {
+                    text: "Cancel"
+                    onClicked: {
+                        page.editingRow = null
+                        deleteDialog.close()
+                    }
+                }
+
+                PrimaryButton {
+                    text: "Delete"
+                    tint: Theme.danger
+                    onClicked: {
+                        if (deleteDialog.batchMode) {
+                            var ids = transactionTable.checkedRows
+                            var res = backend.batchDeleteTransactions(ids)
+                            if (res && res.ok === true) {
+                                transactionTable.deselectAll()
+                                page.refresh()
+                                undoBtn.visible = true
+                            }
+                        } else if (page.editingRow) {
+                            var res2 = backend.deleteTransaction(page.editingRow.id)
+                            if (res2 && res2.ok === true) {
+                                page.refresh()
+                                undoBtn.visible = true
+                            }
+                        }
+                        page.editingRow = null
+                        deleteDialog.close()
+                    }
                 }
             }
-            page.editingRow = null
-        }
-        onRejected: {
-            page.editingRow = null
         }
     }
 
@@ -475,6 +523,37 @@ Item {
                             }
                         }
                         GhostButton {
+                            text: "Template"
+                            tint: Theme.accent
+                            implicitWidth: 90
+                            onClicked: backend.downloadImportTemplate()
+                        }
+                        Rectangle {
+                            id: smartBtn
+                            width: 28; height: 28; radius: 14
+                            color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
+                            border.width: 1
+                            border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u2699"
+                                color: Theme.accent2
+                                font.pixelSize: 14
+                            }
+                            HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler {
+                                onTapped: {
+                                    var res = backend.smartImportExcel()
+                                    if (res && res.ok === true) {
+                                        page.refresh()
+                                    }
+                                }
+                            }
+                            ToolTip.visible: smartHover.hovered
+                            ToolTip.text: "Smart Import — bulk post Excel register (COL=Receipt, SL:L=Sale)"
+                            ToolTip.delay: 600
+                        }
+                        GhostButton {
                             text: "Export 7-Day PDF"
                             tint: Theme.accent2
                             implicitWidth: 140
@@ -486,14 +565,88 @@ Item {
                             implicitWidth: 120
                             onClicked: backend.exportRecentExcel(30)
                         }
+                        GhostButton {
+                            id: undoBtn
+                            text: "\u21A9 Undo"
+                            tint: Theme.warning
+                            implicitWidth: 100
+                            visible: false
+                            onClicked: {
+                                var res = backend.undoDeleteTransaction()
+                                if (res && res.ok === true) {
+                                    page.refresh()
+                                    undoBtn.visible = false
+                                }
+                            }
+                        }
                         StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                     }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: transactionTable.checkedRows.length > 0
+
+                    Rectangle {
+                        Layout.preferredHeight: 32
+                        Layout.preferredWidth: 120
+                        radius: Theme.rPill
+                        color: Theme.alpha(Theme.danger, 0.12)
+                        border.width: 1
+                        border.color: Theme.alpha(Theme.danger, 0.3)
+
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s1
+                            Text { text: "\u2716"; color: Theme.danger; font.pixelSize: 12 }
+                            Text {
+                                text: "Delete " + transactionTable.checkedRows.length + " selected"
+                                color: Theme.danger
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fsTiny
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        TapHandler {
+                            onTapped: {
+                                deleteDialog.batchMode = true
+                                deleteDialog.infoText = "Batch delete " + transactionTable.checkedRows.length + " transactions"
+                                deleteDialog.open()
+                            }
+                        }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    }
+
+                    Rectangle {
+                        Layout.preferredHeight: 32
+                        Layout.preferredWidth: 80
+                        radius: Theme.rPill
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.glassBorder
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Clear selection"
+                            color: Theme.textDim
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fsTiny
+                        }
+                        TapHandler {
+                            onTapped: transactionTable.deselectAll()
+                        }
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
 
                 DataTable {
                     id: transactionTable
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    checkable: true
                     emptyText: "No transactions yet \u2014 add your first entry above"
+                    loading: false
                     rows: page.rows
                     columns: [
                         { title: "Date", key: "date", date: true, weight: 1.1 },

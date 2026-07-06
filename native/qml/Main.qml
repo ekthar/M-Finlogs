@@ -124,6 +124,16 @@ ApplicationWindow {
         }
     }
 
+    // Theme crossfade overlay
+    Rectangle {
+        id: fadeOverlay
+        anchors.fill: parent
+        color: Theme.dark ? "#000000" : "#ffffff"
+        opacity: 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+    }
+
     ToastHost {
         id: toasts
         anchors.fill: parent
@@ -134,5 +144,19 @@ ApplicationWindow {
         function onToast(message, kind) {
             toasts.show(message, kind)
         }
+    }
+
+    Connections {
+        target: Theme
+        function onDarkChanged() {
+            fadeOverlay.opacity = 0.3
+            crossfadeTimer.restart()
+        }
+    }
+
+    Timer {
+        id: crossfadeTimer
+        interval: 80
+        onTriggered: fadeOverlay.opacity = 0
     }
 }

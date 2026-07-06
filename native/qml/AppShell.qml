@@ -22,6 +22,8 @@ Item {
         { kind: "item", label: "Trial Balance", glyph: "\u2696", page: "TrialBalancePage" },
         { kind: "item", label: "Profit & Loss", glyph: "\u2197", page: "ProfitLossPage" },
         { kind: "item", label: "Inventory", glyph: "\u2692", page: "InventoryPage" },
+        { kind: "item", label: "Credit Ledger", glyph: "\u25C8", page: "CreditLedgerPage" },
+        { kind: "item", label: "Credit Followup", glyph: "\u26A0", page: "CreditFollowupPage" },
         { kind: "header", label: "Manage" },
         { kind: "item", label: "Parties", glyph: "\u263A", page: "PartiesPage" },
         { kind: "item", label: "Audit Logs", glyph: "\u2261", page: "AuditPage" },
@@ -330,6 +332,8 @@ Item {
             case Qt.Key_T: shell.navigate("TrialBalancePage"); event.accepted = true; break
             case Qt.Key_B: shell.navigate("DayBookPage"); event.accepted = true; break
             case Qt.Key_A: shell.navigate("AuditPage"); event.accepted = true; break
+            case Qt.Key_C: shell.navigate("CreditLedgerPage"); event.accepted = true; break
+            case Qt.Key_F: shell.navigate("CreditFollowupPage"); event.accepted = true; break
             }
         }
     }
@@ -338,5 +342,26 @@ Item {
     Shortcut {
         sequence: "Ctrl+["
         onActivated: shell.collapsed = !shell.collapsed
+    }
+
+    // Global search overlay
+    Shortcut {
+        sequence: "Ctrl+K"
+        onActivated: searchOverlay.toggle()
+    }
+
+    // Keyboard shortcut help overlay
+    Shortcut {
+        sequence: "Ctrl+/"
+        onActivated: shortcutOverlay.toggle()
+    }
+
+    // ============ Overlays ============
+    GlobalSearch {
+        id: searchOverlay
+    }
+
+    ShortcutOverlay {
+        id: shortcutOverlay
     }
 }

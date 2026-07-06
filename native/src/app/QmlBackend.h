@@ -107,13 +107,22 @@ public:
 
     // --- Import / Export ---------------------------------------------------
     Q_INVOKABLE QVariantMap importTransactions();
+    Q_INVOKABLE QVariantMap smartImportExcel();
     Q_INVOKABLE QVariantMap exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportRecentPdf(int days);
     Q_INVOKABLE QVariantMap exportRecentExcel(int days);
+    Q_INVOKABLE QVariantMap downloadImportTemplate();
+
+    // --- Batch operations & undo ------------------------------------------
+    Q_INVOKABLE QVariantMap batchDeleteTransactions(const QVariantList& ids);
+    Q_INVOKABLE QVariantMap undoDeleteTransaction();
 
     // --- Party balance lookup (for entry hints) ---------------------------
     Q_INVOKABLE QVariantMap partyBalance(const QString& partyName);
+    Q_INVOKABLE QVariantList allPartyBalances();
+    Q_INVOKABLE QVariantList creditFollowupList();
+    Q_INVOKABLE QVariantMap closingReport();
 
     // --- Mode selection (Server / Local / Migration) ----------------------
     Q_INVOKABLE QString currentMode() const;
@@ -137,6 +146,12 @@ private:
     QString currentUser_;
     QString currentRole_;
     QString companyName_;
+
+    struct UndoBuffer {
+        int transactionId = -1;
+        domain::TransactionCreateRequest request;
+    };
+    UndoBuffer undoBuffer_;
 };
 
 } // namespace mfinlogs::app

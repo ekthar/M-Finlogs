@@ -6,12 +6,9 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.dailySummary(fromDate.isoText, toDate.isoText) }
+    function load() { rows = backend.dailySummary(dateRange.fromIso, dateRange.toIso) }
     Component.onCompleted: {
-        // Default to current month-to-date
-        var now = new Date()
-        fromDate.selectedDate = new Date(now.getFullYear(), now.getMonth(), 1)
-        toDate.selectedDate = now
+        dateRange.preset(30)
         load()
     }
 
@@ -63,8 +60,11 @@ Item {
                 anchors.top: parent.top
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
-                DatePickerField { id: fromDate; Layout.preferredWidth: 160; label: "From" }
-                DatePickerField { id: toDate; Layout.preferredWidth: 160; label: "To" }
+                DateRangePicker {
+                    id: dateRange
+                    Layout.fillWidth: true
+                    onRangeChanged: Qt.callLater(page.load)
+                }
                 PrimaryButton { Layout.alignment: Qt.AlignBottom; Layout.preferredWidth: 120; text: "Show"; onClicked: page.load() }
             }
         }
