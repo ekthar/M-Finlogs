@@ -37,12 +37,16 @@ Name: "startmenu"; Description: "Create Start Menu shortcut"; GroupDescription: 
 [Files]
 ; Main executable and all Qt DLLs/plugins from the windeployqt package folder
 Source: "..\build\package\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Microsoft ODBC Driver 17 for SQL Server redistributable
+; Microsoft ODBC Driver 17 for SQL Server redistributable (bundled only if MSI is present)
+#ifexist "msodbcsql_17.10.5.1_x64.msi"
 Source: "{#OdbcDriverMsi}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: not OdbcDriverInstalled
+#endif
 
 [Run]
-; Install ODBC driver silently (only if not already present)
+; Install ODBC driver silently (only if not already present and MSI is available)
+#ifexist "msodbcsql_17.10.5.1_x64.msi"
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\{#OdbcDriverMsi}"" /quiet IAcceptSQLServerODBCLicenseTerms=Yes /norestart"; StatusMsg: "Installing Microsoft ODBC Driver 17 for SQL Server..."; Flags: runhidden; Check: not OdbcDriverInstalled
+#endif
 ; Launch the app after install
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
