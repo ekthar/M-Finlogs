@@ -24,9 +24,10 @@ jobs:
 
       - name: Install Qt
         run: |
+          choco install 7zip -y --no-progress
           python -m pip install --upgrade pip
           python -m pip install aqtinstall
-          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt --modules qtcharts qthttpserver qtwebsockets
+          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt --modules qtcharts qthttpserver qtwebsockets --external 7z
           "$env:QT_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Setup VS 2022 environment
@@ -58,7 +59,7 @@ jobs:
       - name: Build installer
         run: |
           choco install innosetup -y --no-progress
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "native\installer\setup.iss"
+          native\installer\build_installer.bat
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
