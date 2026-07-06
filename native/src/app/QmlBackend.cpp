@@ -1279,8 +1279,8 @@ QVariantMap QmlBackend::smartImportExcel() {
                 "$w.Close($false);"
                 "$e.Quit();"
                 "[System.Runtime.Interopservices.Marshal]::ReleaseComObject($e)|Out-Null"
-            ).arg(path.replace(QLatin1Char('\''), QStringLiteral("''")),
-                  csvPath.replace(QLatin1Char('\''), QStringLiteral("''")));
+            ).arg(QString(path).replace(QLatin1Char('\''), QStringLiteral("''")),
+                  QString(csvPath).replace(QLatin1Char('\''), QStringLiteral("''")));
 
             QProcess ps;
             ps.start(QStringLiteral("powershell"), QStringList{
