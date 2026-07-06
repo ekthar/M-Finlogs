@@ -501,16 +501,19 @@ Item {
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
 
-                    RowLayout {
+                    Flow {
                         Layout.fillWidth: true
+                        spacing: Theme.s3
                         Text {
                             text: "Recent Transactions"
                             color: Theme.text
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsSection
                             font.weight: Font.Bold
+                            verticalAlignment: Text.AlignVCenter
+                            height: 32
                         }
-                        Item { Layout.fillWidth: true }
+                        Item { width: Theme.s2; height: 1 }
                         GhostButton {
                             text: "Import"
                             tint: Theme.accent
@@ -554,22 +557,22 @@ Item {
                             ToolTip.delay: 600
                         }
                         GhostButton {
-                            text: "Export 7-Day PDF"
+                            text: "Export PDF"
                             tint: Theme.accent2
-                            implicitWidth: 140
+                            implicitWidth: 100
                             onClicked: backend.exportRecentPdf(7)
                         }
                         GhostButton {
                             text: "Export Excel"
                             tint: Theme.accent3
-                            implicitWidth: 120
+                            implicitWidth: 100
                             onClicked: backend.exportRecentExcel(30)
                         }
                         GhostButton {
                             id: undoBtn
                             text: "\u21A9 Undo"
                             tint: Theme.warning
-                            implicitWidth: 100
+                            implicitWidth: 90
                             visible: false
                             onClicked: {
                                 var res = backend.undoDeleteTransaction()
