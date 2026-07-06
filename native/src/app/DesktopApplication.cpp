@@ -4183,7 +4183,16 @@ void DesktopApplication::importTransactionsWithValidation() {
         const QStringList header = parseCsvLine(stream.readLine());
         QMap<QString, int> columns;
         for (int i = 0; i < header.size(); ++i) {
-            columns.insert(header.at(i).trimmed().toLower(), i);
+            const QString key = header.at(i).trimmed().toLower();
+            columns.insert(key, i);
+            if (key == QStringLiteral("bill no") || key == QStringLiteral("billno")) {
+                columns.insert(QStringLiteral("bill_no"), i);
+            } else if (key == QStringLiteral("bill_no")) {
+                columns.insert(QStringLiteral("bill no"), i);
+                columns.insert(QStringLiteral("billno"), i);
+            } else if (key == QStringLiteral("txn date") || key == QStringLiteral("transaction date")) {
+                columns.insert(QStringLiteral("date"), i);
+            }
         }
         const QStringList required = {
             QStringLiteral("date"), QStringLiteral("party"),
@@ -4218,9 +4227,13 @@ void DesktopApplication::importTransactionsWithValidation() {
             bool amountOk = false;
             preview.amount = val(QStringLiteral("amount")).toDouble(&amountOk);
 
-            QDate date = QDate::fromString(val(QStringLiteral("date")), Qt::ISODate);
+            const QString dateText = val(QStringLiteral("date"));
+            QDate date = QDate::fromString(dateText, Qt::ISODate);
             if (!date.isValid()) {
-                date = QDate::fromString(val(QStringLiteral("date")), QStringLiteral("dd/MM/yyyy"));
+                date = QDate::fromString(dateText, QStringLiteral("dd/MM/yyyy"));
+            }
+            if (!date.isValid()) {
+                date = QDate::fromString(dateText, QStringLiteral("dd-MM-yyyy"));
             }
 
             QStringList errors;

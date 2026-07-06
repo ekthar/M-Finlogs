@@ -200,8 +200,8 @@ XlsxParseResult XlsxReader::read(const QString& path) {
     QMap<QString, int> colMap;
     for (int i = 0; i < headers.size(); ++i) {
         const QString h = headers.at(i);
-        if (h == QStringLiteral("date") || h == QStringLiteral("txn_date")) colMap.insert(QStringLiteral("date"), i);
-        else if (h == QStringLiteral("bill_no") || h == QStringLiteral("billno") || h == QStringLiteral("bill")) colMap.insert(QStringLiteral("bill_no"), i);
+        if (h == QStringLiteral("date") || h == QStringLiteral("txn_date") || h == QStringLiteral("txn date") || h == QStringLiteral("transaction date")) colMap.insert(QStringLiteral("date"), i);
+        else if (h == QStringLiteral("bill_no") || h == QStringLiteral("billno") || h == QStringLiteral("bill no") || h == QStringLiteral("bill")) colMap.insert(QStringLiteral("bill_no"), i);
         else if (h == QStringLiteral("party") || h == QStringLiteral("customer") || h == QStringLiteral("customer name") || h == QStringLiteral("name")) colMap.insert(QStringLiteral("party"), i);
         else if (h == QStringLiteral("type") || h == QStringLiteral("txn_type") || h == QStringLiteral("transaction type")) colMap.insert(QStringLiteral("type"), i);
         else if (h == QStringLiteral("mode") || h == QStringLiteral("payment_mode") || h == QStringLiteral("payment mode")) colMap.insert(QStringLiteral("mode"), i);
