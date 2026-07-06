@@ -1446,6 +1446,66 @@ QVariantMap QmlBackend::exportRecentPdf(int days) {
     }
 }
 
+// ---- Recent Transactions Excel Export ------------------------------------
+
+QVariantMap QmlBackend::exportRecentExcel(int days) {
+    try {
+        const int span = days > 0 ? days : 7;
+        const QVector<domain::TransactionRow> txnRows =
+            context_.services().transactions->listTransactions(1, qMin(span * 100, 2000), span);
+
+        const QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/M-Finlogs_Last_%1_Days.csv").arg(span);
+        const QString filePath = QFileDialog::getSaveFileName(QApplication::activeWindow(),
+            QStringLiteral("Export %1-Day Report").arg(span), defaultPath, QStringLiteral("CSV (*.csv)"));
+        if (filePath.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        QFile file(filePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            return errorResult(QStringLiteral("Could not write file: ") + filePath);
+        }
+        QTextStream stream(&file);
+
+        stream << QStringLiteral("\"Date\",\"Bill No\",\"Party\",\"Type\",\"Mode\",\"Amount\"\n");
+
+        for (const domain::TransactionRow& txn : txnRows) {
+            QString typeText;
+            switch (txn.type) {
+            case domain::TransactionType::Sale: typeText = QStringLiteral("Sale"); break;
+            case domain::TransactionType::SaleReturn: typeText = QStringLiteral("Sale Return"); break;
+            case domain::TransactionType::Purchase: typeText = QStringLiteral("Purchase"); break;
+            case domain::TransactionType::Expense: typeText = QStringLiteral("Expense"); break;
+            case domain::TransactionType::Receipt: typeText = QStringLiteral("Receipt"); break;
+            }
+            QString modeText;
+            switch (txn.mode) {
+            case domain::PaymentMode::Credit: modeText = QStringLiteral("Credit"); break;
+            case domain::PaymentMode::Cash: modeText = QStringLiteral("Cash"); break;
+            case domain::PaymentMode::Upi: modeText = QStringLiteral("UPI"); break;
+            case domain::PaymentMode::Bank: modeText = QStringLiteral("Bank"); break;
+            }
+
+            stream << QStringLiteral("\"%1\",\"%2\",\"%3\",\"%4\",\"%5\",\"%6\"\n")
+                .arg(txn.date.toString(QStringLiteral("dd-MM-yyyy")),
+                     txn.billNo,
+                     txn.party,
+                     typeText,
+                     modeText,
+                     QString::number(txn.amount, 'f', 2));
+        }
+
+        file.close();
+        emit toast(QStringLiteral("CSV exported: ") + filePath, QStringLiteral("success"));
+        QVariantMap res = okResult();
+        res.insert(QStringLiteral("path"), filePath);
+        return res;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
+}
+
 // ---- Party balance lookup ------------------------------------------------
 
 QVariantMap QmlBackend::partyBalance(const QString& partyName) {

@@ -110,6 +110,7 @@ public:
     Q_INVOKABLE QVariantMap exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportRecentPdf(int days);
+    Q_INVOKABLE QVariantMap exportRecentExcel(int days);
 
     // --- Party balance lookup (for entry hints) ---------------------------
     Q_INVOKABLE QVariantMap partyBalance(const QString& partyName);

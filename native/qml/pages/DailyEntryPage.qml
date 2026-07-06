@@ -398,6 +398,12 @@ Item {
                             implicitWidth: 140
                             onClicked: backend.exportRecentPdf(7)
                         }
+                        GhostButton {
+                            text: "Export Excel"
+                            tint: Theme.accent3
+                            implicitWidth: 120
+                            onClicked: backend.exportRecentExcel(30)
+                        }
                         StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                     }
 
