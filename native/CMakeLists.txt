@@ -133,8 +133,8 @@ qt_add_qml_module(mfinlogs-native
         qml/pages/SettingsPage.qml
         qml/pages/PlaceholderPage.qml
         qml/ClosingReport.qml
-        qml/CreditLedgerPage.qml
-        qml/CreditFollowupPage.qml
+        qml/pages/CreditLedgerPage.qml
+        qml/pages/CreditFollowupPage.qml
         qml/DateRangePicker.qml
         qml/GlobalSearch.qml
         qml/ShortcutOverlay.qml
