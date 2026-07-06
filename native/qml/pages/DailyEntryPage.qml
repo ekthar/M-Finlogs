@@ -53,15 +53,19 @@ Item {
         title: "Edit Transaction"
         closePolicy: Dialog.CloseOnEscape
         width: Math.min(520, page.width * 0.9)
-        height: Math.min(420, page.height * 0.9)
+        height: Math.min(540, page.height * 0.95)
 
         property var originalValues: ({})
 
         function loadRow(row) {
             if (!row) return
-            // Parse dd-MM-yyyy to Date and store ISO format for comparison
             var parts = row.date.split('-')
-            var d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
+            var d
+            if (parts[0].length === 4) {
+                d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+            } else {
+                d = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]))
+            }
             originalValues = {
                 date: Qt.formatDate(d, "yyyy-MM-dd"),
                 bill_no: row.bill_no || "",
