@@ -130,7 +130,8 @@ Item {
                     id: navList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    interactive: false
+                    interactive: true
+                    clip: true
                     spacing: 2
                     model: shell.navModel
                     delegate: Loader {
