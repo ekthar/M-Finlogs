@@ -23,12 +23,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Qt
-        run: |
-          choco install 7zip -y --no-progress
-          python -m pip install --upgrade pip
-          python -m pip install aqtinstall
-          python -m aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 -O C:\Qt --modules qtcharts qthttpserver qtwebsockets --external 7z
-          "$env:QT_ROOT\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtcharts qthttpserver qtwebsockets
+          dir: C:\Qt
+          setup-python: false
 
       - name: Setup VS 2022 environment
         uses: ilammy/msvc-dev-cmd@v1
