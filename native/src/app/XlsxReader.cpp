@@ -129,7 +129,7 @@ XlsxParseResult XlsxReader::read(const QString& path) {
         while (!xml.atEnd() && !xml.hasError()) {
             const QXmlStreamReader::TokenType token = xml.readNext();
             if (token == QXmlStreamReader::StartElement) {
-                const QStringRef name = xml.name();
+                const auto name = xml.name();
                 if (name == QStringLiteral("row")) {
                     flushCell();
                     currentRow = xml.attributes().value(QStringLiteral("r")).toInt();
