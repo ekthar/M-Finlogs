@@ -1406,6 +1406,20 @@ QVariantMap QmlBackend::smartImportExcel() {
         // Step 3: fetch existing parties once
         QStringList existingParties = partyNames();
 
+        struct ImportStat {
+            int receipts = 0;
+            int cashSales = 0;
+            int upiSales = 0;
+            int creditSales = 0;
+            int partiesCreated = 0;
+            int errors = 0;
+            double totalReceipts = 0;
+            double totalCashSales = 0;
+            double totalUpiSales = 0;
+            double totalCreditSales = 0;
+        };
+        ImportStat stat;
+
         // Helper: find party (case-insensitive) or create it
         auto findOrCreateParty = [&](const QString& name, bool creditAllowed) -> QString {
             if (name.isEmpty()) return QString();
@@ -1431,20 +1445,6 @@ QVariantMap QmlBackend::smartImportExcel() {
         };
 
         // Step 4: process each row
-        struct ImportStat {
-            int receipts = 0;
-            int cashSales = 0;
-            int upiSales = 0;
-            int creditSales = 0;
-            int partiesCreated = 0;
-            int errors = 0;
-            double totalReceipts = 0;
-            double totalCashSales = 0;
-            double totalUpiSales = 0;
-            double totalCreditSales = 0;
-        };
-        ImportStat stat;
-
         for (const SmartRow& row : smartRows) {
             if (row.type == QStringLiteral("COL")) {
                 // COL = Receipt (money collected from credit customer)
