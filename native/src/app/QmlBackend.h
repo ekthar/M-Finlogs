@@ -105,7 +105,8 @@ public:
     // --- Audit ------------------------------------------------------------
     Q_INVOKABLE QVariantList auditLogs();
 
-    // --- Export (PDF/Excel) -----------------------------------------------
+    // --- Import / Export ---------------------------------------------------
+    Q_INVOKABLE QVariantMap importTransactions();
     Q_INVOKABLE QVariantMap exportTableToPdf(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportTableToExcel(const QString& title, const QVariantList& columns, const QVariantList& rows);
     Q_INVOKABLE QVariantMap exportRecentPdf(int days);

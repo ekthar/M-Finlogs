@@ -371,24 +371,35 @@ Item {
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Text {
-                        text: "Recent Transactions"
-                        color: Theme.text
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fsSection
-                        font.weight: Font.Bold
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: "Recent Transactions"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fsSection
+                            font.weight: Font.Bold
+                        }
+                        Item { Layout.fillWidth: true }
+                        GhostButton {
+                            text: "Import"
+                            tint: Theme.accent
+                            implicitWidth: 80
+                            onClicked: {
+                                var res = backend.importTransactions()
+                                if (res && res.ok === true && res.imported > 0) {
+                                    page.refresh()
+                                }
+                            }
+                        }
+                        GhostButton {
+                            text: "Export 7-Day PDF"
+                            tint: Theme.accent2
+                            implicitWidth: 140
+                            onClicked: backend.exportRecentPdf(7)
+                        }
+                        StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                     }
-                    Item { Layout.fillWidth: true }
-                    GhostButton {
-                        text: "Export 7-Day PDF"
-                        tint: Theme.accent2
-                        implicitWidth: 140
-                        onClicked: backend.exportRecentPdf(7)
-                    }
-                    StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
-                }
 
                 DataTable {
                     id: transactionTable

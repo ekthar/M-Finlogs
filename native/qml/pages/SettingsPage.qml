@@ -236,6 +236,30 @@ Item {
                 }
             }
 
+            // ========== Data Import ==========
+            GlassPanel {
+                Layout.fillWidth: true
+                implicitHeight: impCol.implicitHeight + Theme.s8
+                radius: Theme.rLg
+                ColumnLayout {
+                    id: impCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Theme.s5
+                    spacing: Theme.s3
+                    Text { text: "Data Import"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Import transactions from CSV or Excel (.xlsx) files"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                    RowLayout {
+                        spacing: Theme.s3
+                        PrimaryButton {
+                            text: "Import Transactions"
+                            onClicked: backend.importTransactions()
+                        }
+                    }
+                }
+            }
+
             // ========== Opening Cash ==========
             GlassPanel {
                 Layout.fillWidth: true

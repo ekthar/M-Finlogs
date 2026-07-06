@@ -1,4 +1,5 @@
 #include "app/QmlBackend.h"
+#include "app/XlsxReader.h"
 
 #include "data/MigrationService.h"
 #include "domain/DomainErrors.h"
@@ -8,17 +9,25 @@
 #include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QHBoxLayout>
+#include <QHeaderView>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QLabel>
 #include <QLocale>
 #include <QMap>
 #include <QPainter>
 #include <QPdfWriter>
 #include <QProcess>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QVBoxLayout>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QUrl>
@@ -116,6 +125,40 @@ QVariantMap errorResult(const QString& message) {
     result.insert(QStringLiteral("ok"), false);
     result.insert(QStringLiteral("error"), message);
     return result;
+}
+
+QStringList parseCsvLine(const QString& line) {
+    QStringList values;
+    QString current;
+    bool quoted = false;
+    for (int index = 0; index < line.size(); ++index) {
+        const QChar c = line.at(index);
+        if (c == QLatin1Char('"')) {
+            if (quoted && index + 1 < line.size() && line.at(index + 1) == QLatin1Char('"')) {
+                current.append(QLatin1Char('"'));
+                ++index;
+            } else {
+                quoted = !quoted;
+            }
+        } else if (c == QLatin1Char(',') && !quoted) {
+            values.append(current.trimmed());
+            current.clear();
+        } else {
+            current.append(c);
+        }
+    }
+    values.append(current.trimmed());
+    return values;
+}
+
+QString findExistingPartyName(const QStringList& parties, const QString& name) {
+    const QString trimmed = name.trimmed();
+    for (const QString& p : parties) {
+        if (p.compare(trimmed, Qt::CaseInsensitive) == 0) {
+            return p;
+        }
+    }
+    return QString();
 }
 
 } // namespace
@@ -824,6 +867,280 @@ QVariantMap QmlBackend::stopNativeServer() {
         return okResult();
     }
     return errorResult(QStringLiteral("Could not stop native server process"));
+}
+
+// ---- Import Transactions -------------------------------------------------
+
+QVariantMap QmlBackend::importTransactions() {
+    try {
+        const QString path = QFileDialog::getOpenFileName(nullptr,
+            QStringLiteral("Import Transactions"), QString(),
+            QStringLiteral("CSV Files (*.csv);;Excel Files (*.xlsx *.xls)"));
+        if (path.trimmed().isEmpty()) {
+            return okResult();
+        }
+
+        const QStringList existingParties = partyNames();
+
+        struct PreviewRow {
+            int line;
+            QString date;
+            QString billNo;
+            QString party;
+            QString type;
+            QString mode;
+            double amount;
+            QString error;
+        };
+        QVector<PreviewRow> previewRows;
+
+        if (path.endsWith(QStringLiteral(".xlsx"), Qt::CaseInsensitive) ||
+            path.endsWith(QStringLiteral(".xls"), Qt::CaseInsensitive)) {
+            const app::XlsxParseResult parsed = app::XlsxReader::read(path);
+            if (!parsed.error.isEmpty()) {
+                return errorResult(parsed.error);
+            }
+            for (int i = 0; i < parsed.rows.size(); ++i) {
+                const auto& row = parsed.rows.at(i);
+                PreviewRow preview;
+                preview.line = i + 2;
+                preview.date = row.date.isValid() ? row.date.toString(Qt::ISODate) : row.date.toString(QStringLiteral("dd/MM/yyyy"));
+                preview.billNo = row.billNo;
+                preview.party = row.party;
+                preview.type = row.type;
+                preview.mode = row.mode;
+                preview.amount = row.amount;
+
+                QStringList errors;
+                if (!row.date.isValid()) {
+                    errors.append(QStringLiteral("Invalid date"));
+                }
+                if (row.party.trimmed().isEmpty()) {
+                    errors.append(QStringLiteral("Party is empty"));
+                } else if (findExistingPartyName(existingParties, row.party).isEmpty()) {
+                    errors.append(QStringLiteral("Party does not exist: ") + row.party);
+                }
+                if (row.amount <= 0.0) {
+                    errors.append(QStringLiteral("Amount must be > 0"));
+                }
+                const QString nt = row.type.trimmed().toLower();
+                if (nt != QStringLiteral("sale") && nt != QStringLiteral("sale return") &&
+                    nt != QStringLiteral("purchase") && nt != QStringLiteral("expense") &&
+                    nt != QStringLiteral("receipt") && nt != QStringLiteral("reciept") &&
+                    nt != QStringLiteral("sales return") && nt != QStringLiteral("return")) {
+                    errors.append(QStringLiteral("Invalid type: ") + row.type);
+                }
+                const QString nm = row.mode.trimmed().toLower();
+                if (nm != QStringLiteral("credit") && nm != QStringLiteral("cash") &&
+                    nm != QStringLiteral("upi") && nm != QStringLiteral("gpay") &&
+                    nm != QStringLiteral("bank")) {
+                    errors.append(QStringLiteral("Invalid mode: ") + row.mode);
+                }
+                preview.error = errors.isEmpty() ? QString() : errors.join(QStringLiteral("; "));
+                previewRows.append(preview);
+            }
+        } else {
+            QFile file(path);
+            if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                return errorResult(QStringLiteral("Could not open file: ") + path);
+            }
+            QTextStream stream(&file);
+            stream.setEncoding(QStringConverter::Utf8);
+            if (stream.atEnd()) {
+                return errorResult(QStringLiteral("File is empty"));
+            }
+
+            const QStringList header = parseCsvLine(stream.readLine());
+            QMap<QString, int> columns;
+            for (int i = 0; i < header.size(); ++i) {
+                columns.insert(header.at(i).trimmed().toLower(), i);
+            }
+            const QStringList required = {
+                QStringLiteral("date"), QStringLiteral("party"),
+                QStringLiteral("type"), QStringLiteral("mode"), QStringLiteral("amount")
+            };
+            for (const QString& key : required) {
+                if (!columns.contains(key)) {
+                    return errorResult(QStringLiteral("CSV file is missing required column: ") + key);
+                }
+            }
+
+            int lineNumber = 1;
+            while (!stream.atEnd()) {
+                lineNumber += 1;
+                const QString rawLine = stream.readLine();
+                if (rawLine.trimmed().isEmpty()) continue;
+
+                const QStringList values = parseCsvLine(rawLine);
+                auto val = [&](const QString& key) -> QString {
+                    int col = columns.value(key, -1);
+                    return (col >= 0 && col < values.size()) ? values.at(col).trimmed() : QString();
+                };
+
+                PreviewRow preview;
+                preview.line = lineNumber;
+                preview.date = val(QStringLiteral("date"));
+                preview.billNo = val(QStringLiteral("bill_no"));
+                preview.party = val(QStringLiteral("party"));
+                preview.type = val(QStringLiteral("type"));
+                preview.mode = val(QStringLiteral("mode"));
+
+                bool amountOk = false;
+                preview.amount = val(QStringLiteral("amount")).toDouble(&amountOk);
+
+                QDate date = QDate::fromString(val(QStringLiteral("date")), Qt::ISODate);
+                if (!date.isValid()) {
+                    date = QDate::fromString(val(QStringLiteral("date")), QStringLiteral("dd/MM/yyyy"));
+                }
+
+                QStringList errors;
+                if (date.isValid()) {
+                    preview.date = date.toString(Qt::ISODate);
+                } else {
+                    errors.append(QStringLiteral("Invalid date"));
+                }
+                if (preview.party.isEmpty()) {
+                    errors.append(QStringLiteral("Party is empty"));
+                } else if (findExistingPartyName(existingParties, preview.party).isEmpty()) {
+                    errors.append(QStringLiteral("Party does not exist: ") + preview.party);
+                }
+                if (!amountOk || preview.amount <= 0.0) {
+                    errors.append(QStringLiteral("Amount must be > 0"));
+                }
+                const QString nt = preview.type.trimmed().toLower();
+                if (nt != QStringLiteral("sale") && nt != QStringLiteral("sale return") &&
+                    nt != QStringLiteral("purchase") && nt != QStringLiteral("expense") &&
+                    nt != QStringLiteral("receipt") && nt != QStringLiteral("reciept") &&
+                    nt != QStringLiteral("sales return") && nt != QStringLiteral("return")) {
+                    errors.append(QStringLiteral("Invalid type: ") + preview.type);
+                }
+                const QString nm = preview.mode.trimmed().toLower();
+                if (nm != QStringLiteral("credit") && nm != QStringLiteral("cash") &&
+                    nm != QStringLiteral("upi") && nm != QStringLiteral("gpay") &&
+                    nm != QStringLiteral("bank")) {
+                    errors.append(QStringLiteral("Invalid mode: ") + preview.mode);
+                }
+                preview.error = errors.isEmpty() ? QString() : errors.join(QStringLiteral("; "));
+                previewRows.append(preview);
+            }
+        }
+
+        int validCount = 0;
+        int invalidCount = 0;
+        for (const auto& p : previewRows) {
+            if (p.error.isEmpty()) ++validCount;
+            else ++invalidCount;
+        }
+
+        // Show preview dialog
+        QDialog dialog;
+        dialog.setWindowTitle(QStringLiteral("Import Preview"));
+        dialog.resize(640, 480);
+        dialog.setMinimumSize(480, 320);
+
+        QVBoxLayout* dlgLayout = new QVBoxLayout(&dialog);
+        dlgLayout->setSpacing(10);
+
+        QLabel* summary = new QLabel(
+            QStringLiteral("Found %1 rows (%2 valid, %3 invalid). Review and confirm to import.")
+                .arg(previewRows.size()).arg(validCount).arg(invalidCount), &dialog);
+        summary->setWordWrap(true);
+        dlgLayout->addWidget(summary);
+
+        QTableWidget* previewTable = new QTableWidget(&dialog);
+        const QStringList tableHeaders = {
+            QStringLiteral("Line"), QStringLiteral("Date"), QStringLiteral("Bill No"),
+            QStringLiteral("Party"), QStringLiteral("Type"), QStringLiteral("Mode"),
+            QStringLiteral("Amount"), QStringLiteral("Errors")
+        };
+        previewTable->setColumnCount(tableHeaders.size());
+        previewTable->setHorizontalHeaderLabels(tableHeaders);
+        previewTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        previewTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+        previewTable->setRowCount(previewRows.size());
+
+        for (int row = 0; row < previewRows.size(); ++row) {
+            const auto& p = previewRows.at(row);
+            auto setCell = [&](int col, const QString& text) {
+                QTableWidgetItem* item = new QTableWidgetItem(text);
+                if (!p.error.isEmpty()) {
+                    item->setForeground(QColor(Qt::red));
+                }
+                previewTable->setItem(row, col, item);
+            };
+            setCell(0, QString::number(p.line));
+            setCell(1, p.date);
+            setCell(2, p.billNo);
+            setCell(3, p.party);
+            setCell(4, p.type);
+            setCell(5, p.mode);
+            setCell(6, QString::number(p.amount, 'f', 2));
+            setCell(7, p.error);
+        }
+        previewTable->resizeColumnsToContents();
+        dlgLayout->addWidget(previewTable, 1);
+
+        QHBoxLayout* btnLayout = new QHBoxLayout();
+        btnLayout->addStretch(1);
+        QPushButton* cancelBtn = new QPushButton(QStringLiteral("Cancel"), &dialog);
+        QPushButton* importBtn = new QPushButton(
+            QStringLiteral("Import %1 Valid Transactions").arg(validCount), &dialog);
+        importBtn->setObjectName(QStringLiteral("primaryButton"));
+        if (validCount == 0) {
+            importBtn->setEnabled(false);
+        }
+        btnLayout->addWidget(cancelBtn);
+        btnLayout->addWidget(importBtn);
+        dlgLayout->addLayout(btnLayout);
+
+        QObject::connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+        QObject::connect(importBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+        if (dialog.exec() != QDialog::Accepted) {
+            return okResult();
+        }
+
+        int imported = 0;
+        QStringList createdParties;
+        for (const auto& p : previewRows) {
+            if (!p.error.isEmpty()) continue;
+
+            QDate date = QDate::fromString(p.date, Qt::ISODate);
+            if (!date.isValid()) {
+                date = QDate::fromString(p.date, QStringLiteral("dd/MM/yyyy"));
+            }
+            QString partyName = findExistingPartyName(existingParties, p.party);
+            if (partyName.isEmpty()) {
+                partyName = p.party.trimmed();
+                context_.services().parties->createParty(partyName, QString(), false);
+                createdParties.append(partyName);
+            }
+
+            context_.services().transactions->addTransaction(domain::TransactionCreateRequest{
+                date,
+                p.billNo,
+                partyName,
+                transactionTypeFromText(p.type),
+                paymentModeFromText(p.mode),
+                p.amount
+            });
+            ++imported;
+        }
+
+        QString msg = QStringLiteral("Imported %1 of %2 valid transactions (%3 skipped)")
+            .arg(imported).arg(validCount).arg(invalidCount);
+        if (!createdParties.isEmpty()) {
+            msg += QStringLiteral("\nNew parties created: ") + createdParties.join(QStringLiteral(", "));
+        }
+        emit dataChanged();
+        emit toast(msg, QStringLiteral("success"));
+        QVariantMap result = okResult();
+        result.insert(QStringLiteral("imported"), imported);
+        result.insert(QStringLiteral("total"), previewRows.size());
+        return result;
+    } catch (const std::exception& err) {
+        return errorResult(QString::fromUtf8(err.what()));
+    }
 }
 
 // ---- Export (PDF/Excel) ---------------------------------------------------
