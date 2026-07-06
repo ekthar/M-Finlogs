@@ -387,7 +387,7 @@ Item {
                             implicitWidth: 80
                             onClicked: {
                                 var res = backend.importTransactions()
-                                if (res && res.ok === true && res.imported > 0) {
+                                if (res && res.ok === true) {
                                     page.refresh()
                                 }
                             }

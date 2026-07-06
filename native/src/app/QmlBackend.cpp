@@ -5,6 +5,7 @@
 #include "domain/DomainErrors.h"
 #include "domain/Types.h"
 
+#include <QApplication>
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
@@ -873,10 +874,12 @@ QVariantMap QmlBackend::stopNativeServer() {
 
 QVariantMap QmlBackend::importTransactions() {
     try {
-        const QString path = QFileDialog::getOpenFileName(nullptr,
+        QWidget* dialogParent = QApplication::activeWindow();
+        const QString path = QFileDialog::getOpenFileName(dialogParent,
             QStringLiteral("Import Transactions"), QString(),
             QStringLiteral("CSV Files (*.csv);;Excel Files (*.xlsx *.xls)"));
         if (path.trimmed().isEmpty()) {
+            emit toast(QStringLiteral("Import cancelled"), QStringLiteral("info"));
             return okResult();
         }
 
@@ -898,6 +901,7 @@ QVariantMap QmlBackend::importTransactions() {
             path.endsWith(QStringLiteral(".xls"), Qt::CaseInsensitive)) {
             const app::XlsxParseResult parsed = app::XlsxReader::read(path);
             if (!parsed.error.isEmpty()) {
+                emit toast(parsed.error, QStringLiteral("error"));
                 return errorResult(parsed.error);
             }
             for (int i = 0; i < parsed.rows.size(); ++i) {
@@ -1033,7 +1037,7 @@ QVariantMap QmlBackend::importTransactions() {
         }
 
         // Show preview dialog
-        QDialog dialog;
+        QDialog dialog(dialogParent);
         dialog.setWindowTitle(QStringLiteral("Import Preview"));
         dialog.resize(640, 480);
         dialog.setMinimumSize(480, 320);
@@ -1097,6 +1101,7 @@ QVariantMap QmlBackend::importTransactions() {
         QObject::connect(importBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
         if (dialog.exec() != QDialog::Accepted) {
+            emit toast(QStringLiteral("Import cancelled"), QStringLiteral("info"));
             return okResult();
         }
 
