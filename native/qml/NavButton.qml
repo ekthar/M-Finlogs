@@ -91,5 +91,5 @@ Item {
     }
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
-    TapHandler { onTapped: console.log("[NAVBUTTON] tapped:", label, "active:", root.active); root.clicked() }
+    TapHandler { onTapped: { console.log("[NAVBUTTON] tapped:", label, "active:", root.active); root.clicked() } }
 }

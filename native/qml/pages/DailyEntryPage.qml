@@ -34,6 +34,7 @@ Item {
         }
         var info = backend.partyBalance(name.trim())
         console.log("[ENTRY] backend.partyBalance result:", JSON.stringify(info))
+        if (info && info.hasData) {
             partyBalanceText = name.trim() + ": " + info.balanceLabel +
                 " | Last: " + info.lastType + " \u20B9" + backend.formatMoney(info.lastAmount) +
                 " on " + backend.formatDate(info.lastDate)
