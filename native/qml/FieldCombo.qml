@@ -113,6 +113,8 @@ Item {
                 y: combo.height + 6
                 width: combo.width
                 padding: 6
+                onOpened: console.log("[FIELDCOMBO] popup opened for:", label)
+                onClosed: console.log("[FIELDCOMBO] popup closed for:", label)
                 background: Rectangle {
                     radius: Theme.rMd
                     color: Theme.bg2

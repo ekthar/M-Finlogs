@@ -40,24 +40,38 @@ Item {
     property string currentPage: "DashboardPage"
 
     function navigate(page) {
-        if (page === currentPage) return
+        if (page === currentPage) {
+            console.log("[NAV] navigate() called for same page:", page, "- ignored")
+            return
+        }
+        console.log("[NAV] navigate() from:", currentPage, "to:", page)
 
         // Close any open overlays (Dialogs, Popups) on the current page
         // before transitioning, to prevent overlay pileup when the old page
         // is destroyed mid-transition.
         if (stack.currentItem) {
-            var overlays = stack.currentItem
-            for (var i = 0; i < overlays.children.length; i++) {
-                var child = overlays.children[i]
-                if (child.hasOwnProperty("close") && child.hasOwnProperty("visible") && child.visible) {
+            var pageItem = stack.currentItem
+            console.log("[NAV] current page item:", pageItem, "children count:", pageItem.children.length)
+            for (var i = 0; i < pageItem.children.length; i++) {
+                var child = pageItem.children[i]
+                var hasClose = child.hasOwnProperty("close")
+                var hasVisible = child.hasOwnProperty("visible")
+                var isVisible = hasVisible && child.visible
+                console.log("[NAV]   child[" + i + "]:", child, "close=" + hasClose, "visible=" + hasVisible + " val=" + (hasVisible ? child.visible : "N/A"), "isOpen=" + isVisible)
+                if (hasClose && isVisible) {
+                    console.log("[NAV]   -> closing:", child)
                     child.close()
                 }
             }
+        } else {
+            console.log("[NAV] no currentItem in stack")
         }
 
         currentPage = page
-        stack.replace(Qt.resolvedUrl("pages/" + page + ".qml"),
-                      {}, StackView.PushTransition)
+        var url = Qt.resolvedUrl("pages/" + page + ".qml")
+        console.log("[NAV] stack.replace with url:", url)
+        var item = stack.replace(url, {}, StackView.PushTransition)
+        console.log("[NAV] replace returned item:", item)
     }
 
     RowLayout {
@@ -292,6 +306,15 @@ Item {
                 Layout.fillHeight: true
                 clip: true
                 initialItem: Qt.resolvedUrl("pages/DashboardPage.qml")
+                onCurrentItemChanged: console.log("[STACK] currentItem changed to:", currentItem, "depth:", depth, "busy:", busy)
+
+                onBusyChanged: {
+                    if (!busy && currentItem) {
+                        console.log("[STACK] transition complete - currentItem:", currentItem,
+                                    "width:", currentItem.width, "height:", currentItem.height,
+                                    "opacity:", currentItem.opacity, "visible:", currentItem.visible)
+                    }
+                }
 
                 pushEnter: Transition {
                     ParallelAnimation {

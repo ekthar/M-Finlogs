@@ -132,6 +132,8 @@ Item {
         visible: false
         focus: false
         closePolicy: Popup.NoAutoClose
+        onOpened: console.log("[FIELDINPUT] suggestion popup opened for:", label)
+        onClosed: console.log("[FIELDINPUT] suggestion popup closed for:", label)
         background: Rectangle {
             radius: Theme.rMd
             color: Theme.bg2

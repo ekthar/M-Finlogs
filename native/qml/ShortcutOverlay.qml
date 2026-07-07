@@ -11,6 +11,7 @@ Item {
 
     function toggle() {
         open = !open
+        console.log("[SHORTCUT] toggle() open:", open)
         if (open) {
             forceActiveFocus()
         }

@@ -8,12 +8,14 @@ Item {
     property var totals: ({})
 
     function load() {
+        console.log("[DAYBOOK] load() called date:", dateField ? dateField.isoText : "no dateField")
         rows = backend.dayBook(dateField.isoText)
+        console.log("[DAYBOOK] rows returned:", rows ? rows.length : "null")
         var sum = 0
         for (var i = 0; i < rows.length; i++) sum += Number(rows[i].amount || 0)
         totals = { amount: sum }
     }
-    Component.onCompleted: load()
+    Component.onCompleted: { console.log("[DAYBOOK] Component.onCompleted"); load() }
 
     function doExportPdf() {
         var cols = ["Bill", "Party", "Type", "Mode", "Amount"]

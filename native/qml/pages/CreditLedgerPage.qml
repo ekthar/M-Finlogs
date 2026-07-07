@@ -10,7 +10,9 @@ Item {
     property real totalCr: 0
 
     function refresh() {
+        console.log("[CREDLEDGER] refresh() called")
         rows = backend.allPartyBalances()
+        console.log("[CREDLEDGER] rows:", rows ? rows.length : "null")
         var dr = 0, cr = 0
         for (var i = 0; i < rows.length; i++) {
             var b = Number(rows[i].balance || 0)
@@ -48,10 +50,10 @@ Item {
         return "Active"
     }
 
-    Component.onCompleted: refresh()
+    Component.onCompleted: { console.log("[CREDLEDGER] Component.onCompleted"); refresh() }
     Connections {
         target: backend
-        function onDataChanged() { page.refresh() }
+        function onDataChanged() { console.log("[CREDLEDGER] dataChanged"); page.refresh() }
     }
 
     ColumnLayout {

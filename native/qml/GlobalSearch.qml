@@ -15,6 +15,7 @@ Item {
 
     function toggle() {
         open = !open
+        console.log("[SEARCH] toggle() open:", open)
         if (open) {
             queryField.forceActiveFocus()
         }
@@ -22,18 +23,21 @@ Item {
 
     function doSearch(query) {
         searchQuery = query.trim().toLowerCase()
+        console.log("[SEARCH] doSearch query:", searchQuery, "length:", searchQuery.length)
         if (searchQuery.length < 2) {
             searchResults = []
             return
         }
         var results = []
         var parties = backend.partyNames()
+        console.log("[SEARCH] partyNames returned:", parties ? parties.length : "null")
         for (var i = 0; i < parties.length; i++) {
             if (parties[i].toLowerCase().indexOf(searchQuery) >= 0) {
                 results.push({ kind: "party", label: parties[i], detail: "Party" })
             }
         }
         var txns = backend.transactions(1, 200, 365)
+        console.log("[SEARCH] transactions returned:", txns ? txns.length : "null")
         for (var j = 0; j < txns.length; j++) {
             var t = txns[j]
             if (t.party && t.party.toLowerCase().indexOf(searchQuery) >= 0 ||
@@ -44,6 +48,7 @@ Item {
             }
         }
         searchResults = results
+        console.log("[SEARCH] results:", results.length)
     }
 
     opacity: open ? 1 : 0

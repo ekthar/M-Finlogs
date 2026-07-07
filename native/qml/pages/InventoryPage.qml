@@ -79,13 +79,16 @@ Item {
 
     // ── Data operations ───────────────────────────────────────────────────
     Component.onCompleted: {
+        console.log("[INVENTORY] Component.onCompleted")
         fyList = backend.financialYears()
+        console.log("[INVENTORY] fyList:", fyList ? fyList.length : "null")
         if (fyList.length > 0) selectedFy = String(fyList[0])
         load()
     }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections { target: backend; function onDataChanged() { console.log("[INVENTORY] dataChanged"); page.load() } }
 
     function load() {
+        console.log("[INVENTORY] load() called fy:", selectedFy, "month:", selectedMonth)
         if (!selectedFy) return
         rows = backend.inventorySnapshot(selectedFy, selectedMonth)
         stockRows = backend.stockValue(selectedFy, selectedMonth)

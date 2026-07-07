@@ -10,7 +10,7 @@ Item {
     property var partyList: []
     property var totals: ({})
 
-    Component.onCompleted: partyList = backend.partyNames()
+    Component.onCompleted: { console.log("[LEDGER] Component.onCompleted"); partyList = backend.partyNames(); console.log("[LEDGER] partyList:", partyList ? partyList.length : "null") }
 
     // Debit types: Sale, Expense, Purchase
     // Credit types: Receipt, Sale Return

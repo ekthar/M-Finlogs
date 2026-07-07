@@ -369,20 +369,37 @@ Item {
         }
     }
 
+    Component.onCompleted: {
+        console.log("[LOGIN] Component.onCompleted - setupMode:", setupMode,
+                    "backend.authenticated:", backend.authenticated,
+                    "backend.setupRequired:", backend.setupRequired)
+    }
+
     function submit() {
-        if (busy) return
+        if (busy) {
+            console.log("[LOGIN] submit() called but busy, ignored")
+            return
+        }
+        console.log("[LOGIN] submit() called - setupMode:", setupMode,
+                    "user:", userField.text, "pass.length:", passField.text.length)
         errorText.text = ""
         busy = true
         var res
         if (setupMode) {
+            console.log("[LOGIN] calling backend.setupAdmin()")
             res = backend.setupAdmin(userField.text, passField.text)
         } else {
+            console.log("[LOGIN] calling backend.login()")
             res = backend.login(userField.text, passField.text)
         }
         busy = false
+        console.log("[LOGIN] result:", JSON.stringify(res))
         if (!res || res.ok !== true) {
             errorText.text = res && res.error ? res.error : "Sign in failed"
+            console.log("[LOGIN] login failed:", errorText.text)
             shake.restart()
+        } else {
+            console.log("[LOGIN] login succeeded!")
         }
     }
 }

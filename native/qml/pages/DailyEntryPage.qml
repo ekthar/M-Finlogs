@@ -14,18 +14,26 @@ Item {
     property var editingRow: null
 
     function refresh() {
-        rows = backend.transactions(1, 100, 0)
+        console.log("[ENTRY] refresh() called - page.width:", page.width, "page.height:", page.height)
+        var result = backend.transactions(1, 100, 0)
+        console.log("[ENTRY] backend.transactions returned", result ? result.length : "null", "rows")
+        rows = result || []
     }
     function refreshParties() {
-        partyList = backend.partyNames()
+        console.log("[ENTRY] refreshParties() called")
+        var result = backend.partyNames()
+        console.log("[ENTRY] backend.partyNames returned", result ? result.length : "null", "names")
+        partyList = result || []
     }
     function lookupPartyBalance(name) {
+        console.log("[ENTRY] lookupPartyBalance name:", name)
         if (!name || name.trim().length === 0) {
             partyBalanceVisible = false
+            console.log("[ENTRY] lookupPartyBalance: empty name, hiding")
             return
         }
         var info = backend.partyBalance(name.trim())
-        if (info && info.hasData) {
+        console.log("[ENTRY] backend.partyBalance result:", JSON.stringify(info))
             partyBalanceText = name.trim() + ": " + info.balanceLabel +
                 " | Last: " + info.lastType + " \u20B9" + backend.formatMoney(info.lastAmount) +
                 " on " + backend.formatDate(info.lastDate)
@@ -36,13 +44,25 @@ Item {
     }
 
     Component.onCompleted: {
+        console.log("[ENTRY] Component.onCompleted - page.width:", page.width, "page.height:", page.height,
+                    "parent:", parent, "parent.width:", parent ? parent.width : 0, "parent.height:", parent ? parent.height : 0)
         refresh()
         refreshParties()
-        billField.inputField.forceActiveFocus()
+        console.log("[ENTRY] attempting billField.inputField.forceActiveFocus()")
+        if (billField && billField.inputField) {
+            billField.inputField.forceActiveFocus()
+            console.log("[ENTRY] focus set to billField")
+        } else {
+            console.log("[ENTRY] WARNING: billField.inputField not available")
+        }
+        console.log("[ENTRY] Component.onCompleted done")
     }
     Connections {
         target: backend
-        function onDataChanged() { page.refresh() }
+        function onDataChanged() {
+            console.log("[ENTRY] backend.dataChanged received")
+            page.refresh()
+        }
     }
 
     // Edit Transaction Dialog
@@ -54,6 +74,8 @@ Item {
         width: Math.min(520, page.width * 0.9)
         height: Math.min(600, page.height * 0.95)
         padding: 0
+        onOpened: console.log("[ENTRY] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
+        onClosed: console.log("[ENTRY] editDialog closed")
 
         property var originalValues: ({})
         property var targetRow: null
@@ -243,6 +265,8 @@ Item {
         width: Math.min(440, page.width * 0.85)
         height: Math.min(260, page.height * 0.5)
         padding: 0
+        onOpened: console.log("[ENTRY] deleteDialog opened, batchMode:", batchMode)
+        onClosed: console.log("[ENTRY] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
         property bool batchMode: false
@@ -788,20 +812,32 @@ Item {
     }
 
     function openEditDialog(row) {
-        if (!row) return
+        if (!row) {
+            console.log("[ENTRY] openEditDialog called with null row")
+            return
+        }
+        console.log("[ENTRY] openEditDialog for row id:", row.id, "party:", row.party)
         editingRow = row
         editDialog.loadRow(row)
         editDialog.open()
     }
 
     function openDeleteDialog(row) {
-        if (!row) return
+        if (!row) {
+            console.log("[ENTRY] openDeleteDialog called with null row")
+            return
+        }
+        console.log("[ENTRY] openDeleteDialog for row id:", row.id, "party:", row.party)
         editingRow = row
         deleteDialog.infoText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
         deleteDialog.open()
     }
 
     function save() {
+        console.log("[ENTRY] save() called date:", dateField.isoText,
+                    "bill:", billField.text, "party:", partyField.text,
+                    "type:", typeField.currentText, "mode:", modeField.currentText,
+                    "amount:", Number(amountField.text))
         var res = backend.addTransaction(
             dateField.isoText,
             billField.text,
@@ -810,6 +846,7 @@ Item {
             modeField.currentText,
             Number(amountField.text)
         )
+        console.log("[ENTRY] backend.addTransaction result:", JSON.stringify(res))
         if (res && res.ok === true) {
             // Auto-increment bill, clear inputs, cycle focus back to Bill
             billField.text = backend.nextBillNumber(billField.text)
@@ -817,6 +854,8 @@ Item {
             amountField.text = ""
             refreshParties()
             billField.inputField.forceActiveFocus()
+        } else {
+            console.log("[ENTRY] save failed:", res ? res.error : "no response")
         }
     }
 }

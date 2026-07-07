@@ -6,9 +6,9 @@ Item {
     id: page
     property var data: ({})
 
-    function load() { data = backend.profitAndLoss() }
-    Component.onCompleted: load()
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    function load() { console.log("[PNL] load() called"); data = backend.profitAndLoss(); console.log("[PNL] data:", JSON.stringify(data)) }
+    Component.onCompleted: { console.log("[PNL] Component.onCompleted"); load() }
+    Connections { target: backend; function onDataChanged() { console.log("[PNL] dataChanged"); page.load() } }
 
     property real sales: Number(data.sales || 0)
     property real expenses: Number(data.expenses || 0)

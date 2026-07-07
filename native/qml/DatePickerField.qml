@@ -22,6 +22,7 @@ Item {
     property int viewMonth: selectedDate.getMonth()
 
     function openCalendar() {
+        console.log("[DATEPICKER] openCalendar() - viewYear:", viewYear, "viewMonth:", viewMonth)
         viewYear = selectedDate.getFullYear()
         viewMonth = selectedDate.getMonth()
         rebuild()
@@ -103,6 +104,8 @@ Item {
         padding: 14
         modal: false
         focus: true
+        onOpened: console.log("[DATEPICKER] popup opened")
+        onClosed: console.log("[DATEPICKER] popup closed")
 
         background: GlassPanel {
             fillColor: Theme.bg2

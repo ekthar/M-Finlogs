@@ -6,9 +6,9 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.auditLogs() }
-    Component.onCompleted: load()
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    function load() { console.log("[AUDIT] load() called"); rows = backend.auditLogs(); console.log("[AUDIT] rows:", rows ? rows.length : "null") }
+    Component.onCompleted: { console.log("[AUDIT] Component.onCompleted"); load() }
+    Connections { target: backend; function onDataChanged() { console.log("[AUDIT] dataChanged"); page.load() } }
 
     function doExportPdf() {
         var cols = ["Time", "User", "Action", "Details"]

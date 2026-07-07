@@ -109,6 +109,11 @@ ApplicationWindow {
             Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             Behavior on scale { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             sourceComponent: LoginView {}
+            onActiveChanged: console.log("[MAIN] loginLoader active:", active, "opacity:", opacity, "item:", item)
+            onLoaded: console.log("[MAIN] loginLoader loaded, item:", item)
+            onItemChanged: console.log("[MAIN] loginLoader item changed:", item)
+            onOpacityChanged: console.log("[MAIN] loginLoader opacity:", opacity, "visible:", visible)
+            onVisibleChanged: console.log("[MAIN] loginLoader visible:", visible)
         }
 
         Loader {
@@ -121,6 +126,11 @@ ApplicationWindow {
             Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             Behavior on scale { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             sourceComponent: AppShell {}
+            onActiveChanged: console.log("[MAIN] shellLoader active:", active, "opacity:", opacity, "item:", item)
+            onLoaded: console.log("[MAIN] shellLoader loaded, item:", item)
+            onItemChanged: console.log("[MAIN] shellLoader item changed:", item)
+            onOpacityChanged: console.log("[MAIN] shellLoader opacity:", opacity, "visible:", visible)
+            onVisibleChanged: console.log("[MAIN] shellLoader visible:", visible)
         }
     }
 
@@ -151,6 +161,21 @@ ApplicationWindow {
         function onDarkChanged() {
             fadeOverlay.opacity = 0.3
             crossfadeTimer.restart()
+        }
+    }
+
+    Connections {
+        target: backend
+        function onAuthChanged() {
+            console.log("[MAIN] backend.authChanged - authenticated:", backend.authenticated,
+                        "user:", backend.currentUser, "role:", backend.currentRole,
+                        "setupRequired:", backend.setupRequired)
+        }
+        function onSetupChanged() {
+            console.log("[MAIN] backend.setupChanged - setupRequired:", backend.setupRequired)
+        }
+        function onDataChanged() {
+            console.log("[MAIN] backend.dataChanged")
         }
     }
 

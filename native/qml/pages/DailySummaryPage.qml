@@ -6,8 +6,9 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.dailySummary(dateRange.fromIso, dateRange.toIso) }
+    function load() { console.log("[DAYSUMMARY] load() called"); rows = backend.dailySummary(dateRange.fromIso, dateRange.toIso); console.log("[DAYSUMMARY] rows:", rows ? rows.length : "null") }
     Component.onCompleted: {
+        console.log("[DAYSUMMARY] Component.onCompleted")
         dateRange.preset(30)
         load()
     }

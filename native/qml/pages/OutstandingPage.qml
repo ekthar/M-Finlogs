@@ -9,14 +9,16 @@ Item {
     property var stats: ({})
 
     function load() {
+        console.log("[OUTSTANDING] load() called")
         var res = backend.outstanding()
+        console.log("[OUTSTANDING] result:", JSON.stringify(res))
         if (res && res.ok === false) return
         rows = res.data || []
         total = Number(res.total || 0)
         stats = res.stats || {}
     }
-    Component.onCompleted: load()
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Component.onCompleted: { console.log("[OUTSTANDING] Component.onCompleted"); load() }
+    Connections { target: backend; function onDataChanged() { console.log("[OUTSTANDING] dataChanged"); page.load() } }
 
     ColumnLayout {
         anchors.fill: parent

@@ -9,6 +9,7 @@ Item {
     property var dbConfig: ({})
 
     Component.onCompleted: {
+        console.log("[SETTINGS] Component.onCompleted - isAdmin:", backend.isAdmin)
         openingField.text = backend.formatMoney(backend.openingCashSeed())
         if (backend.isAdmin) loadUsers()
         dbConfig = backend.readDatabaseConfig()

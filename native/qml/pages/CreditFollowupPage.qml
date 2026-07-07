@@ -9,7 +9,9 @@ Item {
     property real totalOutstanding: 0
 
     function refresh() {
+        console.log("[CREDFOLLOW] refresh() called")
         rows = backend.creditFollowupList()
+        console.log("[CREDFOLLOW] rows:", rows ? rows.length : "null")
         var t = 0
         for (var i = 0; i < rows.length; i++) t += Number(rows[i].balance || 0)
         totalOutstanding = t
@@ -62,10 +64,10 @@ Item {
         backend.exportTableToPdf("Credit Followup", cols, data)
     }
 
-    Component.onCompleted: refresh()
+    Component.onCompleted: { console.log("[CREDFOLLOW] Component.onCompleted"); refresh() }
     Connections {
         target: backend
-        function onDataChanged() { page.refresh() }
+        function onDataChanged() { console.log("[CREDFOLLOW] dataChanged"); page.refresh() }
     }
 
     ColumnLayout {

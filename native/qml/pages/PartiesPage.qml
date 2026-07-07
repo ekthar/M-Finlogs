@@ -7,9 +7,9 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.parties() }
-    Component.onCompleted: load()
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    function load() { console.log("[PARTIES] load() called"); rows = backend.parties(); console.log("[PARTIES] rows:", rows ? rows.length : "null") }
+    Component.onCompleted: { console.log("[PARTIES] Component.onCompleted"); load() }
+    Connections { target: backend; function onDataChanged() { console.log("[PARTIES] dataChanged"); page.load() } }
 
     Flickable {
         anchors.fill: parent

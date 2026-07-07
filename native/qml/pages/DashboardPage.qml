@@ -13,10 +13,17 @@ Item {
         trend = backend.salesTrend(30)
     }
 
-    Component.onCompleted: refresh()
+    Component.onCompleted: {
+        console.log("[DASHBOARD] Component.onCompleted - page.width:", page.width, "page.height:", page.height)
+        refresh()
+        console.log("[DASHBOARD] Component.onCompleted done")
+    }
     Connections {
         target: backend
-        function onDataChanged() { page.refresh() }
+        function onDataChanged() {
+            console.log("[DASHBOARD] backend.dataChanged received")
+            page.refresh()
+        }
     }
 
     Flickable {

@@ -12,16 +12,23 @@ Item {
     property var report: ({})
 
     function show() {
+        console.log("[CLOSING] show() called")
         report = backend.closingReport()
+        console.log("[CLOSING] backend.closingReport returned:", JSON.stringify(report))
         if (report && report.ok === true) {
             open = true
+            console.log("[CLOSING] opened, forcing focus")
             forceActiveFocus()
         } else {
+            console.log("[CLOSING] report generation failed")
             backend.toast("Could not generate closing report", "error")
         }
     }
 
-    function close() { open = false }
+    function close() {
+        console.log("[CLOSING] close() called")
+        open = false
+    }
 
     opacity: open ? 1 : 0
     visible: opacity > 0
