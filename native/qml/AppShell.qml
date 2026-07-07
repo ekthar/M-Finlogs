@@ -51,29 +51,32 @@ Item {
             return
         }
 
-        // Close any open overlays before transitioning.
-        // Dialogs live on the ApplicationWindow overlay layer, not as direct
-        // children of the page Item, so we walk both the page children AND
-        // the ApplicationWindow overlay children.
-        var closeSweep = function(item) {
-            if (!item) return
-            for (var i = 0; i < item.children.length; i++) {
-                var child = item.children[i]
+        // Close any open visible overlays on the current page before leaving.
+        // We only iterate direct children of the page item; Dialogs in QML
+        // Controls are parented to the ApplicationWindow overlay layer which
+        // we cannot walk without importing QtQuick.Window — skipping that to
+        // avoid a ReferenceError crashing this function.
+        if (stack.currentItem) {
+            var pageItem = stack.currentItem
+            for (var i = 0; i < pageItem.children.length; i++) {
+                var child = pageItem.children[i]
                 if (child && child.hasOwnProperty("close") &&
                         child.hasOwnProperty("visible") && child.visible) {
                     child.close()
                 }
             }
         }
-        if (stack.currentItem) closeSweep(stack.currentItem)
-        // Also close any popup-layer overlays (Dialogs, Popups)
-        var win = Window.window
-        if (win && win.overlay) closeSweep(win.overlay)
 
+        var prev = currentPage
         currentPage = page
         var url = Qt.resolvedUrl("pages/" + page + ".qml")
         console.log("[NAV] stack.replace with url:", url)
         var item = stack.replace(url, {}, StackView.ReplaceTransition)
+        if (!item) {
+            // replace failed (e.g. QML parse error in target file)
+            console.log("[NAV] stack.replace returned null - reverting currentPage to:", prev)
+            currentPage = prev
+        }
         console.log("[NAV] replace returned item:", item)
     }
 

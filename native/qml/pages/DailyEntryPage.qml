@@ -359,7 +359,7 @@ Item {
 
                 PrimaryButton {
                     text: "Delete"
-                    tint: Theme.danger
+                    danger: true
                     onClicked: {
                         if (deleteDialog.batchMode) {
                             var ids = transactionTable.checkedRows.slice()
@@ -780,7 +780,7 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mEdit.containsMouse ? Theme.rowHover : "transparent"
+                color: mEdit.hovered ? Theme.rowHover : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
@@ -806,7 +806,7 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mDel.containsMouse ? Theme.rowHover : "transparent"
+                color: mDel.hovered ? Theme.rowHover : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
