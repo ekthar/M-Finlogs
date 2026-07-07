@@ -10,6 +10,7 @@ Item {
     property string label: ""
     property date selectedDate: new Date()
     readonly property string isoText: Qt.formatDate(selectedDate, "yyyy-MM-dd")
+    signal accepted()  // emitted after closing calendar (for Enter-chain in forms)
 
     implicitHeight: (label.length > 0 ? 20 : 0) + 44
     implicitWidth: 180
@@ -70,10 +71,26 @@ Item {
             width: parent.width
             height: 44
             radius: Theme.rMd
-            color: pop.visible ? Theme.alpha(Theme.accent, 0.10) : Theme.glass
-            border.width: pop.visible ? 1.5 : 1
-            border.color: pop.visible ? Theme.accent : Theme.glassBorder
+            color: pop.visible ? Theme.alpha(Theme.accent, 0.10) : (fieldFocus.activeFocus ? Theme.alpha(Theme.accent, 0.08) : Theme.glass)
+            border.width: (pop.visible || fieldFocus.activeFocus) ? 1.5 : 1
+            border.color: (pop.visible || fieldFocus.activeFocus) ? Theme.accent : Theme.glassBorder
             Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
+
+            // Make the date field keyboard focusable so Tab order works
+            FocusScope {
+                id: fieldFocus
+                anchors.fill: parent
+                activeFocusOnTab: true
+
+                Keys.onReturnPressed: { root.openCalendar() }
+                Keys.onEnterPressed: { root.openCalendar() }
+                Keys.onSpacePressed: { root.openCalendar() }
+                // Tab / Escape closes the calendar and passes focus along
+                Keys.onEscapePressed: { if (pop.visible) pop.close() }
+
+                // Invisible but focusable area so Tab ring includes the date field
+                Rectangle { anchors.fill: parent; color: "transparent" }
+            }
 
             Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -104,8 +121,12 @@ Item {
         padding: 14
         modal: false
         focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         onOpened: console.log("[DATEPICKER] popup opened")
-        onClosed: console.log("[DATEPICKER] popup closed")
+        onClosed: {
+            console.log("[DATEPICKER] popup closed")
+            root.accepted()
+        }
 
         background: GlassPanel {
             fillColor: Theme.bg2

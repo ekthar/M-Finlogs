@@ -56,23 +56,26 @@ Item {
     }
 
     function toggleCheck(rowId) {
+        var copy = checkedRows.slice()
         var idx = -1
-        for (var i = 0; i < checkedRows.length; i++) {
-            if (checkedRows[i] === rowId) { idx = i; break }
+        for (var i = 0; i < copy.length; i++) {
+            if (copy[i] === rowId) { idx = i; break }
         }
         if (idx >= 0) {
-            checkedRows.splice(idx, 1)
+            copy.splice(idx, 1)
         } else {
-            checkedRows.push(rowId)
+            copy.push(rowId)
         }
-        checkChanged(isChecked(rowId), rowId)
+        checkedRows = copy
+        checkChanged(idx < 0, rowId)  // idx<0 means it was just added → checked=true
     }
 
     function selectAll() {
-        checkedRows = []
+        var copy = []
         for (var i = 0; i < rows.length; i++) {
-            checkedRows.push(rows[i].id)
+            copy.push(rows[i].id)
         }
+        checkedRows = copy
     }
 
     function deselectAll() {
@@ -201,7 +204,7 @@ Item {
             delegate: Rectangle {
                 id: rowItem
                 width: list.width
-                height: root.loading ? 46 : 46
+                height: 46
                 property var rowData: root.loading ? null : modelData
                 property bool isCurrent: list.currentIndex === index
 
@@ -364,17 +367,14 @@ Item {
 
                 HoverHandler { id: rowHover }
                 TapHandler {
-                    onDoubleTapped: {
-                        if (!root.loading && rowItem.rowData) {
-                            // Check if double-clicked column supports inline editing
-                            root.rowActivated(rowItem.rowData)
-                        }
-                    }
-                }
-                TapHandler {
                     onTapped: {
                         if (!root.loading && rowItem.rowData) {
                             list.currentIndex = index
+                        }
+                    }
+                    onDoubleTapped: {
+                        if (!root.loading && rowItem.rowData) {
+                            root.rowActivated(rowItem.rowData)
                         }
                     }
                 }

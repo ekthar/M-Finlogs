@@ -44,20 +44,25 @@ Item {
         }
     }
 
+    // FIX: defer forceActiveFocus so layout geometry is settled before we call it
     Component.onCompleted: {
         console.log("[ENTRY] Component.onCompleted - page.width:", page.width, "page.height:", page.height,
-                    "parent:", parent, "parent.width:", parent ? parent.width : 0, "parent.height:", parent ? parent.height : 0)
+                    "parent:", parent, "parent.width:", parent ? parent.width : 0,
+                    "parent.height:", parent ? parent.height : 0)
         refresh()
         refreshParties()
-        console.log("[ENTRY] attempting billField.inputField.forceActiveFocus()")
-        if (billField && billField.inputField) {
-            billField.inputField.forceActiveFocus()
-            console.log("[ENTRY] focus set to billField")
-        } else {
-            console.log("[ENTRY] WARNING: billField.inputField not available")
-        }
+        Qt.callLater(function() {
+            console.log("[ENTRY] deferred focus - billField.inputField:", billField ? billField.inputField : null)
+            if (billField && billField.inputField) {
+                billField.inputField.forceActiveFocus()
+                console.log("[ENTRY] focus set to billField")
+            } else {
+                console.log("[ENTRY] WARNING: billField.inputField not available even after callLater")
+            }
+        })
         console.log("[ENTRY] Component.onCompleted done")
     }
+
     Connections {
         target: backend
         function onDataChanged() {
@@ -66,14 +71,15 @@ Item {
         }
     }
 
-    // Edit Transaction Dialog
+    // ── Edit Transaction Dialog ────────────────────────────────────────────
     Dialog {
         id: editDialog
         modal: true
         closePolicy: Dialog.CloseOnEscape
         title: "Edit Transaction"
-        width: Math.min(520, page.width * 0.9)
-        height: Math.min(600, page.height * 0.95)
+        // FIX: guard against page.height=0 during early layout phase
+        width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
+        height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
         onOpened: console.log("[ENTRY] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
         onClosed: console.log("[ENTRY] editDialog closed")
@@ -257,20 +263,23 @@ Item {
         }
     }
 
-    // Delete Confirmation Dialog
+    // ── Delete Confirmation Dialog ─────────────────────────────────────────
     Dialog {
         id: deleteDialog
         modal: true
         closePolicy: Dialog.CloseOnEscape
         title: "Delete Transaction"
-        width: Math.min(440, page.width * 0.85)
-        height: Math.min(260, page.height * 0.5)
+        // FIX: guard against page.height=0 during early layout phase
+        width: Math.min(440, page.width > 0 ? page.width * 0.85 : 420)
+        height: Math.min(260, page.height > 0 ? page.height * 0.5 : 240)
         padding: 0
         onOpened: console.log("[ENTRY] deleteDialog opened, batchMode:", batchMode)
         onClosed: console.log("[ENTRY] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
         property bool batchMode: false
+        // FIX: capture the count at open-time to avoid stale binding after deselection
+        property int batchCount: 0
 
         background: GlassPanel {
             fillColor: Theme.bg2
@@ -302,7 +311,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: deleteDialog.batchMode
-                            ? "Are you sure you want to delete " + transactionTable.checkedRows.length + " selected transactions?"
+                            ? "Are you sure you want to delete " + deleteDialog.batchCount + " selected transactions?"
                             : "Are you sure you want to delete this transaction?"
                         color: Theme.text
                         font.family: Theme.fontFamily
@@ -353,7 +362,7 @@ Item {
                     tint: Theme.danger
                     onClicked: {
                         if (deleteDialog.batchMode) {
-                            var ids = transactionTable.checkedRows
+                            var ids = transactionTable.checkedRows.slice()
                             var res = backend.batchDeleteTransactions(ids)
                             if (res && res.ok === true) {
                                 transactionTable.deselectAll()
@@ -375,6 +384,7 @@ Item {
         }
     }
 
+    // ── Main layout ────────────────────────────────────────────────────────
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -385,7 +395,7 @@ Item {
 
         SectionHeader {
             title: "Daily Entry"
-            subtitle: "Press Enter to navigate: Bill \u2192 Party \u2192 Type \u2192 Mode \u2192 Amount \u2192 Save \u2192 Bill"
+            subtitle: "Date \u2192 Bill \u2192 Party \u2192 Type \u2192 Mode \u2192 Amount \u2192 Save (Enter to advance)"
         }
 
         // Keyboard hints bar
@@ -401,7 +411,7 @@ Item {
                 anchors.fill: parent
                 anchors.leftMargin: Theme.s4
                 anchors.rightMargin: Theme.s4
-                spacing: Theme.s5
+                spacing: Theme.s4
                 Text { text: "\u2328"; color: Theme.accent; font.pixelSize: 14 }
                 Text { text: "Enter = Next field"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                 Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
@@ -414,7 +424,7 @@ Item {
             }
         }
 
-        // Entry form panel
+        // ── Entry form panel ───────────────────────────────────────────────
         GlassPanel {
             Layout.fillWidth: true
             implicitHeight: formCol.implicitHeight + Theme.s8
@@ -455,6 +465,7 @@ Item {
                     }
                 }
 
+                // FIX: Row 1 — Date | Bill | Party  (no overflow; Type/Mode/Amount on row 2)
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s3
@@ -463,10 +474,12 @@ Item {
                         id: dateField
                         Layout.preferredWidth: 170
                         label: "Date"
+                        // FIX: dateField now participates in Enter-chain via accepted signal
+                        onAccepted: billField.inputField.forceActiveFocus()
                     }
                     FieldInput {
                         id: billField
-                        Layout.preferredWidth: 150
+                        Layout.preferredWidth: 170
                         label: "Ref / Bill"
                         placeholder: "INV-001"
                         showCompletions: false
@@ -479,26 +492,32 @@ Item {
                         placeholder: "Search or type party"
                         completions: page.partyList
                         onAccepted: typeField.focusCombo()
-                        // Lookup balance when user finishes typing
                         inputField.onEditingFinished: page.lookupPartyBalance(text)
                     }
+                }
+
+                // FIX: Row 2 — Type | Mode | Amount | Save  (all fit comfortably)
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s3
+
                     FieldCombo {
                         id: typeField
-                        Layout.preferredWidth: 150
+                        Layout.fillWidth: true
                         label: "Type"
                         options: ["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]
                         onNextField: modeField.focusCombo()
                     }
                     FieldCombo {
                         id: modeField
-                        Layout.preferredWidth: 140
+                        Layout.fillWidth: true
                         label: "Mode"
                         options: ["Credit", "Cash", "UPI", "Bank"]
                         onNextField: amountField.inputField.forceActiveFocus()
                     }
                     FieldInput {
                         id: amountField
-                        Layout.preferredWidth: 150
+                        Layout.preferredWidth: 160
                         label: "Amount"
                         placeholder: "0.00"
                         numeric: true
@@ -515,7 +534,7 @@ Item {
             }
         }
 
-        // Recent transactions table
+        // ── Recent transactions table ──────────────────────────────────────
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -526,121 +545,122 @@ Item {
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
 
-                    Item {
-                        Layout.fillWidth: true
-                        implicitHeight: toolRow.implicitHeight
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: toolRow.implicitHeight
 
-                        RowLayout {
-                            id: toolRow
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            spacing: Theme.s3
+                    RowLayout {
+                        id: toolRow
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        spacing: Theme.s3
 
-                            Text {
-                                text: "Recent Transactions"
-                                color: Theme.text
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fsSection
-                                font.weight: Font.Bold
+                        Text {
+                            text: "Recent Transactions"
+                            color: Theme.text
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fsSection
+                            font.weight: Font.Bold
+                        }
+                        Item { Layout.fillWidth: true }
+                        GhostButton {
+                            text: "Import"
+                            tint: Theme.accent
+                            implicitWidth: 80
+                            onClicked: {
+                                var res = backend.importTransactions()
+                                if (res && res.ok === true) {
+                                    page.refresh()
+                                }
                             }
-                            Item { Layout.fillWidth: true }
-                            GhostButton {
-                                text: "Import"
-                                tint: Theme.accent
-                                implicitWidth: 80
-                                onClicked: {
-                                    var res = backend.importTransactions()
+                        }
+                        GhostButton {
+                            text: "Template"
+                            tint: Theme.accent
+                            implicitWidth: 90
+                            onClicked: backend.downloadImportTemplate()
+                        }
+                        Rectangle {
+                            id: smartBtn
+                            Layout.preferredWidth: 28; Layout.preferredHeight: 28
+                            radius: 14
+                            color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
+                            border.width: 1
+                            border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "\u2699"
+                                color: Theme.accent2
+                                font.pixelSize: 14
+                            }
+                            HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
+                            TapHandler {
+                                onTapped: {
+                                    var res = backend.smartImportExcel()
                                     if (res && res.ok === true) {
                                         page.refresh()
                                     }
                                 }
-                            }
-                            GhostButton {
-                                text: "Template"
-                                tint: Theme.accent
-                                implicitWidth: 90
-                                onClicked: backend.downloadImportTemplate()
                             }
                             Rectangle {
-                                id: smartBtn
-                                Layout.preferredWidth: 28; Layout.preferredHeight: 28
-                                radius: 14
-                                color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
+                                visible: smartHover.hovered
+                                x: parent.width + 8; y: -4
+                                width: tipText.implicitWidth + 16
+                                height: tipText.implicitHeight + 8
+                                radius: Theme.rSm
+                                color: Theme.bg2
                                 border.width: 1
-                                border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                                border.color: Theme.glassBorder
+                                z: 1000
                                 Text {
+                                    id: tipText
                                     anchors.centerIn: parent
-                                    text: "\u2699"
-                                    color: Theme.accent2
-                                    font.pixelSize: 14
-                                }
-                                HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler {
-                                    onTapped: {
-                                        var res = backend.smartImportExcel()
-                                        if (res && res.ok === true) {
-                                            page.refresh()
-                                        }
-                                    }
-                                }
-                                Rectangle {
-                                    visible: smartHover.hovered
-                                    x: parent.width + 8; y: -4
-                                    width: tipText.implicitWidth + 16
-                                    height: tipText.implicitHeight + 8
-                                    radius: Theme.rSm
-                                    color: Theme.bg2
-                                    border.width: 1
-                                    border.color: Theme.glassBorder
-                                    z: 1000
-                                    Text {
-                                        id: tipText
-                                        anchors.centerIn: parent
-                                        text: "Smart Import"
-                                        color: Theme.textDim
-                                        font.family: Theme.fontFamily
-                                        font.pixelSize: Theme.fsTiny
-                                    }
+                                    text: "Smart Import"
+                                    color: Theme.textDim
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fsTiny
                                 }
                             }
-                            GhostButton {
-                                text: "Export PDF"
-                                tint: Theme.accent2
-                                implicitWidth: 100
-                                onClicked: backend.exportRecentPdf(7)
-                            }
-                            GhostButton {
-                                text: "Export Excel"
-                                tint: Theme.accent3
-                                implicitWidth: 100
-                                onClicked: backend.exportRecentExcel(30)
-                            }
-                            GhostButton {
-                                id: undoBtn
-                                text: "\u21A9 Undo"
-                                tint: Theme.warning
-                                implicitWidth: 90
-                                visible: false
-                                onClicked: {
-                                    var res = backend.undoDeleteTransaction()
-                                    if (res && res.ok === true) {
-                                        page.refresh()
-                                        undoBtn.visible = false
-                                    }
-                                }
-                            }
-                            StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                         }
-                        HoverHandler { id: toolHover; cursorShape: Qt.ArrowCursor }
+                        GhostButton {
+                            text: "Export PDF"
+                            tint: Theme.accent2
+                            implicitWidth: 100
+                            onClicked: backend.exportRecentPdf(7)
+                        }
+                        GhostButton {
+                            text: "Export Excel"
+                            tint: Theme.accent3
+                            implicitWidth: 100
+                            onClicked: backend.exportRecentExcel(30)
+                        }
+                        GhostButton {
+                            id: undoBtn
+                            text: "\u21A9 Undo"
+                            tint: Theme.warning
+                            implicitWidth: 90
+                            visible: false
+                            onClicked: {
+                                var res = backend.undoDeleteTransaction()
+                                if (res && res.ok === true) {
+                                    page.refresh()
+                                    undoBtn.visible = false
+                                }
+                            }
+                        }
+                        StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
                     }
+                    HoverHandler { id: toolHover; cursorShape: Qt.ArrowCursor }
+                }
 
+                // Batch selection action bar (appears when rows are checked)
                 RowLayout {
                     Layout.fillWidth: true
                     visible: transactionTable.checkedRows.length > 0
 
                     Rectangle {
                         Layout.preferredHeight: 32
-                        Layout.preferredWidth: 120
+                        Layout.preferredWidth: batchDeleteText.implicitWidth + 32
                         radius: Theme.rPill
                         color: Theme.alpha(Theme.danger, 0.12)
                         border.width: 1
@@ -651,6 +671,7 @@ Item {
                             spacing: Theme.s1
                             Text { text: "\u2716"; color: Theme.danger; font.pixelSize: 12 }
                             Text {
+                                id: batchDeleteText
                                 text: "Delete " + transactionTable.checkedRows.length + " selected"
                                 color: Theme.danger
                                 font.family: Theme.fontFamily
@@ -660,8 +681,11 @@ Item {
                         }
                         TapHandler {
                             onTapped: {
+                                // FIX: capture count at open-time; checkedRows.length binding
+                                // was unreliable due to earlier array reactivity bug (now fixed)
+                                deleteDialog.batchCount = transactionTable.checkedRows.length
                                 deleteDialog.batchMode = true
-                                deleteDialog.infoText = "Batch delete " + transactionTable.checkedRows.length + " transactions"
+                                deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"
                                 deleteDialog.open()
                             }
                         }
@@ -670,7 +694,7 @@ Item {
 
                     Rectangle {
                         Layout.preferredHeight: 32
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: 110
                         radius: Theme.rPill
                         color: "transparent"
                         border.width: 1
@@ -709,19 +733,24 @@ Item {
                         { title: "Amount", key: "amount", money: true, align: "right", weight: 1.2 }
                     ]
                     onRowActivated: function(row) {
-                        contextMenu.popup(row)
+                        // FIX: position context menu near the row's right edge (not always top-right)
+                        var globalPt = transactionTable.mapToGlobal(
+                            transactionTable.width - contextMenu.width - Theme.s3,
+                            transactionTable.height / 2   // reasonable vertical fallback
+                        )
+                        contextMenu.popupAt(row, globalPt.x, globalPt.y)
                     }
                 }
             }
         }
     }
 
-    // Context menu for edit/delete actions
+    // ── Context menu for edit / delete actions ────────────────────────────
     Rectangle {
         id: contextMenu
         visible: false
         width: 160
-        height: col.implicitHeight + 8
+        height: cmCol.implicitHeight + 8
         radius: Theme.rMd
         color: Theme.glassStrong
         border.width: 1
@@ -730,17 +759,18 @@ Item {
 
         property var targetRow: null
 
-        function popup(row) {
+        // FIX: accept global coordinates and map to page-local, with bounds clamping
+        function popupAt(row, globalX, globalY) {
             targetRow = row
-            var pos = transactionTable.mapToItem(page, transactionTable.width - width, 0)
-            x = Math.max(0, page.width - width - Theme.s4)
-            y = Math.min(page.height - height - Theme.s4, Theme.s5)
+            var localPos = page.mapFromGlobal(globalX, globalY)
+            x = Math.max(Theme.s4, Math.min(localPos.x, page.width  - width  - Theme.s4))
+            y = Math.max(Theme.s4, Math.min(localPos.y, page.height - height - Theme.s4))
             visible = true
             forceActiveFocus()
         }
 
         ColumnLayout {
-            id: col
+            id: cmCol
             anchors.fill: parent
             anchors.margins: 4
             spacing: 2
@@ -806,12 +836,13 @@ Item {
         focus: true
     }
 
-    // Click outside to close context menu
+    // Click outside context menu to close it
     TapHandler {
         enabled: contextMenu.visible
         onTapped: contextMenu.visible = false
     }
 
+    // ── Dialog helper functions ────────────────────────────────────────────
     function openEditDialog(row) {
         if (!row) {
             console.log("[ENTRY] openEditDialog called with null row")
@@ -830,10 +861,13 @@ Item {
         }
         console.log("[ENTRY] openDeleteDialog for row id:", row.id, "party:", row.party)
         editingRow = row
+        deleteDialog.batchMode = false
+        deleteDialog.batchCount = 0
         deleteDialog.infoText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
         deleteDialog.open()
     }
 
+    // ── Save entry ─────────────────────────────────────────────────────────
     function save() {
         console.log("[ENTRY] save() called date:", dateField.isoText,
                     "bill:", billField.text, "party:", partyField.text,
@@ -853,7 +887,9 @@ Item {
             billField.text = backend.nextBillNumber(billField.text)
             partyField.text = ""
             amountField.text = ""
+            partyBalanceVisible = false
             refreshParties()
+            page.refresh()
             billField.inputField.forceActiveFocus()
         } else {
             console.log("[ENTRY] save failed:", res ? res.error : "no response")

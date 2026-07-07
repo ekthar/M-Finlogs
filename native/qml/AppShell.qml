@@ -40,37 +40,40 @@ Item {
     property string currentPage: "DashboardPage"
 
     function navigate(page) {
-        if (page === currentPage) {
-            console.log("[NAV] navigate() called for same page:", page, "- ignored")
-            return
-        }
         console.log("[NAV] navigate() from:", currentPage, "to:", page)
 
-        // Close any open overlays (Dialogs, Popups) on the current page
-        // before transitioning, to prevent overlay pileup when the old page
-        // is destroyed mid-transition.
-        if (stack.currentItem) {
-            var pageItem = stack.currentItem
-            console.log("[NAV] current page item:", pageItem, "children count:", pageItem.children.length)
-            for (var i = 0; i < pageItem.children.length; i++) {
-                var child = pageItem.children[i]
-                var hasClose = child.hasOwnProperty("close")
-                var hasVisible = child.hasOwnProperty("visible")
-                var isVisible = hasVisible && child.visible
-                console.log("[NAV]   child[" + i + "]:", child, "close=" + hasClose, "visible=" + hasVisible + " val=" + (hasVisible ? child.visible : "N/A"), "isOpen=" + isVisible)
-                if (hasClose && isVisible) {
-                    console.log("[NAV]   -> closing:", child)
+        // If already on this page, call refresh() if available and return
+        if (page === currentPage && stack.currentItem) {
+            console.log("[NAV] same page - calling refresh() if available")
+            if (typeof stack.currentItem.refresh === "function") {
+                stack.currentItem.refresh()
+            }
+            return
+        }
+
+        // Close any open overlays before transitioning.
+        // Dialogs live on the ApplicationWindow overlay layer, not as direct
+        // children of the page Item, so we walk both the page children AND
+        // the ApplicationWindow overlay children.
+        var closeSweep = function(item) {
+            if (!item) return
+            for (var i = 0; i < item.children.length; i++) {
+                var child = item.children[i]
+                if (child && child.hasOwnProperty("close") &&
+                        child.hasOwnProperty("visible") && child.visible) {
                     child.close()
                 }
             }
-        } else {
-            console.log("[NAV] no currentItem in stack")
         }
+        if (stack.currentItem) closeSweep(stack.currentItem)
+        // Also close any popup-layer overlays (Dialogs, Popups)
+        var win = Window.window
+        if (win && win.overlay) closeSweep(win.overlay)
 
         currentPage = page
         var url = Qt.resolvedUrl("pages/" + page + ".qml")
         console.log("[NAV] stack.replace with url:", url)
-        var item = stack.replace(url, {}, StackView.PushTransition)
+        var item = stack.replace(url, {}, StackView.ReplaceTransition)
         console.log("[NAV] replace returned item:", item)
     }
 

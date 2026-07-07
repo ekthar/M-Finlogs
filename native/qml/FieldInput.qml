@@ -131,7 +131,7 @@ Item {
         padding: 6
         visible: false
         focus: false
-        closePolicy: Popup.NoAutoClose
+        closePolicy: Popup.CloseOnPressOutside
         onOpened: console.log("[FIELDINPUT] suggestion popup opened for:", label)
         onClosed: console.log("[FIELDINPUT] suggestion popup closed for:", label)
         background: Rectangle {
