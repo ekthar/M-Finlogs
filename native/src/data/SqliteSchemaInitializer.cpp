@@ -153,7 +153,9 @@ void SqliteSchemaInitializer::ensureIndexes() {
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_inventory_items_company_id ON inventory_items(company, id)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_inventory_items_company_client_row ON inventory_items(company, client_row_id)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_inventory_quantities_lookup ON inventory_quantities(company, financial_year, month, item_id)"),
-        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_inventory_purchases_lookup ON inventory_purchases(company, financial_year, month, item_id)")
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_inventory_purchases_lookup ON inventory_purchases(company, financial_year, month, item_id)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS IX_Txns_Party_Date ON transactions(party_id, txn_date)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS IX_Txns_Date_Type ON transactions(txn_date, txn_type)")
     };
     for (const QString& statement : statements) {
         executeStatement(statement);

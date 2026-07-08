@@ -10,25 +10,29 @@ Item {
     property var partyList: []
     property var editingRow: null
 
+    Connections {
+        target: backend
+        function onDayBookLoaded(result) {
+            var res = result || []
+            // Natural Sorting: sort date-wise, then bill-wise naturally
+            res.sort(function(a, b) {
+                if (a.date !== b.date) {
+                    return a.date.localeCompare(b.date);
+                }
+                var billA = String(a.bill_no || "");
+                var billB = String(b.bill_no || "");
+                return billA.localeCompare(billB, undefined, { numeric: true, sensitivity: 'base' });
+            });
+            rows = res
+            var sum = 0
+            for (var i = 0; i < rows.length; i++) sum += Number(rows[i].amount || 0)
+            totals = { amount: sum }
+        }
+    }
+
     function load() {
         console.log("[DAYBOOK] load() called date:", dateField ? dateField.isoText : "no dateField")
-        var result = backend.dayBook(dateField.isoText) || []
-        
-        // Natural Sorting: sort date-wise, then bill-wise naturally
-        result.sort(function(a, b) {
-            if (a.date !== b.date) {
-                return a.date.localeCompare(b.date);
-            }
-            var billA = String(a.bill_no || "");
-            var billB = String(b.bill_no || "");
-            return billA.localeCompare(billB, undefined, { numeric: true, sensitivity: 'base' });
-        });
-        
-        rows = result
-        console.log("[DAYBOOK] rows returned:", rows ? rows.length : "null")
-        var sum = 0
-        for (var i = 0; i < rows.length; i++) sum += Number(rows[i].amount || 0)
-        totals = { amount: sum }
+        backend.fetchDayBook(dateField.isoText)
     }
 
     Component.onCompleted: {

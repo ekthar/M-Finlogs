@@ -2707,6 +2707,8 @@ def get_outstanding_report():
     today = datetime.date.today()
 
     for name, sales, credits, last_receipt_date, first_sale_date in rows:
+        if name.strip().lower() == "customer":
+            continue
         s = float(sales or 0)
         c = float(credits or 0)
         balance = s - c
@@ -3357,7 +3359,7 @@ def get_daily_summary_report(start: Optional[str] = None, end: Optional[str] = N
               + SUM(CASE WHEN t.payment_mode='Credit' AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.amount ELSE 0 END) AS cash_in,
             SUM(CASE WHEN t.payment_mode='Cash' AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) AS cash_expense,
             SUM(CASE WHEN t.payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') AND UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE','RECEIPT','RECIEPT') THEN t.amount ELSE 0 END) AS bank_in,
-            SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' AND (p.type='Credit Customer' OR t.payment_mode='Credit') THEN t.amount ELSE 0 END) AS credit_sales,
+            SUM(CASE WHEN (UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' AND (p.type='Credit Customer' OR t.payment_mode='Credit')) OR UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.amount ELSE 0 END) AS credit_sales,
             SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') AND p.type='Credit Customer' THEN t.amount ELSE 0 END) AS credit_receipts
         FROM transactions t
         LEFT JOIN parties p ON t.party_id = p.party_id

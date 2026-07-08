@@ -134,11 +134,24 @@ public:
     Q_INVOKABLE QString formatDate(const QString& iso) const;
     Q_INVOKABLE QString todayIso() const;
 
+    // --- Asynchronous Reports Loading ------------------------------------
+    Q_INVOKABLE void fetchLedger(const QString& party, const QString& startIso, const QString& endIso);
+    Q_INVOKABLE void fetchDayBook(const QString& dateIso);
+    Q_INVOKABLE void fetchDashboard();
+
 signals:
     void authChanged();
     void setupChanged();
     void dataChanged();
     void toast(const QString& message, const QString& kind);
+    void ledgerLoaded(const QVariantMap& result);
+    void dayBookLoaded(const QVariantList& result);
+    void dashboardLoaded(const QVariantMap& result);
+
+public slots:
+    void onLedgerTaskFinished(const QVariantMap& result);
+    void onDayBookTaskFinished(const QVariantList& result);
+    void onDashboardTaskFinished(const QVariantMap& result);
 
 private:
     AppContext& context_;

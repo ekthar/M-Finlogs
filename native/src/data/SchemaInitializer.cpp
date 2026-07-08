@@ -217,7 +217,9 @@ void SchemaInitializer::ensureIndexes() {
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_items_company_id' AND object_id = OBJECT_ID('inventory_items')) CREATE INDEX idx_inventory_items_company_id ON inventory_items(company, id)"),
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_items_company_client_row' AND object_id = OBJECT_ID('inventory_items')) CREATE INDEX idx_inventory_items_company_client_row ON inventory_items(company, client_row_id)"),
         QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_quantities_lookup' AND object_id = OBJECT_ID('inventory_quantities')) CREATE INDEX idx_inventory_quantities_lookup ON inventory_quantities(company, financial_year, month, item_id)"),
-        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_purchases_lookup' AND object_id = OBJECT_ID('inventory_purchases')) CREATE INDEX idx_inventory_purchases_lookup ON inventory_purchases(company, financial_year, month, item_id)")
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'idx_inventory_purchases_lookup' AND object_id = OBJECT_ID('inventory_purchases')) CREATE INDEX idx_inventory_purchases_lookup ON inventory_purchases(company, financial_year, month, item_id)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Txns_Party_Date' AND object_id = OBJECT_ID('transactions')) CREATE NONCLUSTERED INDEX IX_Txns_Party_Date ON transactions(party_id, txn_date) INCLUDE (txn_id, bill_no, txn_type, payment_mode, amount)"),
+        QStringLiteral("IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Txns_Date_Type' AND object_id = OBJECT_ID('transactions')) CREATE NONCLUSTERED INDEX IX_Txns_Date_Type ON transactions(txn_date, txn_type) INCLUDE (amount)")
     };
 
     for (const QString& statement : statements) {

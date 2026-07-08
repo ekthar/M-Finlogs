@@ -56,16 +56,25 @@ Item {
         return result
     }
 
+    Connections {
+        target: backend
+        function onLedgerLoaded(res) {
+            if (res && res.error) {
+                backend.toast(res.error, "error")
+                return
+            }
+            openingBalance = Number(res.opening_balance || 0)
+            rawRows = res.data || []
+            rows = transformRows(rawRows)
+        }
+    }
+
     function load() {
         if (partyField.text.trim().length === 0) {
             backend.toast("Choose a party first", "error")
             return
         }
-        var res = backend.ledger(partyField.text, dateRange.fromIso, dateRange.toIso)
-        if (res && res.ok === false) return
-        openingBalance = Number(res.opening_balance || 0)
-        rawRows = res.data || []
-        rows = transformRows(rawRows)
+        backend.fetchLedger(partyField.text, dateRange.fromIso, dateRange.toIso)
     }
 
     // ── Edit Transaction Dialog ────────────────────────────────────────────

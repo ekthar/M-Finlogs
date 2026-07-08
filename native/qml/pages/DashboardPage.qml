@@ -9,22 +9,29 @@ Item {
     property var metrics: ({})
     property var trend: []
 
-    function refresh() {
-        metrics = backend.dashboard()
-        trend = backend.salesTrend(30)
-    }
-
-    Component.onCompleted: {
-        console.log("[DASHBOARD] Component.onCompleted - page.width:", page.width, "page.height:", page.height)
-        refresh()
-        console.log("[DASHBOARD] Component.onCompleted done")
-    }
     Connections {
         target: backend
+        function onDashboardLoaded(res) {
+            if (res && res.error) {
+                backend.toast(res.error, "error")
+                return
+            }
+            metrics = res
+            trend = backend.salesTrend(30)
+        }
         function onDataChanged() {
             console.log("[DASHBOARD] backend.dataChanged received")
             page.refresh()
         }
+    }
+
+    function refresh() {
+        backend.fetchDashboard()
+    }
+
+    Component.onCompleted: {
+        console.log("[DASHBOARD] Component.onCompleted")
+        refresh()
     }
 
     Flickable {

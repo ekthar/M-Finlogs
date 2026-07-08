@@ -34,6 +34,9 @@
 #include <QUrl>
 #include <QVector>
 
+#include <QThreadPool>
+#include <QRunnable>
+
 #include <exception>
 
 namespace mfinlogs::app {
@@ -161,6 +164,57 @@ QString findExistingPartyName(const QStringList& parties, const QString& name) {
     }
     return QString();
 }
+
+class DatabaseTask : public QRunnable {
+public:
+    enum TaskType {
+        GetLedger,
+        GetDayBook,
+        GetDashboard
+    };
+
+    DatabaseTask(TaskType type, domain::AppContext& context, const QVariantMap& params, QObject* receiver)
+        : type_(type), context_(context), params_(params), receiver_(receiver) {}
+
+    void run() override {
+        if (type_ == GetLedger) {
+            QVariantMap res;
+            try {
+                domain::ReportRange range;
+                range.start = QDate::fromString(params_.value(QStringLiteral("startIso")).toString(), Qt::ISODate);
+                range.end = QDate::fromString(params_.value(QStringLiteral("endIso")).toString(), Qt::ISODate);
+                range.days = 0;
+                res = jsonObjectToMap(context_.services().reports->ledger(params_.value(QStringLiteral("party")).toString(), range));
+            } catch (const std::exception& err) {
+                res.insert(QStringLiteral("ok"), false);
+                res.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
+            }
+            QMetaObject::invokeMethod(receiver_, "onLedgerTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+        } else if (type_ == GetDayBook) {
+            QVariantList res;
+            try {
+                const QDate date = QDate::fromString(params_.value(QStringLiteral("dateIso")).toString(), Qt::ISODate);
+                res = jsonArrayToList(context_.services().reports->dayBook(date));
+            } catch (...) {}
+            QMetaObject::invokeMethod(receiver_, "onDayBookTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+        } else if (type_ == GetDashboard) {
+            QVariantMap res;
+            try {
+                res = jsonObjectToMap(context_.services().reports->dashboardMetrics());
+            } catch (const std::exception& err) {
+                res.insert(QStringLiteral("ok"), false);
+                res.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
+            }
+            QMetaObject::invokeMethod(receiver_, "onDashboardTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+        }
+    }
+
+private:
+    TaskType type_;
+    domain::AppContext& context_;
+    QVariantMap params_;
+    QObject* receiver_;
+};
 
 } // namespace
 
@@ -606,6 +660,36 @@ QVariantMap QmlBackend::profitAndLoss() {
     } catch (const std::exception& err) {
         return errorResult(QString::fromUtf8(err.what()));
     }
+}
+
+void QmlBackend::fetchLedger(const QString& party, const QString& startIso, const QString& endIso) {
+    QVariantMap params;
+    params.insert(QStringLiteral("party"), party);
+    params.insert(QStringLiteral("startIso"), startIso);
+    params.insert(QStringLiteral("endIso"), endIso);
+    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetLedger, context_, params, this));
+}
+
+void QmlBackend::fetchDayBook(const QString& dateIso) {
+    QVariantMap params;
+    params.insert(QStringLiteral("dateIso"), dateIso);
+    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDayBook, context_, params, this));
+}
+
+void QmlBackend::fetchDashboard() {
+    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this));
+}
+
+void QmlBackend::onLedgerTaskFinished(const QVariantMap& result) {
+    emit ledgerLoaded(result);
+}
+
+void QmlBackend::onDayBookTaskFinished(const QVariantList& result) {
+    emit dayBookLoaded(result);
+}
+
+void QmlBackend::onDashboardTaskFinished(const QVariantMap& result) {
+    emit dashboardLoaded(result);
 }
 
 QVariantMap QmlBackend::saveCashInHand(const QString& dateIso, double amount) {

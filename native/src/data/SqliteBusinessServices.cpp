@@ -965,6 +965,10 @@ public:
         const QDate today = QDate::currentDate();
 
         while (query.next()) {
+            const QString partyName = query.value(0).toString().trimmed();
+            if (partyName.compare(QStringLiteral("customer"), Qt::CaseInsensitive) == 0) {
+                continue;
+            }
             const double balance = query.value(2).toDouble() - query.value(3).toDouble();
             if (std::abs(balance) < 0.005) continue;
             const QDate lastReceipt = QDate::fromString(query.value(4).toString(), Qt::ISODate);
@@ -1139,7 +1143,7 @@ private:
             "SUM(CASE WHEN payment_mode='Cash' AND UPPER(TRIM(txn_type)) IN ('SALE','RECEIPT','RECIEPT') THEN amount ELSE 0 END), "
             "SUM(CASE WHEN payment_mode='Cash' AND UPPER(TRIM(txn_type)) IN ('EXPENSE','SALE RETURN','SALES RETURN','RETURN') THEN amount ELSE 0 END), "
             "SUM(CASE WHEN payment_mode IN ('Bank','UPI','GPay','GPAY','Google Pay','GooglePay') THEN amount ELSE 0 END), "
-            "SUM(CASE WHEN payment_mode='Credit' AND UPPER(TRIM(txn_type))='SALE' THEN amount ELSE 0 END), "
+            "SUM(CASE WHEN (payment_mode='Credit' AND UPPER(TRIM(txn_type))='SALE') OR UPPER(TRIM(txn_type)) IN ('RECEIPT','RECIEPT') THEN amount ELSE 0 END), "
             "SUM(CASE WHEN UPPER(TRIM(txn_type))='SALE' THEN amount ELSE 0 END) "
             "FROM transactions WHERE txn_date >= ? AND txn_date <= ? GROUP BY txn_date"
         ));
