@@ -85,6 +85,21 @@ Item {
                 contentHeight: contentCol.implicitHeight
                 boundsBehavior: Flickable.StopAtBounds
 
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                    width: 8
+                    contentItem: Rectangle {
+                        implicitWidth: 8
+                        radius: 4
+                        color: Theme.alpha(Theme.accent, 0.45)
+                    }
+                    background: Rectangle {
+                        implicitWidth: 8
+                        radius: 4
+                        color: Theme.alpha(Theme.glass, 0.2)
+                    }
+                }
+
                 ColumnLayout {
                     id: contentCol
                     width: parent.width
