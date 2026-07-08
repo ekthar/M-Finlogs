@@ -173,7 +173,7 @@ public:
         GetDashboard
     };
 
-    DatabaseTask(TaskType type, domain::AppContext& context, const QVariantMap& params, QObject* receiver)
+    DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params, QObject* receiver)
         : type_(type), context_(context), params_(params), receiver_(receiver) {}
 
     void run() override {
@@ -211,7 +211,7 @@ public:
 
 private:
     TaskType type_;
-    domain::AppContext& context_;
+    AppContext& context_;
     QVariantMap params_;
     QObject* receiver_;
 };
