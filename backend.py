@@ -3250,10 +3250,27 @@ async def import_transactions(file: UploadFile = File(...), authorization: Optio
                 txn_date = parse_date_str(date) or datetime.date.today()
                 txn_fy = financial_year_for_date(txn_date)
                 
-                cursor.execute(
-                    "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (date, bill, pid, ttype, mode, txn_fy, amount)
-                )
+                bill_trimmed = str(bill).strip() if bill else ""
+                existing_id = None
+                if bill_trimmed:
+                    cursor.execute(
+                        "SELECT txn_id FROM transactions WHERE LTRIM(RTRIM(bill_no)) = ? AND txn_date = ? AND txn_type = ?",
+                        (bill_trimmed, date, ttype)
+                    )
+                    existing_row = cursor.fetchone()
+                    if existing_row:
+                        existing_id = existing_row[0]
+
+                if existing_id is not None:
+                    cursor.execute(
+                        "UPDATE transactions SET party_id = ?, payment_mode = ?, financial_year = ?, amount = ? WHERE txn_id = ?",
+                        (pid, mode, txn_fy, amount, existing_id)
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (date, bill_trimmed, pid, ttype, mode, txn_fy, amount)
+                    )
                 success += 1
             except Exception as row_err:
                 failed_rows.append({"row": row_num, "reason": str(row_err)})

@@ -594,13 +594,40 @@ public:
     int addTransaction(const domain::TransactionCreateRequest& request) override {
         SqliteDb db = openDb();
         const int partyId = getExistingPartyId(db.handle(), request.party);
+        const QString trimmedBill = request.billNo.trimmed();
+
+        if (!trimmedBill.isEmpty()) {
+            QSqlQuery checkQuery(db.handle());
+            checkQuery.prepare(QStringLiteral(
+                "SELECT txn_id FROM transactions WHERE TRIM(bill_no) = ? AND txn_date = ? AND txn_type = ?"
+            ));
+            checkQuery.addBindValue(trimmedBill);
+            checkQuery.addBindValue(request.date.toString(Qt::ISODate));
+            checkQuery.addBindValue(transactionTypeToString(request.type));
+            executePrepared(checkQuery, QStringLiteral("Check existing transaction"));
+            if (checkQuery.next()) {
+                const int existingId = checkQuery.value(0).toInt();
+                QSqlQuery updateQuery(db.handle());
+                updateQuery.prepare(QStringLiteral(
+                    "UPDATE transactions SET party_id = ?, payment_mode = ?, financial_year = ?, amount = ? WHERE txn_id = ?"
+                ));
+                updateQuery.addBindValue(partyId);
+                updateQuery.addBindValue(paymentModeToString(request.mode));
+                updateQuery.addBindValue(financialYearForDate(request.date));
+                updateQuery.addBindValue(request.amount);
+                updateQuery.addBindValue(existingId);
+                executePrepared(updateQuery, QStringLiteral("Update duplicate transaction"));
+                return existingId;
+            }
+        }
+
         QSqlQuery query(db.handle());
         query.prepare(QStringLiteral(
             "INSERT INTO transactions (txn_date, bill_no, party_id, txn_type, payment_mode, financial_year, amount) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)"
         ));
         query.addBindValue(request.date.toString(Qt::ISODate));
-        query.addBindValue(request.billNo);
+        query.addBindValue(trimmedBill);
         query.addBindValue(partyId);
         query.addBindValue(transactionTypeToString(request.type));
         query.addBindValue(paymentModeToString(request.mode));
