@@ -170,7 +170,8 @@ public:
     enum TaskType {
         GetLedger,
         GetDayBook,
-        GetDashboard
+        GetDashboard,
+        GetDailySummary
     };
 
     DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params, QObject* receiver)
@@ -206,6 +207,15 @@ public:
                 res.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
             }
             QMetaObject::invokeMethod(receiver_, "onDashboardTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+        } else if (type_ == GetDailySummary) {
+            QVariantList res;
+            try {
+                const QDate start = QDate::fromString(params_.value(QStringLiteral("startIso")).toString(), Qt::ISODate);
+                const QDate end = QDate::fromString(params_.value(QStringLiteral("endIso")).toString(), Qt::ISODate);
+                domain::ReportRange range{start, end, 0};
+                res = jsonArrayToList(context_.services().reports->dailySummary(range));
+            } catch (...) {}
+            QMetaObject::invokeMethod(receiver_, "onDailySummaryTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
         }
     }
 
@@ -680,6 +690,13 @@ void QmlBackend::fetchDashboard() {
     QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this));
 }
 
+void QmlBackend::fetchDailySummary(const QString& startIso, const QString& endIso) {
+    QVariantMap params;
+    params.insert(QStringLiteral("startIso"), startIso);
+    params.insert(QStringLiteral("endIso"), endIso);
+    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this));
+}
+
 void QmlBackend::onLedgerTaskFinished(const QVariantMap& result) {
     emit ledgerLoaded(result);
 }
@@ -690,6 +707,10 @@ void QmlBackend::onDayBookTaskFinished(const QVariantList& result) {
 
 void QmlBackend::onDashboardTaskFinished(const QVariantMap& result) {
     emit dashboardLoaded(result);
+}
+
+void QmlBackend::onDailySummaryTaskFinished(const QVariantList& result) {
+    emit dailySummaryLoaded(result);
 }
 
 QVariantMap QmlBackend::saveCashInHand(const QString& dateIso, double amount) {

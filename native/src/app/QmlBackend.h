@@ -138,6 +138,7 @@ public:
     Q_INVOKABLE void fetchLedger(const QString& party, const QString& startIso, const QString& endIso);
     Q_INVOKABLE void fetchDayBook(const QString& dateIso);
     Q_INVOKABLE void fetchDashboard();
+    Q_INVOKABLE void fetchDailySummary(const QString& startIso, const QString& endIso);
 
 signals:
     void authChanged();
@@ -147,11 +148,13 @@ signals:
     void ledgerLoaded(const QVariantMap& result);
     void dayBookLoaded(const QVariantList& result);
     void dashboardLoaded(const QVariantMap& result);
+    void dailySummaryLoaded(const QVariantList& result);
 
 public slots:
     void onLedgerTaskFinished(const QVariantMap& result);
     void onDayBookTaskFinished(const QVariantList& result);
     void onDashboardTaskFinished(const QVariantMap& result);
+    void onDailySummaryTaskFinished(const QVariantList& result);
 
 private:
     AppContext& context_;

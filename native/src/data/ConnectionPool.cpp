@@ -4,6 +4,7 @@
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QStringList>
+#include <QThread>
 
 namespace mfinlogs::data {
 
@@ -64,9 +65,11 @@ QString ConnectionPool::acquire(const domain::DatabaseConfig& config) {
     QMutexLocker lock(&mutex_);
 
     const QString fp = configFingerprint(config);
+    const QString threadId = QString::number(reinterpret_cast<quintptr>(QThread::currentThreadId()));
+    const QString cacheKey = QStringLiteral("%1_%2").arg(fp, threadId);
 
-    if (cache_.contains(fp)) {
-        const QString connName = cache_[fp];
+    if (cache_.contains(cacheKey)) {
+        const QString connName = cache_[cacheKey];
         if (QSqlDatabase::contains(connName) && healthCheck(connName)) {
             refcounts_[connName] = refcounts_.value(connName, 0) + 1;
             return connName;
@@ -80,11 +83,11 @@ QString ConnectionPool::acquire(const domain::DatabaseConfig& config) {
             }
             QSqlDatabase::removeDatabase(connName);
         }
-        cache_.remove(fp);
+        cache_.remove(cacheKey);
         refcounts_.remove(connName);
     }
 
-    const QString connName = fp;
+    const QString connName = cacheKey;
     {
         QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QODBC"), connName);
         db.setDatabaseName(buildConnectionString(config));
@@ -95,7 +98,7 @@ QString ConnectionPool::acquire(const domain::DatabaseConfig& config) {
         }
     }
 
-    cache_.insert(fp, connName);
+    cache_.insert(cacheKey, connName);
     refcounts_.insert(connName, 1);
     return connName;
 }

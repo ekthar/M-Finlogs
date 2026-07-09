@@ -5,6 +5,7 @@ import MFinlogs
 
 GlassPanel {
     id: root
+    implicitWidth: 480
     implicitHeight: 52
     radius: Theme.rMd
     elevated: false

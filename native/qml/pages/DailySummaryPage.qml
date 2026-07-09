@@ -6,7 +6,18 @@ Item {
     id: page
     property var rows: []
 
-    function load() { console.log("[DAYSUMMARY] load() called"); rows = backend.dailySummary(dateRange.fromIso, dateRange.toIso); console.log("[DAYSUMMARY] rows:", rows ? rows.length : "null") }
+    Connections {
+        target: backend
+        function onDailySummaryLoaded(result) {
+            rows = result || []
+            console.log("[DAYSUMMARY] rows loaded asynchronously:", rows.length)
+        }
+    }
+
+    function load() {
+        console.log("[DAYSUMMARY] load() called")
+        backend.fetchDailySummary(dateRange.fromIso, dateRange.toIso)
+    }
     Component.onCompleted: {
         console.log("[DAYSUMMARY] Component.onCompleted")
         dateRange.preset(30)
@@ -58,6 +69,7 @@ Item {
             RowLayout {
                 id: row
                 anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
