@@ -17,21 +17,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up vcpkg
-        uses: vcpkg/actions/setup-vcpkg@v1
+        uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: native/vcpkg.json
-
-      - name: Restore vcpkg cache
-        uses: actions/cache@v4
-        id: vcpkg-cache
-        with:
-          path: |
-            ${{ env.VCPKG_ROOT }}/installed
-            ${{ env.VCPKG_ROOT }}/packages
-            ${{ env.VCPKG_ROOT }}/downloads
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('native/vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-
+          doNotCache: false
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -43,10 +32,13 @@ jobs:
           modules: qtbase qtdeclarative qtcharts qthttpserver qtsvg
 
       - name: Configure CMake
-        run: cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows
+        run: cmake -S native -B native/build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
 
       - name: Build
         run: cmake --build native/build --config Release --parallel
+
+      - name: Deploy Qt dependencies
+        run: windeployqt native/build/Release/mfinlogs-native.exe --qmldir native/qml
 
       - name: Run qmllint (syntax check)
         run: qmllint native/qml/*.qml native/qml/pages/*.qml
