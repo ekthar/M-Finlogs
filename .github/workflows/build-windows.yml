@@ -16,11 +16,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up vcpkg
-        uses: lukka/run-vcpkg@v11
+      - name: Cache vcpkg
+        id: vcpkg-cache
+        uses: actions/cache@v4
         with:
-          vcpkgJsonGlob: native/vcpkg.json
-          doNotCache: false
+          path: ${{ runner.temp }}\vcpkg
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('native/vcpkg.json') }}
+
+      - name: Setup vcpkg
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git "${{ runner.temp }}\vcpkg"
+          & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat"
+
+      - name: Set VCPKG_ROOT
+        shell: pwsh
+        run: echo "VCPKG_ROOT=${{ runner.temp }}\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
