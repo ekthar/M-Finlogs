@@ -1,0 +1,59 @@
+name: Build Windows Native
+
+on:
+  push:
+    branches:
+      - ui/aurora-shadcn-motion-revamp
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: vcpkg/actions/setup-vcpkg@v1
+        with:
+          vcpkgJsonGlob: native/vcpkg.json
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        id: vcpkg-cache
+        with:
+          path: |
+            ${{ env.VCPKG_ROOT }}/installed
+            ${{ env.VCPKG_ROOT }}/packages
+            ${{ env.VCPKG_ROOT }}/downloads
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('native/vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.5.*"
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          modules: qtbase qtdeclarative qtcharts qthttpserver qtsvg
+
+      - name: Configure CMake
+        run: cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        run: cmake --build native/build --config Release --parallel
+
+      - name: Run qmllint (syntax check)
+        run: qmllint native/qml/*.qml native/qml/pages/*.qml
+        continue-on-error: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfinlogs-native-windows
+          path: native/build/Release/
