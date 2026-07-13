@@ -14,26 +14,19 @@ Item {
     property var editingRow: null
 
     function refresh() {
-        console.log("[ENTRY] refresh() called - page.width:", page.width, "page.height:", page.height)
         var result = backend.transactions(1, 100, 0)
-        console.log("[ENTRY] backend.transactions returned", result ? result.length : "null", "rows")
         rows = result || []
     }
     function refreshParties() {
-        console.log("[ENTRY] refreshParties() called")
         var result = backend.partyNames()
-        console.log("[ENTRY] backend.partyNames returned", result ? result.length : "null", "names")
         partyList = result || []
     }
     function lookupPartyBalance(name) {
-        console.log("[ENTRY] lookupPartyBalance name:", name)
         if (!name || name.trim().length === 0) {
             partyBalanceVisible = false
-            console.log("[ENTRY] lookupPartyBalance: empty name, hiding")
             return
         }
         var info = backend.partyBalance(name.trim())
-        console.log("[ENTRY] backend.partyBalance result:", JSON.stringify(info))
         if (info && info.hasData) {
             partyBalanceText = name.trim() + ": " + info.balanceLabel +
                 " | Last: " + info.lastType + " \u20B9" + backend.formatMoney(info.lastAmount) +
@@ -46,27 +39,18 @@ Item {
 
     // FIX: defer forceActiveFocus so layout geometry is settled before we call it
     Component.onCompleted: {
-        console.log("[ENTRY] Component.onCompleted - page.width:", page.width, "page.height:", page.height,
-                    "parent:", parent, "parent.width:", parent ? parent.width : 0,
-                    "parent.height:", parent ? parent.height : 0)
         refresh()
         refreshParties()
         Qt.callLater(function() {
-            console.log("[ENTRY] deferred focus - billField.inputField:", billField ? billField.inputField : null)
             if (billField && billField.inputField) {
                 billField.inputField.forceActiveFocus()
-                console.log("[ENTRY] focus set to billField")
-            } else {
-                console.log("[ENTRY] WARNING: billField.inputField not available even after callLater")
             }
         })
-        console.log("[ENTRY] Component.onCompleted done")
     }
 
     Connections {
         target: backend
         function onDataChanged() {
-            console.log("[ENTRY] backend.dataChanged received")
             page.refresh()
         }
     }
@@ -81,8 +65,6 @@ Item {
         width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
         height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
-        onOpened: console.log("[ENTRY] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
-        onClosed: console.log("[ENTRY] editDialog closed")
 
         property var originalValues: ({})
         property var targetRow: null
@@ -115,7 +97,7 @@ Item {
         }
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -129,7 +111,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 text: editDialog.title
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -142,7 +124,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s5 }
@@ -216,7 +198,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s4 }
@@ -273,8 +255,6 @@ Item {
         width: Math.min(440, page.width > 0 ? page.width * 0.85 : 420)
         height: Math.min(260, page.height > 0 ? page.height * 0.5 : 240)
         padding: 0
-        onOpened: console.log("[ENTRY] deleteDialog opened, batchMode:", batchMode)
-        onClosed: console.log("[ENTRY] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
         property bool batchMode: false
@@ -282,7 +262,7 @@ Item {
         property int batchCount: 0
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -313,7 +293,7 @@ Item {
                         text: deleteDialog.batchMode
                             ? "Are you sure you want to delete " + deleteDialog.batchCount + " selected transactions?"
                             : "Are you sure you want to delete this transaction?"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
                         wrapMode: Text.WordWrap
@@ -322,7 +302,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: deleteDialog.infoText
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
@@ -336,7 +316,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             RowLayout {
@@ -403,8 +383,8 @@ Item {
             Layout.fillWidth: true
             implicitHeight: 36
             radius: Theme.rSm
-            fillColor: Theme.alpha(Theme.accent, 0.06)
-            borderColor: Theme.alpha(Theme.accent, 0.15)
+            fillColor: Theme.alpha(Theme.palette.primary, 0.06)
+            borderColor: Theme.alpha(Theme.palette.primary, 0.15)
             elevated: false
             sheen: false
             RowLayout {
@@ -412,14 +392,14 @@ Item {
                 anchors.leftMargin: Theme.s4
                 anchors.rightMargin: Theme.s4
                 spacing: Theme.s4
-                Text { text: "\u2328"; color: Theme.accent; font.pixelSize: 14 }
-                Text { text: "Enter = Next field"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
-                Text { text: "Amount + Enter = Save"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
-                Text { text: "Empty party = 'customer'"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-                Text { text: "\u2022"; color: Theme.textFaint; font.pixelSize: 8 }
-                Text { text: "Alt+D = Dashboard"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2328"; color: Theme.palette.primary; font.pixelSize: 14 }
+                Text { text: "Enter = Next field"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.palette.fgSubtle; font.pixelSize: 8 }
+                Text { text: "Amount + Enter = Save"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.palette.fgSubtle; font.pixelSize: 8 }
+                Text { text: "Empty party = 'customer'"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                Text { text: "\u2022"; color: Theme.palette.fgSubtle; font.pixelSize: 8 }
+                Text { text: "Alt+D = Dashboard"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                 Item { Layout.fillWidth: true }
             }
         }
@@ -444,18 +424,18 @@ Item {
                     height: 32
                     radius: Theme.rSm
                     visible: page.partyBalanceVisible
-                    color: Theme.alpha(Theme.accent3, 0.08)
+                    color: Theme.alpha(Theme.palette.info, 0.08)
                     border.width: 1
-                    border.color: Theme.alpha(Theme.accent3, 0.2)
+                    border.color: Theme.alpha(Theme.palette.info, 0.2)
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
                         spacing: Theme.s2
-                        Text { text: "\u2139"; color: Theme.accent3; font.pixelSize: 13 }
+                        Text { text: "\u2139"; color: Theme.palette.info; font.pixelSize: 13 }
                         Text {
                             text: page.partyBalanceText
-                            color: Theme.text
+                            color: Theme.palette.fg
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsTiny
                             font.weight: Font.DemiBold
@@ -557,7 +537,7 @@ Item {
 
                         Text {
                             text: "Recent Transactions"
-                            color: Theme.text
+                            color: Theme.palette.fg
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsSection
                             font.weight: Font.Bold
@@ -565,7 +545,7 @@ Item {
                         Item { Layout.fillWidth: true }
                         GhostButton {
                             text: "Import"
-                            tint: Theme.accent
+                            tint: Theme.palette.primary
                             implicitWidth: 80
                             onClicked: {
                                 var res = backend.importTransactions()
@@ -576,7 +556,7 @@ Item {
                         }
                         GhostButton {
                             text: "Template"
-                            tint: Theme.accent
+                            tint: Theme.palette.primary
                             implicitWidth: 90
                             onClicked: backend.downloadImportTemplate()
                         }
@@ -584,13 +564,13 @@ Item {
                             id: smartBtn
                             Layout.preferredWidth: 28; Layout.preferredHeight: 28
                             radius: 14
-                            color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.2) : "transparent"
+                            color: smartHover.hovered ? Theme.alpha(Theme.palette.primary, 0.2) : "transparent"
                             border.width: 1
-                            border.color: smartHover.hovered ? Theme.alpha(Theme.accent2, 0.5) : "transparent"
+                            border.color: smartHover.hovered ? Theme.alpha(Theme.palette.primary, 0.5) : "transparent"
                             Text {
                                 anchors.centerIn: parent
                                 text: "\u2699"
-                                color: Theme.accent2
+                                color: Theme.palette.primary
                                 font.pixelSize: 14
                             }
                             HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
@@ -608,15 +588,15 @@ Item {
                                 width: tipText.implicitWidth + 16
                                 height: tipText.implicitHeight + 8
                                 radius: Theme.rSm
-                                color: Theme.bg2
+                                color: Theme.palette.bgMuted
                                 border.width: 1
-                                border.color: Theme.glassBorder
+                                border.color: Theme.palette.border
                                 z: 1000
                                 Text {
                                     id: tipText
                                     anchors.centerIn: parent
                                     text: "Smart Import"
-                                    color: Theme.textDim
+                                    color: Theme.palette.fgMuted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsTiny
                                 }
@@ -624,13 +604,13 @@ Item {
                         }
                         GhostButton {
                             text: "Export PDF"
-                            tint: Theme.accent2
+                            tint: Theme.palette.primary
                             implicitWidth: 100
                             onClicked: backend.exportRecentPdf(7)
                         }
                         GhostButton {
                             text: "Export Excel"
-                            tint: Theme.accent3
+                            tint: Theme.palette.info
                             implicitWidth: 100
                             onClicked: backend.exportRecentExcel(30)
                         }
@@ -648,7 +628,7 @@ Item {
                                 }
                             }
                         }
-                        StatusPill { text: page.rows.length + " entries"; tint: Theme.accent }
+                        StatusPill { text: page.rows.length + " entries"; tint: Theme.palette.primary }
                     }
                     HoverHandler { id: toolHover; cursorShape: Qt.ArrowCursor }
                 }
@@ -698,12 +678,12 @@ Item {
                         radius: Theme.rPill
                         color: "transparent"
                         border.width: 1
-                        border.color: Theme.glassBorder
+                        border.color: Theme.palette.border
 
                         Text {
                             anchors.centerIn: parent
                             text: "Clear selection"
-                            color: Theme.textDim
+                            color: Theme.palette.fgMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsTiny
                         }
@@ -752,9 +732,9 @@ Item {
         width: 160
         height: cmCol.implicitHeight + 8
         radius: Theme.rMd
-        color: Theme.glassStrong
+        color: Theme.alpha(Theme.palette.fg, 0.06)
         border.width: 1
-        border.color: Theme.glassBorder
+        border.color: Theme.palette.border
         z: 999
 
         property var targetRow: null
@@ -780,14 +760,14 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mEdit.hovered ? Theme.rowHover : "transparent"
+                color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u270E"; color: Theme.accent; font.pixelSize: 14 }
-                    Text { text: "Edit"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: 14 }
+                    Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
 
@@ -806,7 +786,7 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mDel.hovered ? Theme.rowHover : "transparent"
+                color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
@@ -845,10 +825,8 @@ Item {
     // ── Dialog helper functions ────────────────────────────────────────────
     function openEditDialog(row) {
         if (!row) {
-            console.log("[ENTRY] openEditDialog called with null row")
             return
         }
-        console.log("[ENTRY] openEditDialog for row id:", row.id, "party:", row.party)
         editingRow = row
         editDialog.loadRow(row)
         editDialog.open()
@@ -856,10 +834,8 @@ Item {
 
     function openDeleteDialog(row) {
         if (!row) {
-            console.log("[ENTRY] openDeleteDialog called with null row")
             return
         }
-        console.log("[ENTRY] openDeleteDialog for row id:", row.id, "party:", row.party)
         editingRow = row
         deleteDialog.batchMode = false
         deleteDialog.batchCount = 0
@@ -869,10 +845,6 @@ Item {
 
     // ── Save entry ─────────────────────────────────────────────────────────
     function save() {
-        console.log("[ENTRY] save() called date:", dateField.isoText,
-                    "bill:", billField.text, "party:", partyField.text,
-                    "type:", typeField.currentText, "mode:", modeField.currentText,
-                    "amount:", Number(amountField.text))
         var res = backend.addTransaction(
             dateField.isoText,
             billField.text,
@@ -881,7 +853,6 @@ Item {
             modeField.currentText,
             Number(amountField.text)
         )
-        console.log("[ENTRY] backend.addTransaction result:", JSON.stringify(res))
         if (res && res.ok === true) {
             // Auto-increment bill, clear inputs, cycle focus back to Bill
             billField.text = backend.nextBillNumber(billField.text)
@@ -891,8 +862,6 @@ Item {
             refreshParties()
             page.refresh()
             billField.inputField.forceActiveFocus()
-        } else {
-            console.log("[ENTRY] save failed:", res ? res.error : "no response")
         }
     }
 }

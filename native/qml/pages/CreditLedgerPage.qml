@@ -10,9 +10,7 @@ Item {
     property real totalCr: 0
 
     function refresh() {
-        console.log("[CREDLEDGER] refresh() called")
         rows = backend.allPartyBalances()
-        console.log("[CREDLEDGER] rows:", rows ? rows.length : "null")
         var dr = 0, cr = 0
         for (var i = 0; i < rows.length; i++) {
             var b = Number(rows[i].balance || 0)
@@ -38,7 +36,7 @@ Item {
         var days = daysSince(row.lastDate)
         if (days >= 60) return Theme.danger
         if (days >= 30) return Theme.warning
-        return Theme.accent
+        return Theme.palette.primary
     }
 
     function statusLabel(row) {
@@ -50,10 +48,10 @@ Item {
         return "Active"
     }
 
-    Component.onCompleted: { console.log("[CREDLEDGER] Component.onCompleted"); refresh() }
+    Component.onCompleted: refresh()
     Connections {
         target: backend
-        function onDataChanged() { console.log("[CREDLEDGER] dataChanged"); page.refresh() }
+        function onDataChanged() { page.refresh() }
     }
 
     ColumnLayout {
@@ -73,7 +71,7 @@ Item {
             Layout.fillWidth: true
             spacing: Theme.s3
             StatusPill { text: "Total Dr: " + backend.formatMoney(page.totalDr); tint: page.totalDr > 0 ? Theme.danger : Theme.success }
-            StatusPill { text: "Total Cr: " + backend.formatMoney(page.totalCr); tint: page.totalCr > 0 ? Theme.accent3 : Theme.success }
+            StatusPill { text: "Total Cr: " + backend.formatMoney(page.totalCr); tint: page.totalCr > 0 ? Theme.palette.info : Theme.success }
             Item { Layout.fillWidth: true }
             GhostButton { text: "Refresh"; implicitWidth: 100; onClicked: page.refresh() }
         }
@@ -92,7 +90,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
-                    color: Theme.glassStrong
+                    color: Theme.alpha(Theme.palette.fg, 0.06)
 
                     RowLayout {
                         anchors.fill: parent
@@ -114,7 +112,7 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                                 horizontalAlignment: modelData.align || Text.AlignLeft
                                 text: modelData.title
-                                color: Theme.textDim
+                                color: Theme.palette.fgMuted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsTiny
                                 font.weight: Font.Bold
@@ -134,14 +132,14 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded; width: 8
-                        contentItem: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.accent, 0.45) }
-                        background: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.glass, 0.2) }
+                        contentItem: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.palette.primary, 0.45) }
+                        background: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2) }
                     }
 
                     delegate: Rectangle {
                         width: parent.width
                         height: 50
-                        color: index % 2 === 0 ? "transparent" : Theme.rowAlt
+                        color: index % 2 === 0 ? "transparent" : Theme.alpha(Theme.palette.fg, 0.02)
 
                         RowLayout {
                             anchors.fill: parent
@@ -152,7 +150,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 2.5
                                 text: modelData.party || ""
-                                color: Theme.text; font.family: Theme.fontFamily
+                                color: Theme.palette.fg; font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold
                                 elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
                             }
@@ -160,7 +158,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.5
                                 text: modelData.balanceLabel || ""
-                                color: Number(modelData.balance || 0) > 0 ? Theme.danger : Theme.accent3
+                                color: Number(modelData.balance || 0) > 0 ? Theme.danger : Theme.palette.info
                                 font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold
                                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                             }
@@ -181,7 +179,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.2
                                 text: modelData.lastDate || ""
-                                color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall
+                                color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall
                                 verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
                             }
 
@@ -196,7 +194,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.2
                                 text: modelData.lastAmount ? backend.formatMoney(Number(modelData.lastAmount)) : ""
-                                color: Theme.text; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall
+                                color: Theme.palette.fg; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall
                                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
@@ -204,7 +202,7 @@ Item {
 
                         Rectangle {
                             anchors.bottom: parent.bottom; width: parent.width; height: 1
-                            color: Theme.glassBorderSoft
+                            color: Theme.palette.borderSubtle
                         }
                     }
                 }

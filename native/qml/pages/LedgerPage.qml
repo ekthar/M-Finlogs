@@ -13,9 +13,7 @@ Item {
     property var editingRow: null
 
     Component.onCompleted: {
-        console.log("[LEDGER] Component.onCompleted")
         partyList = backend.partyNames()
-        console.log("[LEDGER] partyList:", partyList ? partyList.length : "null")
     }
 
     // Debit types: Sale, Expense, Purchase
@@ -86,8 +84,6 @@ Item {
         width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
         height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
-        onOpened: console.log("[LEDGER] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
-        onClosed: console.log("[LEDGER] editDialog closed")
 
         property var originalValues: ({})
         property var targetRow: null
@@ -120,7 +116,7 @@ Item {
         }
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -134,7 +130,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 text: editDialog.title
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -147,7 +143,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s5 }
@@ -168,12 +164,12 @@ Item {
                     contentItem: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.accent, 0.45)
+                        color: Theme.alpha(Theme.palette.primary, 0.45)
                     }
                     background: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.glass, 0.2)
+                        color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2)
                     }
                 }
 
@@ -236,7 +232,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s4 }
@@ -263,7 +259,7 @@ Item {
                     onClicked: {
                         if (!editDialog.targetRow) return
                         var row = editDialog.targetRow
-                        
+
                         // Validate inputs
                         if (editPartyField.text.trim().length === 0) {
                             backend.toast("Party name cannot be empty", "error")
@@ -305,13 +301,11 @@ Item {
         width: Math.min(440, page.width > 0 ? page.width * 0.85 : 420)
         height: Math.min(260, page.height > 0 ? page.height * 0.5 : 240)
         padding: 0
-        onOpened: console.log("[LEDGER] deleteDialog opened")
-        onClosed: console.log("[LEDGER] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -340,7 +334,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: "Are you sure you want to delete this transaction?"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
                         wrapMode: Text.WordWrap
@@ -349,7 +343,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: deleteDialog.infoText
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
@@ -363,7 +357,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             RowLayout {
@@ -457,7 +451,7 @@ Item {
                     Layout.fillWidth: true
                     Text {
                         text: "Statement"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
@@ -465,7 +459,7 @@ Item {
                     Item { Layout.fillWidth: true }
                     Text {
                         text: "Opening Balance: " + backend.formatMoney(page.openingBalance) + (page.openingBalance >= 0 ? " Dr" : " Cr")
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.monoFamily
                         font.pixelSize: Theme.fsSmall
                     }
@@ -506,9 +500,9 @@ Item {
         width: 160
         height: cmCol.implicitHeight + 8
         radius: Theme.rMd
-        color: Theme.glassStrong
+        color: Theme.alpha(Theme.palette.fg, 0.06)
         border.width: 1
-        border.color: Theme.glassBorder
+        border.color: Theme.palette.border
         z: 999
 
         property var targetRow: null
@@ -532,14 +526,14 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mEdit.hovered ? Theme.rowHover : "transparent"
+                color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u270E"; color: Theme.accent; font.pixelSize: 14 }
-                    Text { text: "Edit"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: 14 }
+                    Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
 
@@ -557,7 +551,7 @@ Item {
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mDel.hovered ? Theme.rowHover : "transparent"
+                color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
 
                 RowLayout {
                     anchors.fill: parent

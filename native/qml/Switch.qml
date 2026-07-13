@@ -48,7 +48,7 @@ Item {
             width: 52
             height: 30
             radius: 15
-            color: root.checked ? Theme.palette.primary : Theme.glass
+            color: root.checked ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
             border.width: 1
             border.color: root.checked ? Theme.palette.primary : Theme.palette.border
             Behavior on color { ColorAnimation { duration: Theme.durFast } }

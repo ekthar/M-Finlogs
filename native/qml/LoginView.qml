@@ -17,7 +17,7 @@ Item {
         anchors.centerIn: parent
         visible: !root.showDbConfig
         height: cardCol.implicitHeight + Theme.s10
-        fillColor: Theme.glassStrong
+        fillColor: Theme.alpha(Theme.palette.fg, 0.06)
         radius: Theme.rXl
 
         opacity: 0
@@ -40,8 +40,8 @@ Item {
                 width: 60; height: 60; radius: 18
                 gradient: Gradient {
                     orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: Theme.grad0 }
-                    GradientStop { position: 1.0; color: Theme.grad1 }
+                    GradientStop { position: 0.0; color: Theme.palette.primary }
+                    GradientStop { position: 1.0; color: Theme.palette.primary }
                 }
                 Text { anchors.centerIn: parent; text: "M"; color: "#fff"; font.pixelSize: 28; font.weight: Font.Bold; font.family: Theme.fontFamily }
                 SequentialAnimation on scale {
@@ -54,7 +54,7 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: root.setupMode ? "Create your admin account" : "Welcome back"
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTitle
                 font.weight: Font.Bold
@@ -63,7 +63,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.bottomMargin: Theme.s2
                 text: root.setupMode ? "Set a password to secure M-Finlogs" : "Sign in to your financial workspace"
-                color: Theme.textDim
+                color: Theme.palette.fgMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSmall
             }
@@ -111,7 +111,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.s2
                 text: "\u2699 Configure Database"
-                color: Theme.accent
+                color: Theme.palette.primary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
                 font.weight: Font.DemiBold
@@ -139,7 +139,7 @@ Item {
         anchors.centerIn: parent
         visible: root.showDbConfig
         height: dbCol.implicitHeight + Theme.s10
-        fillColor: Theme.glassStrong
+        fillColor: Theme.alpha(Theme.palette.fg, 0.06)
         radius: Theme.rXl
 
         ColumnLayout {
@@ -153,7 +153,7 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: "Database Configuration"
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTitle
                 font.weight: Font.Bold
@@ -162,7 +162,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.bottomMargin: Theme.s2
                 text: "Configure SQL Server connection"
-                color: Theme.textDim
+                color: Theme.palette.fgMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSmall
             }
@@ -217,7 +217,7 @@ Item {
                 Layout.fillWidth: true
                 visible: text.length > 0
                 text: ""
-                color: Theme.accent
+                color: Theme.palette.primary
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
                 wrapMode: Text.WordWrap
@@ -266,14 +266,14 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.s2
                 text: "Connection Mode"
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -281,7 +281,7 @@ Item {
             Text {
                 Layout.alignment: Qt.AlignHCenter
                 text: "Current: " + backend.currentMode().toUpperCase()
-                color: Theme.textDim
+                color: Theme.palette.fgMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
             }
@@ -293,8 +293,8 @@ Item {
                 PrimaryButton {
                     Layout.fillWidth: true
                     text: "\uD83C\uDF10 Server Mode"
-                    from: Theme.accent
-                    to: Theme.accent2
+                    from: Theme.palette.primary
+                    to: Theme.palette.primary
                     onClicked: {
                         var res = backend.selectMode("server")
                         if (res && res.ok) {
@@ -306,7 +306,7 @@ Item {
                 PrimaryButton {
                     Layout.fillWidth: true
                     text: "\uD83D\uDCBB Local Mode"
-                    from: Theme.accent3
+                    from: Theme.palette.info
                     to: Theme.success
                     onClicked: {
                         var res = backend.selectMode("local")
@@ -369,37 +369,22 @@ Item {
         }
     }
 
-    Component.onCompleted: {
-        console.log("[LOGIN] Component.onCompleted - setupMode:", setupMode,
-                    "backend.authenticated:", backend.authenticated,
-                    "backend.setupRequired:", backend.setupRequired)
-    }
-
     function submit() {
         if (busy) {
-            console.log("[LOGIN] submit() called but busy, ignored")
             return
         }
-        console.log("[LOGIN] submit() called - setupMode:", setupMode,
-                    "user:", userField.text, "pass.length:", passField.text.length)
         errorText.text = ""
         busy = true
         var res
         if (setupMode) {
-            console.log("[LOGIN] calling backend.setupAdmin()")
             res = backend.setupAdmin(userField.text, passField.text)
         } else {
-            console.log("[LOGIN] calling backend.login()")
             res = backend.login(userField.text, passField.text)
         }
         busy = false
-        console.log("[LOGIN] result:", JSON.stringify(res))
         if (!res || res.ok !== true) {
             errorText.text = res && res.error ? res.error : "Sign in failed"
-            console.log("[LOGIN] login failed:", errorText.text)
             shake.restart()
-        } else {
-            console.log("[LOGIN] login succeeded!")
         }
     }
 }

@@ -9,9 +9,7 @@ Item {
     property real totalOutstanding: 0
 
     function refresh() {
-        console.log("[CREDFOLLOW] refresh() called")
         rows = backend.creditFollowupList()
-        console.log("[CREDFOLLOW] rows:", rows ? rows.length : "null")
         var t = 0
         for (var i = 0; i < rows.length; i++) t += Number(rows[i].balance || 0)
         totalOutstanding = t
@@ -40,7 +38,7 @@ Item {
         var days = daysSince(row.lastDate)
         if (days >= 60) return Theme.danger
         if (days >= 30) return Theme.warning
-        if (days >= 15) return Theme.accent
+        if (days >= 15) return Theme.palette.primary
         return Theme.success
     }
 
@@ -64,10 +62,10 @@ Item {
         backend.exportTableToPdf("Credit Followup", cols, data)
     }
 
-    Component.onCompleted: { console.log("[CREDFOLLOW] Component.onCompleted"); refresh() }
+    Component.onCompleted: refresh()
     Connections {
         target: backend
-        function onDataChanged() { console.log("[CREDFOLLOW] dataChanged"); page.refresh() }
+        function onDataChanged() { page.refresh() }
     }
 
     ColumnLayout {
@@ -108,7 +106,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             height: 1
-            color: Theme.glassBorder
+            color: Theme.palette.border
         }
 
         // Legend
@@ -116,13 +114,13 @@ Item {
             Layout.fillWidth: true
             spacing: Theme.s4
             Text { text: "\u25CF"; color: Theme.success; font.pixelSize: 10 }
-            Text { text: "< 15 days"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-            Text { text: "\u25CF"; color: Theme.accent; font.pixelSize: 10 }
-            Text { text: "15-30 days"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+            Text { text: "< 15 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+            Text { text: "\u25CF"; color: Theme.palette.primary; font.pixelSize: 10 }
+            Text { text: "15-30 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
             Text { text: "\u25CF"; color: Theme.warning; font.pixelSize: 10 }
-            Text { text: "30-60 days"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+            Text { text: "30-60 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
             Text { text: "\u25CF"; color: Theme.danger; font.pixelSize: 10 }
-            Text { text: "60+ days overdue"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+            Text { text: "60+ days overdue"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
             Item { Layout.fillWidth: true }
         }
 
@@ -140,19 +138,19 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
-                    color: Theme.glassStrong
+                    color: Theme.alpha(Theme.palette.fg, 0.06)
 
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s4
                         anchors.rightMargin: Theme.s4
                         spacing: 0
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Party"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.5; text: "Outstanding"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Age"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Last Tx"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "Type"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Amount"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Party"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.5; text: "Outstanding"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Age"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Last Tx"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1; text: "Type"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: "Amount"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
                     }
                 }
 
@@ -164,14 +162,14 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded; width: 8
-                        contentItem: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.accent, 0.45) }
-                        background: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.glass, 0.2) }
+                        contentItem: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.palette.primary, 0.45) }
+                        background: Rectangle { implicitWidth: 8; radius: 4; color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2) }
                     }
 
                     delegate: Rectangle {
                         width: parent.width
                         height: 50
-                        color: index % 2 === 0 ? "transparent" : Theme.rowAlt
+                        color: index % 2 === 0 ? "transparent" : Theme.alpha(Theme.palette.fg, 0.02)
 
                         RowLayout {
                             anchors.fill: parent
@@ -182,7 +180,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 2.5
                                 text: modelData.party || ""
-                                color: Theme.text; font.family: Theme.fontFamily
+                                color: Theme.palette.fg; font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold
                                 elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
                             }
@@ -210,7 +208,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.2
                                 text: modelData.lastDate ? backend.formatDate(modelData.lastDate) : ""
-                                color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall
+                                color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall
                                 verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
                             }
 
@@ -225,7 +223,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.2
                                 text: modelData.lastAmount ? backend.formatMoney(Number(modelData.lastAmount)) : ""
-                                color: Theme.text; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall
+                                color: Theme.palette.fg; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall
                                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
@@ -233,7 +231,7 @@ Item {
 
                         Rectangle {
                             anchors.bottom: parent.bottom; width: parent.width; height: 1
-                            color: Theme.glassBorderSoft
+                            color: Theme.palette.borderSubtle
                         }
                     }
                 }
@@ -242,7 +240,7 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 46
-                    color: Theme.glassStrong
+                    color: Theme.alpha(Theme.palette.fg, 0.06)
                     visible: page.rows.length > 0
 
                     Rectangle { anchors.top: parent.top; width: parent.width; height: 2; color: Theme.alpha(Theme.danger, 0.5) }
@@ -252,9 +250,9 @@ Item {
                         anchors.leftMargin: Theme.s4
                         anchors.rightMargin: Theme.s4
 
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Total"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Total"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                         Text { Layout.fillWidth: true; Layout.preferredWidth: 1.5; text: backend.formatMoney(page.totalOutstanding); color: Theme.danger; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
-                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: page.rows.length + " debtors"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; verticalAlignment: Text.AlignVCenter }
+                        Text { Layout.fillWidth: true; Layout.preferredWidth: 1.2; text: page.rows.length + " debtors"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; verticalAlignment: Text.AlignVCenter }
                         Item { Layout.fillWidth: true; Layout.preferredWidth: 2.4 }
                     }
                 }

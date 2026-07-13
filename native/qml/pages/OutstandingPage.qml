@@ -9,16 +9,14 @@ Item {
     property var stats: ({})
 
     function load() {
-        console.log("[OUTSTANDING] load() called")
         var res = backend.outstanding()
-        console.log("[OUTSTANDING] result:", JSON.stringify(res))
         if (res && res.ok === false) return
         rows = res.data || []
         total = Number(res.total || 0)
         stats = res.stats || {}
     }
-    Component.onCompleted: { console.log("[OUTSTANDING] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[OUTSTANDING] dataChanged"); page.load() } }
+    Component.onCompleted: { load() }
+    Connections { target: backend; function onDataChanged() { page.load() } }
 
     ColumnLayout {
         anchors.fill: parent
@@ -65,7 +63,7 @@ Item {
                 spacing: Theme.s3
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "Outstanding Details"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Outstanding Details"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
                     Item { Layout.fillWidth: true }
                     GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
                     GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }

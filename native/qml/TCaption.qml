@@ -5,6 +5,6 @@ Text {
     font.family: Theme.fontFamily
     font.pixelSize: Theme.fsCaption
     font.weight: Theme.wMedium
-    color: Theme.textDim
+    color: Theme.palette.fgMuted
     lineHeight: Theme.lhNormal
 }

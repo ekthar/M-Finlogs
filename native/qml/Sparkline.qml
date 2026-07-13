@@ -6,8 +6,8 @@ import MFinlogs
 Item {
     id: root
     property var points: []
-    property color line: Theme.accent
-    property color fill: Theme.alpha(Theme.accent, 0.18)
+    property color line: Theme.palette.primary
+    property color fill: Theme.alpha(Theme.palette.primary, 0.18)
 
     // Animated reveal progress 0..1
     property real progress: 0

@@ -12,7 +12,6 @@ Item {
 
     function toggle() {
         open = !open
-        console.log("[SHORTCUT] toggle() open:", open)
         if (open) {
             forceActiveFocus()
         }
@@ -24,7 +23,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.alpha(Theme.bg0, 0.65)
+        color: Theme.alpha(Theme.palette.bg, 0.65)
         TapHandler { onTapped: root.open = false }
     }
 
@@ -33,9 +32,9 @@ Item {
         width: Math.min(600, root.width * 0.85)
         height: Math.min(480, root.height * 0.8)
         radius: Theme.rLg
-        color: Theme.bg2
+        color: Theme.palette.bgMuted
         border.width: 1
-        border.color: Theme.glassBorder
+        border.color: Theme.palette.border
 
         ColumnLayout {
             anchors.fill: parent
@@ -44,7 +43,7 @@ Item {
 
             Text {
                 text: "Keyboard Shortcuts"
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -53,7 +52,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Flickable {
@@ -70,12 +69,12 @@ Item {
                     contentItem: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.accent, 0.45)
+                        color: Theme.alpha(Theme.palette.primary, 0.45)
                     }
                     background: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.glass, 0.2)
+                        color: Theme.alpha(Theme.palette.fg, 0.04)
                     }
                 }
 
@@ -108,7 +107,7 @@ Item {
                             Layout.fillWidth: true
                             height: 34
                             radius: Theme.rSm
-                            color: index % 2 === 0 ? "transparent" : Theme.rowAlt
+                            color: index % 2 === 0 ? "transparent" : Theme.alpha(Theme.palette.fg, 0.02)
 
                             RowLayout {
                                 anchors.fill: parent
@@ -120,14 +119,14 @@ Item {
                                     Layout.preferredWidth: shortcutText.implicitWidth + 20
                                     height: 26
                                     radius: Theme.rSm
-                                    color: Theme.alpha(Theme.accent, 0.1)
+                                    color: Theme.alpha(Theme.palette.primary, 0.1)
                                     border.width: 1
-                                    border.color: Theme.alpha(Theme.accent, 0.2)
+                                    border.color: Theme.alpha(Theme.palette.primary, 0.2)
                                     Text {
                                         id: shortcutText
                                         anchors.centerIn: parent
                                         text: modelData.keys
-                                        color: Theme.accent
+                                        color: Theme.palette.primary
                                         font.family: Theme.monoFamily
                                         font.pixelSize: Theme.fsTiny
                                         font.weight: Font.DemiBold
@@ -136,7 +135,7 @@ Item {
 
                                 Text {
                                     text: modelData.desc
-                                    color: Theme.textDim
+                                    color: Theme.palette.fgMuted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsSmall
                                 }
@@ -152,7 +151,7 @@ Item {
                 Layout.fillWidth: true
                 Text {
                     text: "Press Escape to close"
-                    color: Theme.textFaint
+                    color: Theme.palette.fgSubtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsTiny
                 }

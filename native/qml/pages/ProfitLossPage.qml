@@ -6,9 +6,9 @@ Item {
     id: page
     property var data: ({})
 
-    function load() { console.log("[PNL] load() called"); data = backend.profitAndLoss(); console.log("[PNL] data:", JSON.stringify(data)) }
-    Component.onCompleted: { console.log("[PNL] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[PNL] dataChanged"); page.load() } }
+    function load() { data = backend.profitAndLoss() }
+    Component.onCompleted: { load() }
+    Connections { target: backend; function onDataChanged() { page.load() } }
 
     property real sales: Number(data.sales || 0)
     property real expenses: Number(data.expenses || 0)
@@ -83,7 +83,7 @@ Item {
                     spacing: Theme.s3
                     Text {
                         text: "Sales vs Expenses"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
@@ -92,7 +92,7 @@ Item {
                         Layout.fillWidth: true
                         height: 18
                         radius: 9
-                        color: Theme.glass
+                        color: Theme.alpha(Theme.palette.fg, 0.04)
                         Rectangle {
                             height: parent.height
                             radius: 9
@@ -100,7 +100,7 @@ Item {
                                 ? page.sales / (page.sales + page.expenses) : 0)
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: Theme.grad0 }
+                                GradientStop { position: 0.0; color: Theme.palette.primary }
                                 GradientStop { position: 1.0; color: Theme.success }
                             }
                             Behavior on width { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeOut } }
@@ -108,7 +108,7 @@ Item {
                     }
                     Text {
                         text: "Margin: " + (page.sales > 0 ? (page.net / page.sales * 100).toFixed(1) : "0.0") + "%"
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                     }

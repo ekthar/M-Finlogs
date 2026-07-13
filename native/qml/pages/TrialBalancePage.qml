@@ -17,8 +17,8 @@ Item {
         }
         totals = { debit: d, credit: c }
     }
-    Component.onCompleted: { console.log("[TRIALBAL] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[TRIALBAL] dataChanged"); page.load() } }
+    Component.onCompleted: { load() }
+    Connections { target: backend; function onDataChanged() { page.load() } }
 
     function doExportPdf() {
         var cols = ["Account/Party", "Debit", "Credit"]

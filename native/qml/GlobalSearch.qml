@@ -15,7 +15,6 @@ Item {
 
     function toggle() {
         open = !open
-        console.log("[SEARCH] toggle() open:", open)
         if (open) {
             queryField.forceActiveFocus()
         }
@@ -23,21 +22,18 @@ Item {
 
     function doSearch(query) {
         searchQuery = query.trim().toLowerCase()
-        console.log("[SEARCH] doSearch query:", searchQuery, "length:", searchQuery.length)
         if (searchQuery.length < 2) {
             searchResults = []
             return
         }
         var results = []
         var parties = backend.partyNames()
-        console.log("[SEARCH] partyNames returned:", parties ? parties.length : "null")
         for (var i = 0; i < parties.length; i++) {
             if (parties[i].toLowerCase().indexOf(searchQuery) >= 0) {
                 results.push({ kind: "party", label: parties[i], detail: "Party" })
             }
         }
         var txns = backend.transactions(1, 200, 365)
-        console.log("[SEARCH] transactions returned:", txns ? txns.length : "null")
         for (var j = 0; j < txns.length; j++) {
             var t = txns[j]
             if (t.party && t.party.toLowerCase().indexOf(searchQuery) >= 0 ||
@@ -48,7 +44,6 @@ Item {
             }
         }
         searchResults = results
-        console.log("[SEARCH] results:", results.length)
     }
 
     opacity: open ? 1 : 0
@@ -57,7 +52,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.alpha(Theme.bg0, 0.55)
+        color: Theme.alpha(Theme.palette.bg, 0.55)
         TapHandler { onTapped: root.open = false }
     }
 
@@ -66,9 +61,9 @@ Item {
         y: 80
         width: Math.min(520, root.width * 0.8)
         radius: Theme.rLg
-        color: Theme.bg2
+        color: Theme.palette.bgMuted
         border.width: 1
-        border.color: Theme.glassBorder
+        border.color: Theme.palette.border
 
         ColumnLayout {
             anchors.fill: parent
@@ -84,7 +79,7 @@ Item {
 
                 Text {
                     text: "\u2315"
-                    color: Theme.textDim
+                    color: Theme.palette.fgMuted
                     font.pixelSize: 18
                 }
 
@@ -93,8 +88,8 @@ Item {
                     Layout.fillWidth: true
                     implicitHeight: 34
                     placeholderText: "Search parties, bills..."
-                    color: Theme.text
-                    placeholderTextColor: Theme.textFaint
+                    color: Theme.palette.fg
+                    placeholderTextColor: Theme.palette.fgSubtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsBody
                     background: Rectangle {
@@ -106,14 +101,14 @@ Item {
                 Rectangle {
                     width: 1
                     height: 24
-                    color: Theme.glassBorder
+                    color: Theme.palette.border
                     anchors.verticalCenter: parent.verticalCenter
                     visible: queryField.text.length > 0
                 }
 
                 Text {
                     text: "\u2715"
-                    color: Theme.textFaint
+                    color: Theme.palette.fgSubtle
                     font.pixelSize: 14
                     visible: queryField.text.length > 0
                     TapHandler { onTapped: queryField.text = "" }
@@ -123,7 +118,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item {
@@ -142,7 +137,7 @@ Item {
                         width: resultsList.width
                         height: searchResults.length > 0 ? 44 : 60
                         radius: Theme.rSm
-                        color: resultsHover.containsMouse ? Theme.rowHover : "transparent"
+                        color: resultsHover.containsMouse ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
                         visible: searchResults.length > 0 || modelData.kind !== "empty"
 
                         RowLayout {
@@ -154,7 +149,7 @@ Item {
 
                             Text {
                                 text: modelData.kind === "party" ? "\u263A" : "\u270E"
-                                color: modelData.kind === "party" ? Theme.accent3 : Theme.accent
+                                color: modelData.kind === "party" ? Theme.palette.info : Theme.palette.primary
                                 font.pixelSize: 16
                             }
 
@@ -164,7 +159,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.label
-                                    color: Theme.text
+                                    color: Theme.palette.fg
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsSmall
                                     font.weight: Font.DemiBold
@@ -173,7 +168,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.detail
-                                    color: Theme.textDim
+                                    color: Theme.palette.fgMuted
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsTiny
                                 }
@@ -183,7 +178,7 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: "Type at least 2 characters to search"
-                            color: Theme.textFaint
+                            color: Theme.palette.fgSubtle
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsSmall
                             visible: searchResults.length === 0

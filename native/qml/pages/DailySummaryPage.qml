@@ -10,16 +10,13 @@ Item {
         target: backend
         function onDailySummaryLoaded(result) {
             rows = result || []
-            console.log("[DAYSUMMARY] rows loaded asynchronously:", rows.length)
         }
     }
 
     function load() {
-        console.log("[DAYSUMMARY] load() called")
         backend.fetchDailySummary(dateRange.fromIso, dateRange.toIso)
     }
     Component.onCompleted: {
-        console.log("[DAYSUMMARY] Component.onCompleted")
         dateRange.preset(30)
         load()
     }
