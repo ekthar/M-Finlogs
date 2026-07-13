@@ -139,6 +139,11 @@ qt_add_qml_module(mfinlogs-native
         qml/GlobalSearch.qml
         qml/ShortcutOverlay.qml
         qml/StaggerEntrance.qml
+        qml/Button.qml
+        qml/Checkbox.qml
+        qml/FocusRing.qml
+        qml/IconButton.qml
+        qml/Switch.qml
         qml/TBody.qml
         qml/TCaption.qml
         qml/TDisplay.qml

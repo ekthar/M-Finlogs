@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MFinlogs
 
-// Labeled, glassy dropdown with an animated popup and custom-drawn items.
 Item {
     id: root
     property string label: ""
@@ -12,7 +11,6 @@ Item {
     signal nextField()
     signal prevField()
 
-    // Focus the inner ComboBox (so parent can call comboField.focusCombo())
     function focusCombo() { combo.forceActiveFocus() }
 
     implicitHeight: (label.length > 0 ? 20 : 0) + 44
@@ -25,10 +23,10 @@ Item {
         Text {
             visible: root.label.length > 0
             text: root.label
-            color: Theme.textDim
+            color: Theme.palette.fgMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsSmall
-            font.weight: Font.DemiBold
+            font.weight: Theme.wSemibold
         }
 
         ComboBox {
@@ -40,10 +38,6 @@ Item {
             font.pixelSize: Theme.fsBody
             activeFocusOnTab: true
 
-            // Keyboard navigation:
-            //  - Down: open dropdown if closed; if open, move selection down
-            //  - Up: move selection up
-            //  - Enter/Return: if open, accept & close; else move to next field
             Keys.onDownPressed: function(event) {
                 if (!popup.visible) {
                     popup.open()
@@ -75,9 +69,9 @@ Item {
 
             background: Rectangle {
                 radius: Theme.rMd
-                color: combo.activeFocus || combo.hovered ? Theme.alpha(Theme.accent, 0.08) : Theme.glass
-                border.width: combo.activeFocus ? 1.5 : 1
-                border.color: combo.activeFocus ? Theme.accent : Theme.glassBorder
+                color: combo.activeFocus || combo.hovered ? Theme.alpha(Theme.palette.primary, 0.08) : "transparent"
+                border.width: combo.activeFocus ? 1.5 : Theme.bwDefault
+                border.color: combo.activeFocus ? Theme.palette.primary : Theme.palette.border
                 Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
             }
 
@@ -86,7 +80,7 @@ Item {
                 rightPadding: 36
                 text: combo.displayText
                 font: combo.font
-                color: Theme.text
+                color: Theme.palette.fg
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
             }
@@ -101,7 +95,7 @@ Item {
                 onPaint: {
                     var ctx = getContext("2d")
                     ctx.reset()
-                    ctx.strokeStyle = Theme.textDim
+                    ctx.strokeStyle = Theme.palette.fgMuted
                     ctx.lineWidth = 2
                     ctx.beginPath()
                     ctx.moveTo(0, 0); ctx.lineTo(6, 6); ctx.lineTo(12, 0)
@@ -113,13 +107,11 @@ Item {
                 y: combo.height + 6
                 width: combo.width
                 padding: 6
-                onOpened: console.log("[FIELDCOMBO] popup opened for:", label)
-                onClosed: console.log("[FIELDCOMBO] popup closed for:", label)
                 background: Rectangle {
                     radius: Theme.rMd
-                    color: Theme.bg2
+                    color: Theme.palette.bg
                     border.width: 1
-                    border.color: Theme.glassBorder
+                    border.color: Theme.palette.border
                 }
                 enter: Transition {
                     NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durFast }
@@ -139,7 +131,7 @@ Item {
                 height: 34
                 contentItem: Text {
                     text: modelData
-                    color: Theme.text
+                    color: Theme.palette.fg
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsSmall
                     verticalAlignment: Text.AlignVCenter
@@ -147,7 +139,7 @@ Item {
                 }
                 background: Rectangle {
                     radius: Theme.rSm
-                    color: highlighted ? Theme.glassStrong : "transparent"
+                    color: highlighted ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                 }
                 highlighted: combo.highlightedIndex === index
             }

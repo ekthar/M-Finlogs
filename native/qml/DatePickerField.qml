@@ -2,15 +2,12 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MFinlogs
 
-// Custom animated date picker: a glass field that opens a hand-built calendar
-// popup with month navigation, smooth grid transitions and a selected-day pill.
-// `selectedDate` is a JS Date; `isoText` exposes yyyy-MM-dd for the backend.
 Item {
     id: root
     property string label: ""
     property date selectedDate: new Date()
     readonly property string isoText: Qt.formatDate(selectedDate, "yyyy-MM-dd")
-    signal accepted()  // emitted after closing calendar (for Enter-chain in forms)
+    signal accepted()
 
     implicitHeight: (label.length > 0 ? 20 : 0) + 44
     implicitWidth: 180
@@ -23,7 +20,6 @@ Item {
     property int viewMonth: selectedDate.getMonth()
 
     function openCalendar() {
-        console.log("[DATEPICKER] openCalendar() - viewYear:", viewYear, "viewMonth:", viewMonth)
         viewYear = selectedDate.getFullYear()
         viewMonth = selectedDate.getMonth()
         rebuild()
@@ -61,22 +57,21 @@ Item {
         Text {
             visible: root.label.length > 0
             text: root.label
-            color: Theme.textDim
+            color: Theme.palette.fgMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsSmall
-            font.weight: Font.DemiBold
+            font.weight: Theme.wSemibold
         }
         Rectangle {
             id: field
             width: parent.width
             height: 44
             radius: Theme.rMd
-            color: pop.visible ? Theme.alpha(Theme.accent, 0.10) : (fieldFocus.activeFocus ? Theme.alpha(Theme.accent, 0.08) : Theme.glass)
-            border.width: (pop.visible || fieldFocus.activeFocus) ? 1.5 : 1
-            border.color: (pop.visible || fieldFocus.activeFocus) ? Theme.accent : Theme.glassBorder
+            color: pop.visible ? Theme.alpha(Theme.palette.primary, 0.10) : (fieldFocus.activeFocus ? Theme.alpha(Theme.palette.primary, 0.08) : "transparent")
+            border.width: (pop.visible || fieldFocus.activeFocus) ? 1.5 : Theme.bwDefault
+            border.color: (pop.visible || fieldFocus.activeFocus) ? Theme.palette.primary : Theme.palette.border
             Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
 
-            // Make the date field keyboard focusable so Tab order works
             FocusScope {
                 id: fieldFocus
                 anchors.fill: parent
@@ -85,10 +80,8 @@ Item {
                 Keys.onReturnPressed: { root.openCalendar() }
                 Keys.onEnterPressed: { root.openCalendar() }
                 Keys.onSpacePressed: { root.openCalendar() }
-                // Tab / Escape closes the calendar and passes focus along
                 Keys.onEscapePressed: { if (pop.visible) pop.close() }
 
-                // Invisible but focusable area so Tab ring includes the date field
                 Rectangle { anchors.fill: parent; color: "transparent" }
             }
 
@@ -97,7 +90,7 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: 14
                 text: Qt.formatDate(root.selectedDate, "dd MMM yyyy")
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsBody
             }
@@ -122,14 +115,9 @@ Item {
         modal: false
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        onOpened: console.log("[DATEPICKER] popup opened")
-        onClosed: {
-            console.log("[DATEPICKER] popup closed")
-            root.accepted()
-        }
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bg
             radius: Theme.rLg
         }
         enter: Transition {
@@ -143,14 +131,13 @@ Item {
         contentItem: Column {
             spacing: Theme.s3
 
-            // Header: month nav
             Row {
                 width: parent.width
                 height: 32
                 Rectangle {
                     width: 30; height: 30; radius: 8
-                    color: navPrevHover.hovered ? Theme.glassStrong : "transparent"
-                    Text { anchors.centerIn: parent; text: "\u2039"; color: Theme.text; font.pixelSize: 18 }
+                    color: navPrevHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                    Text { anchors.centerIn: parent; text: "\u2039"; color: Theme.palette.fg; font.pixelSize: 18 }
                     HoverHandler { id: navPrevHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.shiftMonth(-1) }
                 }
@@ -160,21 +147,20 @@ Item {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                     text: root.monthNames[root.viewMonth] + " " + root.viewYear
-                    color: Theme.text
+                    color: Theme.palette.fg
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsBody
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.wSemibold
                 }
                 Rectangle {
                     width: 30; height: 30; radius: 8
-                    color: navNextHover.hovered ? Theme.glassStrong : "transparent"
-                    Text { anchors.centerIn: parent; text: "\u203A"; color: Theme.text; font.pixelSize: 18 }
+                    color: navNextHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                    Text { anchors.centerIn: parent; text: "\u203A"; color: Theme.palette.fg; font.pixelSize: 18 }
                     HoverHandler { id: navNextHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.shiftMonth(1) }
                 }
             }
 
-            // Weekday labels
             Row {
                 width: parent.width
                 Repeater {
@@ -183,15 +169,14 @@ Item {
                         width: 252 / 7
                         horizontalAlignment: Text.AlignHCenter
                         text: modelData
-                        color: Theme.textFaint
+                        color: Theme.palette.fgSubtle
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsTiny
-                        font.weight: Font.DemiBold
+                        font.weight: Theme.wSemibold
                     }
                 }
             }
 
-            // Day grid
             Grid {
                 id: grid
                 columns: 7
@@ -211,19 +196,19 @@ Item {
                             anchors.centerIn: parent
                             width: 30; height: 30
                             radius: 8
-                            color: root.isSelected(day) ? Theme.accent
-                                 : (dayHover.hovered ? Theme.glassStrong : "transparent")
+                            color: root.isSelected(day) ? Theme.palette.primary
+                                 : (dayHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent")
                             border.width: root.isToday(day) && !root.isSelected(day) ? 1 : 0
-                            border.color: Theme.accent
+                            border.color: Theme.palette.primary
                             Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: day > 0 ? day : ""
-                                color: root.isSelected(day) ? Theme.accentInk : Theme.text
+                                color: root.isSelected(day) ? Theme.palette.primaryFg : Theme.palette.fg
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall
-                                font.weight: root.isSelected(day) ? Font.Bold : Font.Normal
+                                font.weight: root.isSelected(day) ? Theme.wBold : Font.Normal
                             }
                             HoverHandler { id: dayHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler {
@@ -237,7 +222,6 @@ Item {
                 }
             }
 
-            // Quick actions
             Row {
                 width: parent.width
                 spacing: Theme.s2
@@ -245,8 +229,10 @@ Item {
                     width: (parent.width - Theme.s2) / 2
                     height: 30
                     radius: Theme.rSm
-                    color: todayHover.hovered ? Theme.glassStrong : Theme.glass
-                    Text { anchors.centerIn: parent; text: "Today"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.DemiBold }
+                    color: todayHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                    border.width: Theme.bwDefault
+                    border.color: Theme.palette.border
+                    Text { anchors.centerIn: parent; text: "Today"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Theme.wSemibold }
                     HoverHandler { id: todayHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: { root.selectedDate = new Date(); pop.close() } }
                 }
@@ -254,8 +240,10 @@ Item {
                     width: (parent.width - Theme.s2) / 2
                     height: 30
                     radius: Theme.rSm
-                    color: closeHover.hovered ? Theme.glassStrong : Theme.glass
-                    Text { anchors.centerIn: parent; text: "Close"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.DemiBold }
+                    color: closeHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                    border.width: Theme.bwDefault
+                    border.color: Theme.palette.border
+                    Text { anchors.centerIn: parent; text: "Close"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Theme.wSemibold }
                     HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: pop.close() }
                 }
