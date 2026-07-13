@@ -99,19 +99,27 @@ QtObject {
     // ---- Typography ---------------------------------------------------------
     readonly property string fontFamily:   "Inter"
     readonly property string monoFamily:   "JetBrains Mono"
+
+    readonly property int fsDisplay:  36
     readonly property int fsHero:     30
+    readonly property int fsHeading:  24
     readonly property int fsTitle:    20
     readonly property int fsSection:  15
     readonly property int fsBody:     14
     readonly property int fsSmall:    13
     readonly property int fsCaption:  12
     readonly property int fsTiny:     11
+    readonly property int fsOverline: 10
+
     readonly property int wBold:       Font.Bold
     readonly property int wSemibold:   Font.DemiBold
     readonly property int wMedium:     Font.Medium
     readonly property int wNormal:     Font.Normal
+    readonly property int wHeavy:      Font.Black
+
     readonly property real lhTight:   1.15
     readonly property real lhNormal:  1.4
+    readonly property real lhLoose:   1.6
 
     // ---- Spacing (8px grid) -------------------------------------------------
     readonly property int s1:  4
@@ -126,6 +134,7 @@ QtObject {
     readonly property int s10: 40
     readonly property int s12: 48
     readonly property int s14: 56
+    readonly property int s16: 64
 
     // ---- Radius -------------------------------------------------------------
     readonly property int rNone: 0
@@ -134,7 +143,45 @@ QtObject {
     readonly property int rLg:   8
     readonly property int rXl:   12
     readonly property int r2xl:  16
+    readonly property int r3xl:  24
     readonly property int rPill: 999
+
+    // ---- Elevation ----------------------------------------------------------
+    readonly property int elevationFlat:    0
+    readonly property int elevationRaised:  1
+    readonly property int elevationOverlay: 2
+    readonly property int elevationModal:   3
+
+    // ---- Opacity ------------------------------------------------------------
+    readonly property real opDisabled:  0.4
+    readonly property real opMuted:     0.6
+    readonly property real opHover:     0.85
+    readonly property real opActive:    1.0
+    readonly property real opSubtle:    0.08
+    readonly property real opFaint:     0.04
+
+    // ---- Icon sizes ---------------------------------------------------------
+    readonly property int iconSm: 14
+    readonly property int iconMd: 16
+    readonly property int iconLg: 20
+    readonly property int iconXl: 24
+
+    // ---- Z-index ------------------------------------------------------------
+    readonly property int zBase:   0
+    readonly property int zSticky: 100
+    readonly property int zOverlay: 1000
+    readonly property int zModal:  5000
+    readonly property int zToast:  10000
+    readonly property int zDrag:   10001
+
+    // ---- Border widths ------------------------------------------------------
+    readonly property int bwDefault: 1
+    readonly property int bwFocus:   2
+
+    // ---- Blur ---------------------------------------------------------------
+    readonly property int blurSubtle:  4
+    readonly property int blurMd:     12
+    readonly property int blurStrong: 24
 
     // ---- Motion -------------------------------------------------------------
     readonly property int _durInstant:     60
@@ -161,6 +208,8 @@ QtObject {
     readonly property int easeOutBounce:  Easing.OutBounce
     readonly property int easeInOutQuad:  Easing.InOutQuad
     readonly property int easeInOutCubic: Easing.InOutCubic
+    readonly property int easeOutSine:    Easing.OutSine
+    readonly property int easeInSine:     Easing.InSine
 
     readonly property int easeOut:        easeOutCubic
     readonly property int easeInOut:      easeInOutCubic

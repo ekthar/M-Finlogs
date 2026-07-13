@@ -144,8 +144,8 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
+                        anchors.leftMargin: Theme.s4
+                        anchors.rightMargin: Theme.s4
                         spacing: 0
                         Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Party"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; verticalAlignment: Text.AlignVCenter }
                         Text { Layout.fillWidth: true; Layout.preferredWidth: 1.5; text: "Outstanding"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; font.capitalization: Font.AllUppercase; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }
@@ -249,8 +249,8 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
+                        anchors.leftMargin: Theme.s4
+                        anchors.rightMargin: Theme.s4
 
                         Text { Layout.fillWidth: true; Layout.preferredWidth: 2.5; text: "Total"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                         Text { Layout.fillWidth: true; Layout.preferredWidth: 1.5; text: backend.formatMoney(page.totalOutstanding); color: Theme.danger; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter }

@@ -139,6 +139,15 @@ qt_add_qml_module(mfinlogs-native
         qml/GlobalSearch.qml
         qml/ShortcutOverlay.qml
         qml/StaggerEntrance.qml
+        qml/TBody.qml
+        qml/TCaption.qml
+        qml/TDisplay.qml
+        qml/THeading.qml
+        qml/TMono.qml
+        qml/TOverline.qml
+        qml/TSmall.qml
+        qml/TTitle.qml
+        qml/TTiny.qml
 )
 
 # Compile the Qt resource (icons) explicitly into the target

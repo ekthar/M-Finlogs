@@ -96,8 +96,8 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
+                        anchors.leftMargin: Theme.s4
+                        anchors.rightMargin: Theme.s4
                         spacing: 0
                         Repeater {
                             model: [

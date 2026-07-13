@@ -328,7 +328,7 @@ Item {
 
                 Text {
                     text: "\u26A0"
-                    color: "#e74c3c"
+                    color: Theme.danger
                     font.pixelSize: 32
                     Layout.alignment: Qt.AlignTop
                 }
@@ -563,8 +563,8 @@ Item {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u2716"; color: "#e74c3c"; font.pixelSize: 14 }
-                    Text { text: "Delete"; color: "#e74c3c"; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u2716"; color: Theme.danger; font.pixelSize: 14 }
+                    Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
 
