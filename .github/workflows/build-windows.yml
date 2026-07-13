@@ -41,7 +41,7 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2019_64
-          modules: qtbase qtdeclarative qtcharts qthttpserver qtsvg
+          modules: qtcharts qthttpserver
 
       - name: Configure CMake
         run: cmake -S native -B native/build -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
