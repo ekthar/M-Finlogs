@@ -67,7 +67,9 @@
 #include <QStringConverter>
 #include <QStyle>
 #include <QStyleHints>
+#ifdef HAS_QT_SVG
 #include <QSvgRenderer>
+#endif
 #include <QTableWidget>
 #include <QTextStream>
 #include <QToolBar>
@@ -364,9 +366,8 @@ QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageInde
     return item;
 }
 
+#ifdef HAS_QT_SVG
 QIcon appIcon(const QString& name) {
-    // Render SVG directly via QSvgRenderer (Qt6::Svg) to avoid depending on the
-    // qsvg image plugin being deployed.
     const QStringList candidates = {
         QStringLiteral(":/icons/%1.svg").arg(name),
         QStringLiteral(":/icons/icons/%1.svg").arg(name),
@@ -389,8 +390,11 @@ QIcon appIcon(const QString& name) {
     }
     return QIcon();
 }
+#else
+QIcon appIcon(const QString&) { return QIcon(); }
+#endif
 
-// Render an SVG icon tinted to a single color, for display on the dark sidebar.
+#ifdef HAS_QT_SVG
 QIcon appIconTinted(const QString& name, const QColor& color) {
     const QStringList candidates = {
         QStringLiteral(":/icons/%1.svg").arg(name),
@@ -409,7 +413,6 @@ QIcon appIconTinted(const QString& name, const QColor& color) {
         QPainter painter(&pixmap);
         painter.setRenderHint(QPainter::Antialiasing, true);
         renderer.render(&painter);
-        // Tint: paint color over the icon shape using SourceIn composition
         painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
         painter.fillRect(pixmap.rect(), color);
         painter.end();
@@ -417,6 +420,9 @@ QIcon appIconTinted(const QString& name, const QColor& color) {
     }
     return QIcon();
 }
+#else
+QIcon appIconTinted(const QString&, const QColor&) { return QIcon(); }
+#endif
 
 QListWidgetItem* addNavItem(QListWidget& nav, const QString& label, int pageIndex, const QString& iconName) {
     QListWidgetItem* item = addNavItem(nav, label, pageIndex);

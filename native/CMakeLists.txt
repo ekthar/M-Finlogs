@@ -21,11 +21,12 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Charts
     PrintSupport
     HttpServer
-    Svg
     Qml
     Quick
     QuickControls2
 )
+
+find_package(Qt6 6.5 QUIET COMPONENTS Svg)
 
 qt_standard_project_setup()
 
@@ -198,12 +199,16 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::Charts
     Qt6::PrintSupport
     Qt6::HttpServer
-    Qt6::Svg
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
     argon2
 )
+
+if(Qt6Svg_FOUND)
+    target_link_libraries(mfinlogs-native PRIVATE Qt6::Svg)
+    target_compile_definitions(mfinlogs-native PRIVATE HAS_QT_SVG)
+endif()
 
 if(WIN32)
     target_compile_definitions(mfinlogs-native PRIVATE

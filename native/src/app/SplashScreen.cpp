@@ -16,7 +16,9 @@
 #include <QRandomGenerator>
 #include <QScreen>
 #include <QShowEvent>
+#ifdef HAS_QT_SVG
 #include <QSvgRenderer>
+#endif
 #include <QTimer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
@@ -58,7 +60,9 @@ constexpr double kRing = 96.0;
 class SplashCanvas final : public QWidget {
 public:
     explicit SplashCanvas(QWidget* parent = nullptr) : QWidget(parent) {
+#ifdef HAS_QT_SVG
         logo_.load(QStringLiteral(":/icons/logo.svg"));
+#endif
 
         anim_ = new QVariantAnimation(this);
         anim_->setStartValue(0.0);
@@ -202,10 +206,12 @@ private:
         // (Soft-ish: draw without blur — keep it subtle)
         p.fillPath(sh, QColor(99, 102, 241, 40));
 
+#ifdef HAS_QT_SVG
         if (logo_.isValid()) {
-            // logo.svg already contains the gradient badge + M + ledger + sparkline.
             logo_.render(&p, badge);
-        } else {
+        } else
+#endif
+        {
             QLinearGradient g(badge.topLeft(), badge.bottomRight());
             g.setColorAt(0.0, kAccentBlueLogo);
             g.setColorAt(1.0, kAccentViolet);
@@ -225,7 +231,9 @@ private:
         Q_UNUSED(p);
     }
 
+#ifdef HAS_QT_SVG
     QSvgRenderer logo_;
+#endif
     QVariantAnimation* anim_ = nullptr;
     double phase_ = 0.0;
 };
