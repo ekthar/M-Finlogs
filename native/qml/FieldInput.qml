@@ -81,6 +81,7 @@ Item {
                 selectedTextColor: Theme.palette.fg
                 background: Item {}
                 activeFocusOnTab: true
+                Accessible.role: Accessible.EditableText
                 inputMethodHints: root.numeric ? Qt.ImhFormattedNumbersOnly : Qt.ImhNone
 
                 onAccepted: {

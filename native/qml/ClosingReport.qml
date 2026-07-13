@@ -63,7 +63,14 @@ Item {
                 }
                 Rectangle {
                     width: 28; height: 28; radius: 7; color: closeHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Close report"
+                    Accessible.onPressAction: root.close()
+                    Keys.onReturnPressed: root.close()
+                    Keys.onSpacePressed: root.close()
                     Text { anchors.centerIn: parent; text: "\u2715"; color: Theme.palette.fgMuted; font.pixelSize: 13 }
+                    FocusRing { visible: parent.activeFocus }
                     HoverHandler { id: closeHover }
                     TapHandler { onTapped: root.close() }
                 }

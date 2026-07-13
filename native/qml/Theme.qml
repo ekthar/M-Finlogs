@@ -9,6 +9,27 @@ QtObject {
     property bool dark: true
     property bool animationsEnabled: true
 
+    // Follow the OS dark/light mode preference via Qt.styleHints.colorScheme
+    property bool followSystemTheme: true
+
+    property QtObject _systemTheme: QtObject {
+        Component.onCompleted: {
+            Qt.styleHints.colorSchemeChanged.connect(function() {
+                if (theme.followSystemTheme) {
+                    theme.dark = Qt.styleHints.colorScheme === Qt.Dark
+                }
+            })
+            if (theme.followSystemTheme) {
+                theme.dark = Qt.styleHints.colorScheme === Qt.Dark
+            }
+        }
+    }
+    onFollowSystemThemeChanged: {
+        if (followSystemTheme) {
+            dark = Qt.styleHints.colorScheme === Qt.Dark
+        }
+    }
+
     property Settings _prefs: Settings {
         category: "ui"
         property alias dark: theme.dark

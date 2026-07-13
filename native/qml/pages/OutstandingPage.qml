@@ -71,7 +71,7 @@ Item {
             DataTable {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                emptyText: "No outstanding balances"
+                emptyText: "No outstanding balances \u2014 all parties have cleared their dues"
                 rows: page.rows
                 totals: ({ balance: page.total })
                 totalsLabel: "Total Outstanding"

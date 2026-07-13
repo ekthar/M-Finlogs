@@ -37,6 +37,7 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsBody
             activeFocusOnTab: true
+            Accessible.role: Accessible.ComboBox
 
             Keys.onDownPressed: function(event) {
                 if (!popup.visible) {

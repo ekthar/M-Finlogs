@@ -90,6 +90,13 @@ Item {
                                 topLeftRadius: Theme.rMd; bottomLeftRadius: Theme.rMd
                                 color: !Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Light theme"
+                                Accessible.onPressAction: Theme.dark = false
+                                Keys.onReturnPressed: Theme.dark = false
+                                Keys.onSpacePressed: Theme.dark = false
+                                FocusRing { visible: parent.activeFocus }
                                 Text { anchors.centerIn: parent; text: "\u2600 Light"; color: !Theme.dark ? Theme.palette.primaryFg : Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = false }
                             }
@@ -98,9 +105,48 @@ Item {
                                 topRightRadius: Theme.rMd; bottomRightRadius: Theme.rMd
                                 color: Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Dark theme"
+                                Accessible.onPressAction: Theme.dark = true
+                                Keys.onReturnPressed: Theme.dark = true
+                                Keys.onSpacePressed: Theme.dark = true
+                                FocusRing { visible: parent.activeFocus }
                                 Text { anchors.centerIn: parent; text: "\u263D Dark"; color: Theme.dark ? Theme.palette.primaryFg : Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = true }
                             }
+                        }
+                    }
+
+                    // Follow system theme toggle
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.s3
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "Follow System Theme"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Automatically match your OS dark/light preference"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                        }
+                        Item { Layout.fillWidth: true }
+                        Rectangle {
+                            width: 52; height: 30; radius: 15
+                            color: Theme.followSystemTheme ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
+                            border.width: 1; border.color: Theme.followSystemTheme ? Theme.palette.primary : Theme.palette.border
+                            Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: "Follow system theme"
+                            Accessible.onPressAction: Theme.followSystemTheme = !Theme.followSystemTheme
+                            Keys.onReturnPressed: Theme.followSystemTheme = !Theme.followSystemTheme
+                            Keys.onSpacePressed: Theme.followSystemTheme = !Theme.followSystemTheme
+                            Rectangle {
+                                width: 24; height: 24; radius: 12
+                                color: "#ffffff"
+                                y: 3
+                                x: Theme.followSystemTheme ? parent.width - width - 3 : 3
+                                Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.followSystemTheme = !Theme.followSystemTheme }
                         }
                     }
 
@@ -122,14 +168,23 @@ Item {
                             color: Theme.animationsEnabled ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                             border.width: 1; border.color: Theme.animationsEnabled ? Theme.palette.primary : Theme.palette.border
                             Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: "Animations"
+                            Accessible.onPressAction: Theme.animationsEnabled = !Theme.animationsEnabled
+                            Keys.onReturnPressed: Theme.animationsEnabled = !Theme.animationsEnabled
+                            Keys.onSpacePressed: Theme.animationsEnabled = !Theme.animationsEnabled
                             Rectangle {
-                                width: 24; height: 24; radius: 12
-                                color: "#ffffff"
-                                y: 3
-                                x: Theme.animationsEnabled ? parent.width - width - 3 : 3
-                                Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
-                            }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.animationsEnabled = !Theme.animationsEnabled }
+                                    width: 24; height: 24; radius: 12
+                                    color: "#ffffff"
+                                    y: 3
+                                    x: Theme.animationsEnabled ? parent.width - width - 3 : 3
+                                    Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
+                                }
+
+                                FocusRing { visible: parent.activeFocus }
+
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.animationsEnabled = !Theme.animationsEnabled }
                         }
                     }
                 }

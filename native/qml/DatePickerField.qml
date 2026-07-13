@@ -82,6 +82,9 @@ Item {
                 Keys.onSpacePressed: { root.openCalendar() }
                 Keys.onEscapePressed: { if (pop.visible) pop.close() }
 
+                Accessible.role: Accessible.Button
+                Accessible.name: root.label.length > 0 ? root.label + " date picker" : "Date picker"
+
                 Rectangle { anchors.fill: parent; color: "transparent" }
             }
 
@@ -138,6 +141,10 @@ Item {
                     width: 30; height: 30; radius: 8
                     color: navPrevHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                     Text { anchors.centerIn: parent; text: "\u2039"; color: Theme.palette.fg; font.pixelSize: 18 }
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Previous month"
+                    FocusRing { visible: parent.activeFocus }
                     HoverHandler { id: navPrevHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.shiftMonth(-1) }
                 }
@@ -156,6 +163,10 @@ Item {
                     width: 30; height: 30; radius: 8
                     color: navNextHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                     Text { anchors.centerIn: parent; text: "\u203A"; color: Theme.palette.fg; font.pixelSize: 18 }
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Next month"
+                    FocusRing { visible: parent.activeFocus }
                     HoverHandler { id: navNextHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.shiftMonth(1) }
                 }
@@ -201,6 +212,9 @@ Item {
                             border.width: root.isToday(day) && !root.isSelected(day) ? 1 : 0
                             border.color: Theme.palette.primary
                             Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Day " + day
 
                             Text {
                                 anchors.centerIn: parent
@@ -210,6 +224,7 @@ Item {
                                 font.pixelSize: Theme.fsSmall
                                 font.weight: root.isSelected(day) ? Theme.wBold : Font.Normal
                             }
+                            FocusRing { visible: parent.activeFocus }
                             HoverHandler { id: dayHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler {
                                 onTapped: {
@@ -232,6 +247,10 @@ Item {
                     color: todayHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                     border.width: Theme.bwDefault
                     border.color: Theme.palette.border
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Today"
+                    FocusRing { visible: parent.activeFocus }
                     Text { anchors.centerIn: parent; text: "Today"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Theme.wSemibold }
                     HoverHandler { id: todayHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: { root.selectedDate = new Date(); pop.close() } }
@@ -243,6 +262,10 @@ Item {
                     color: closeHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                     border.width: Theme.bwDefault
                     border.color: Theme.palette.border
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Close"
+                    FocusRing { visible: parent.activeFocus }
                     Text { anchors.centerIn: parent; text: "Close"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Theme.wSemibold }
                     HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: pop.close() }

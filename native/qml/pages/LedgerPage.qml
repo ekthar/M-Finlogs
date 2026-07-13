@@ -523,10 +523,19 @@ Item {
             spacing: 2
 
             Rectangle {
+                id: mEditItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
                 color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Edit transaction"
+                Accessible.onPressAction: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mDelItem.forceActiveFocus()
+                Keys.onUpPressed: mDelItem.forceActiveFocus()
 
                 RowLayout {
                     anchors.fill: parent
@@ -536,6 +545,8 @@ Item {
                     Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mEdit }
 
@@ -548,10 +559,19 @@ Item {
             }
 
             Rectangle {
+                id: mDelItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
                 color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Delete transaction"
+                Accessible.onPressAction: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mEditItem.forceActiveFocus()
+                Keys.onUpPressed: mEditItem.forceActiveFocus()
 
                 RowLayout {
                     anchors.fill: parent
@@ -561,6 +581,8 @@ Item {
                     Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mDel }
 
@@ -578,6 +600,8 @@ Item {
         }
 
         Keys.onEscapePressed: contextMenu.visible = false
+        Keys.onDownPressed: mEditItem.forceActiveFocus()
+        Keys.onUpPressed: mDelItem.forceActiveFocus()
         focus: true
     }
 

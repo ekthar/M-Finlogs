@@ -13,6 +13,12 @@ Item {
     property string totalsLabel: "Total"
     property bool checkable: false
     property var checkedRows: []
+    property var checkedMap: ({})
+    onCheckedRowsChanged: {
+        var m = {}
+        for (var i = 0; i < checkedRows.length; i++) m[checkedRows[i]] = true
+        checkedMap = m
+    }
     signal rowActivated(var row)
     signal checkChanged(var checked, var row)
     signal inlineEdit(var row, var columnKey, var newValue)
@@ -204,6 +210,7 @@ Item {
                 height: 46
                 property var rowData: root.loading ? null : modelData
                 property bool isCurrent: list.currentIndex === index
+                property bool rowChecked: root.checkedMap[rowData ? rowData.id : ""] === true
 
                 Rectangle {
                     anchors.fill: parent
@@ -259,16 +266,16 @@ Item {
                         Rectangle {
                             anchors.centerIn: parent
                             width: 18; height: 18; radius: 4
-                            color: isChecked(rowData.id) ? Theme.palette.primary : "transparent"
+                            color: rowChecked ? Theme.palette.primary : "transparent"
                             border.width: 2
-                            border.color: isChecked(rowData.id) ? Theme.palette.primary : Theme.palette.fgSubtle
+                            border.color: rowChecked ? Theme.palette.primary : Theme.palette.fgSubtle
                             Text {
                                 anchors.centerIn: parent
                                 text: "\u2713"
                                 color: Theme.palette.primaryFg
                                 font.pixelSize: 12
                                 font.weight: Font.Bold
-                                visible: isChecked(rowData.id)
+                                visible: rowChecked
                             }
                             TapHandler {
                                 onTapped: toggleCheck(rowData.id)

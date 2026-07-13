@@ -22,6 +22,13 @@ Item {
     readonly property var monthNames: ["January","February","March","April","May",
         "June","July","August","September","October","November","December"]
     readonly property int today: new Date().getDate()
+    property int cachedDaysInMonth: 28
+
+    // Cached metrics (recomputed in recalcMetrics to avoid O(n) function calls in bindings)
+    property real cachedTotalQty: 0
+    property real cachedPurchaseToday: 0
+    property real cachedAvgMovement: 0
+    property int cachedReorderCount: 0
 
     // Layout constants for the virtualized grid
     readonly property int rowH: 34
@@ -77,6 +84,29 @@ Item {
         return c
     }
 
+    function recalcMetrics() {
+        var tQty = 0, tPur = 0, movTotal = 0, movCount = 0, reorder = 0
+        var dm = cachedDaysInMonth
+        var dToday = today
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i]
+            tQty += Number(row[qtyKey(dToday)]) || 0
+            tPur += Number(row[purKey(dToday)]) || 0
+            var qty = Number(row[qtyKey(dToday)]) || 0
+            var min = Number(row.min_stock) || 0
+            if (min > 0 && qty <= min) reorder++
+            for (var d = 1; d <= dm; d++) {
+                var v = Number(row[purKey(d)]) || 0
+                movTotal += v
+                if (v > 0) movCount++
+            }
+        }
+        cachedTotalQty = tQty
+        cachedPurchaseToday = tPur
+        cachedReorderCount = reorder
+        cachedAvgMovement = movCount > 0 ? Math.round(movTotal / movCount) : 0
+    }
+
     // Data operations
     Component.onCompleted: {
         fyList = backend.financialYears()
@@ -87,8 +117,10 @@ Item {
 
     function load() {
         if (!selectedFy) return
+        cachedDaysInMonth = daysInMonth()
         rows = backend.inventorySnapshot(selectedFy, selectedMonth)
         stockRows = backend.stockValue(selectedFy, selectedMonth)
+        recalcMetrics()
     }
 
     // Mutate a single field of a single row WITHOUT replacing the whole array,
@@ -112,13 +144,15 @@ Item {
     function addProduct(name) {
         if (!name || name.trim().length === 0) return
         var tmp = rows.slice(); tmp.push(blankRow(name.trim())); rows = tmp
+        recalcMetrics()
     }
-    function addGapRow() { var tmp = rows.slice(); tmp.push(blankRow("")); rows = tmp }
+    function addGapRow() { var tmp = rows.slice(); tmp.push(blankRow("")); rows = tmp; recalcMetrics() }
     function cleanEmptyRows() {
         var tmp = []
         for (var i = 0; i < rows.length; i++)
             if (rows[i].name && rows[i].name.trim().length > 0) tmp.push(rows[i])
         rows = tmp
+        recalcMetrics()
     }
     function recordPurchase() {
         if (purchaseRowIdx < 0 || purchaseRowIdx >= rows.length) return
@@ -128,6 +162,7 @@ Item {
         tmp[purchaseRowIdx][purKey(purchaseDay)] = (Number(tmp[purchaseRowIdx][purKey(purchaseDay)]) || 0) + qty
         tmp[purchaseRowIdx][qtyKey(purchaseDay)] = (Number(tmp[purchaseRowIdx][qtyKey(purchaseDay)]) || 0) + qty
         rows = tmp
+        recalcMetrics()
         purchaseDialogOpen = false
         purchaseQty = ""
     }
@@ -272,7 +307,7 @@ Item {
                     id: purchaseDayCombo
                     Layout.preferredWidth: 100
                     label: "Day"
-                    options: { var days = []; for (var d = 1; d <= page.daysInMonth(); d++) days.push(String(d)); return days }
+                    options: { var days = []; for (var d = 1; d <= page.cachedDaysInMonth; d++) days.push(String(d)); return days }
                     currentIndex: page.purchaseDay - 1
                     onCurrentIndexChanged: page.purchaseDay = currentIndex + 1
                 }
@@ -296,10 +331,10 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.s4
-            MetricCard { Layout.fillWidth: true; label: "TOTAL QUANTITY"; value: page.totalQuantity(); prefix: ""; accent: Theme.palette.primary; glyph: "\u25A3" }
-            MetricCard { Layout.fillWidth: true; label: "PURCHASE TODAY"; value: page.purchaseToday(); prefix: ""; accent: Theme.palette.primary; glyph: "\u25B2" }
-            MetricCard { Layout.fillWidth: true; label: "AVG DAILY MOVEMENT"; value: page.avgDailyMovement(); prefix: ""; accent: Theme.palette.info; glyph: "\u25C8" }
-            MetricCard { Layout.fillWidth: true; label: "REORDER PRODUCTS"; value: page.reorderCount(); prefix: ""; accent: Theme.danger; glyph: "\u26A0" }
+            MetricCard { Layout.fillWidth: true; label: "TOTAL QUANTITY"; value: page.cachedTotalQty; prefix: ""; accent: Theme.palette.primary; glyph: "\u25A3" }
+            MetricCard { Layout.fillWidth: true; label: "PURCHASE TODAY"; value: page.cachedPurchaseToday; prefix: ""; accent: Theme.palette.primary; glyph: "\u25B2" }
+            MetricCard { Layout.fillWidth: true; label: "AVG DAILY MOVEMENT"; value: page.cachedAvgMovement; prefix: ""; accent: Theme.palette.info; glyph: "\u25C8" }
+            MetricCard { Layout.fillWidth: true; label: "REORDER PRODUCTS"; value: page.cachedReorderCount; prefix: ""; accent: Theme.danger; glyph: "\u26A0" }
         }
 
         // Editable Grid (virtualized via ListView)
@@ -408,7 +443,7 @@ Item {
                                     x: -gridScope.hScroll
                                     height: page.headerH
                                     Repeater {
-                                        model: page.daysInMonth()
+                                        model: page.cachedDaysInMonth
                                         Row {
                                             height: page.headerH
                                             property int dayNum: index + 1
@@ -527,7 +562,7 @@ Item {
                                         x: -gridScope.hScroll
                                         height: page.rowH
                                         Repeater {
-                                            model: page.daysInMonth()
+                                            model: page.cachedDaysInMonth
                                             Row {
                                                 height: page.rowH
                                                 property int dayNum: index + 1

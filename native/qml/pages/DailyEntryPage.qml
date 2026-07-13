@@ -562,6 +562,12 @@ Item {
                         }
                         Rectangle {
                             id: smartBtn
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Smart Import"
+                            Accessible.onPressAction: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
+                            Keys.onReturnPressed: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
+                            Keys.onSpacePressed: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
                             Layout.preferredWidth: 28; Layout.preferredHeight: 28
                             radius: 14
                             color: smartHover.hovered ? Theme.alpha(Theme.palette.primary, 0.2) : "transparent"
@@ -573,6 +579,7 @@ Item {
                                 color: Theme.palette.primary
                                 font.pixelSize: 14
                             }
+                            FocusRing { visible: parent.activeFocus }
                             HoverHandler { id: smartHover; cursorShape: Qt.PointingHandCursor }
                             TapHandler {
                                 onTapped: {
@@ -645,6 +652,12 @@ Item {
                         color: Theme.alpha(Theme.danger, 0.12)
                         border.width: 1
                         border.color: Theme.alpha(Theme.danger, 0.3)
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Delete selected"
+                        Accessible.onPressAction: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
+                        Keys.onReturnPressed: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
+                        Keys.onSpacePressed: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
 
                         RowLayout {
                             anchors.centerIn: parent
@@ -659,6 +672,9 @@ Item {
                                 font.weight: Font.DemiBold
                             }
                         }
+
+                        FocusRing { visible: parent.activeFocus }
+
                         TapHandler {
                             onTapped: {
                                 // FIX: capture count at open-time; checkedRows.length binding
@@ -679,6 +695,12 @@ Item {
                         color: "transparent"
                         border.width: 1
                         border.color: Theme.palette.border
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Clear selection"
+                        Accessible.onPressAction: transactionTable.deselectAll()
+                        Keys.onReturnPressed: transactionTable.deselectAll()
+                        Keys.onSpacePressed: transactionTable.deselectAll()
 
                         Text {
                             anchors.centerIn: parent
@@ -687,6 +709,9 @@ Item {
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsTiny
                         }
+
+                        FocusRing { visible: parent.activeFocus }
+
                         TapHandler {
                             onTapped: transactionTable.deselectAll()
                         }
@@ -757,10 +782,19 @@ Item {
 
             // Edit action
             Rectangle {
+                id: mEditItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
                 color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Edit transaction"
+                Accessible.onPressAction: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mDelItem.forceActiveFocus()
+                Keys.onUpPressed: mDelItem.forceActiveFocus()
 
                 RowLayout {
                     anchors.fill: parent
@@ -770,6 +804,8 @@ Item {
                     Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mEdit }
 
@@ -783,10 +819,19 @@ Item {
 
             // Delete action
             Rectangle {
+                id: mDelItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
                 color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Delete transaction"
+                Accessible.onPressAction: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mEditItem.forceActiveFocus()
+                Keys.onUpPressed: mEditItem.forceActiveFocus()
 
                 RowLayout {
                     anchors.fill: parent
@@ -796,6 +841,8 @@ Item {
                     Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mDel }
 
@@ -808,18 +855,30 @@ Item {
             }
         }
 
+        Accessible.role: Accessible.MenuItem
+        Accessible.name: "Close menu"
+        Accessible.onPressAction: { contextMenu.visible = false }
+
         TapHandler {
             onTapped: contextMenu.visible = false
         }
 
         Keys.onEscapePressed: contextMenu.visible = false
+        Keys.onDownPressed: { mEditItem.forceActiveFocus() }
+        Keys.onUpPressed: { mDelItem.forceActiveFocus() }
         focus: true
     }
 
     // Click outside context menu to close it
-    TapHandler {
-        enabled: contextMenu.visible
-        onTapped: contextMenu.visible = false
+    Rectangle {
+        anchors.fill: parent
+        visible: contextMenu.visible
+        Accessible.role: Accessible.Button
+        Accessible.name: "Close menu"
+        Accessible.onPressAction: { contextMenu.visible = false }
+        TapHandler {
+            onTapped: contextMenu.visible = false
+        }
     }
 
     // ── Dialog helper functions ────────────────────────────────────────────

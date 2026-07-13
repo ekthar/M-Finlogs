@@ -116,6 +116,12 @@ Item {
                     Rectangle {
                         width: 26; height: 26; radius: 7
                         color: collapseHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: shell.collapsed ? "Expand sidebar" : "Collapse sidebar"
+                        Accessible.onPressAction: shell.collapsed = !shell.collapsed
+                        Keys.onReturnPressed: shell.collapsed = !shell.collapsed
+                        Keys.onSpacePressed: shell.collapsed = !shell.collapsed
                         Text { anchors.centerIn: parent; text: shell.collapsed ? "\u00BB" : "\u00AB"; color: Theme.palette.fgMuted; font.pixelSize: 14 }
                         HoverHandler { id: collapseHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: shell.collapsed = !shell.collapsed }
@@ -128,6 +134,8 @@ Item {
                     id: navList
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    focus: true
+                    keyNavigationEnabled: true
                     interactive: true
                     clip: true
                     spacing: 2

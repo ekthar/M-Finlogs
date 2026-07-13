@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
 import MFinlogs
@@ -199,29 +200,52 @@ Item {
                             property real total: Math.max(1, cash + bank)
                             id: donutWrap
 
-                            Canvas {
-                                id: donut
+                            Shape {
+                                id: donutShape
                                 anchors.fill: parent
-                                onPaint: {
-                                    var ctx = getContext("2d")
-                                    ctx.reset()
-                                    var cx = width / 2, cy = height / 2
-                                    var r = Math.min(width, height) / 2 - 8
-                                    var cashFrac = donutWrap.cash / donutWrap.total
-                                    ctx.lineWidth = 16
-                                    ctx.lineCap = "round"
-                                    ctx.beginPath()
-                                    ctx.strokeStyle = Theme.palette.primary
-                                    ctx.arc(cx, cy, r, -Math.PI/2 + cashFrac*2*Math.PI, -Math.PI/2 + 2*Math.PI)
-                                    ctx.stroke()
-                                    ctx.beginPath()
-                                    ctx.strokeStyle = Theme.palette.info
-                                    ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + cashFrac*2*Math.PI)
-                                    ctx.stroke()
+                                antialiasing: true
+
+                                property real cx: width / 2
+                                property real cy: height / 2
+                                property real r: Math.min(width, height) / 2 - 8
+                                property real cashFrac: donutWrap.cash / donutWrap.total
+                                property real cashStart: -Math.PI / 2
+                                property real cashEnd: cashStart + cashFrac * 2 * Math.PI
+                                property real bankEnd: -Math.PI / 2 + 2 * Math.PI
+
+                                ShapePath {
+                                    strokeWidth: 16
+                                    strokeColor: Theme.palette.info
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: donutShape.cx + donutShape.r * Math.cos(donutShape.cashStart)
+                                    startY: donutShape.cy + donutShape.r * Math.sin(donutShape.cashStart)
+                                    PathArc {
+                                        x: donutShape.cx + donutShape.r * Math.cos(donutShape.cashEnd)
+                                        y: donutShape.cy + donutShape.r * Math.sin(donutShape.cashEnd)
+                                        radiusX: donutShape.r
+                                        radiusY: donutShape.r
+                                        useLargeArc: (donutShape.cashEnd - donutShape.cashStart) > Math.PI
+                                    }
+                                }
+                                ShapePath {
+                                    strokeWidth: 16
+                                    strokeColor: Theme.palette.primary
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: donutShape.cx + donutShape.r * Math.cos(donutShape.cashEnd)
+                                    startY: donutShape.cy + donutShape.r * Math.sin(donutShape.cashEnd)
+                                    PathArc {
+                                        x: donutShape.cx + donutShape.r * Math.cos(donutShape.bankEnd)
+                                        y: donutShape.cy + donutShape.r * Math.sin(donutShape.bankEnd)
+                                        radiusX: donutShape.r
+                                        radiusY: donutShape.r
+                                        useLargeArc: (donutShape.bankEnd - donutShape.cashEnd) > Math.PI
+                                    }
                                 }
                                 Connections {
                                     target: page
-                                    function onMetricsChanged() { donut.requestPaint() }
+                                    function onMetricsChanged() { /* shapes re-evaluate via bindings */ }
                                 }
                             }
                             Column {

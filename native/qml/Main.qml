@@ -18,16 +18,18 @@ ApplicationWindow {
         anchors.fill: parent
     }
 
-    Rectangle {
-        id: titleBar
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: 38
-        z: 10000
-        color: Theme.alpha(Theme.palette.bg, 0.75)
+            Rectangle {
+                id: titleBar
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: 38
+                z: 10000
+                color: Theme.alpha(Theme.palette.bg, 0.75)
+                Accessible.role: Accessible.TitleBar
+                Accessible.name: "Window title bar"
 
-        MouseArea {
+                MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
             onPressed: window.startSystemMove()
@@ -64,6 +66,12 @@ ApplicationWindow {
             Rectangle {
                 width: 46; height: 38
                 color: minHover.hovered ? Theme.alpha(Theme.palette.fg, 0.06) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Minimize"
+                Accessible.onPressAction: window.showMinimized()
+                Keys.onReturnPressed: window.showMinimized()
+                Keys.onSpacePressed: window.showMinimized()
                 Text { anchors.centerIn: parent; text: "\u2013"; color: Theme.palette.fgMuted; font.pixelSize: 14 }
                 HoverHandler { id: minHover }
                 TapHandler { onTapped: window.showMinimized() }
@@ -71,6 +79,12 @@ ApplicationWindow {
             Rectangle {
                 width: 46; height: 38
                 color: maxHover.hovered ? Theme.alpha(Theme.palette.fg, 0.06) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Maximize"
+                Accessible.onPressAction: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
+                Keys.onReturnPressed: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
+                Keys.onSpacePressed: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
                 Text { anchors.centerIn: parent; text: "\u25A1"; color: Theme.palette.fgMuted; font.pixelSize: 12 }
                 HoverHandler { id: maxHover }
                 TapHandler {
@@ -81,6 +95,12 @@ ApplicationWindow {
             Rectangle {
                 width: 46; height: 38
                 color: closeHover.hovered ? Theme.palette.danger : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Close"
+                Accessible.onPressAction: Qt.quit()
+                Keys.onReturnPressed: Qt.quit()
+                Keys.onSpacePressed: Qt.quit()
                 Text { anchors.centerIn: parent; text: "\u2715"; color: closeHover.hovered ? "#fff" : Theme.palette.fgMuted; font.pixelSize: 13 }
                 HoverHandler { id: closeHover }
                 TapHandler { onTapped: Qt.quit() }

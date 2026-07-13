@@ -107,19 +107,31 @@ Item {
             }
 
             // DB Config link
-            Text {
+            Rectangle {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.s2
-                text: "\u2699 Configure Database"
-                color: Theme.palette.primary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fsTiny
-                font.weight: Font.DemiBold
-                MouseArea {
-                    anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.showDbConfig = true
+                implicitWidth: linkText.implicitWidth + 16
+                implicitHeight: linkText.implicitHeight + 8
+                radius: Theme.rSm
+                color: linkHover.hovered ? Theme.alpha(Theme.palette.primary, 0.1) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Configure Database"
+                Accessible.onPressAction: root.showDbConfig = true
+                Keys.onReturnPressed: root.showDbConfig = true
+                Keys.onSpacePressed: root.showDbConfig = true
+                Text {
+                    id: linkText
+                    anchors.centerIn: parent
+                    text: "\u2699 Configure Database"
+                    color: Theme.palette.primary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fsTiny
+                    font.weight: Font.DemiBold
                 }
+                FocusRing { visible: parent.activeFocus }
+                HoverHandler { id: linkHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: root.showDbConfig = true }
             }
 
             SequentialAnimation {

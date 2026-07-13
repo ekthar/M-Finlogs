@@ -111,6 +111,12 @@ Item {
                     color: Theme.palette.fgSubtle
                     font.pixelSize: 14
                     visible: queryField.text.length > 0
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Clear search"
+                    Accessible.onPressAction: queryField.text = ""
+                    Keys.onReturnPressed: queryField.text = ""
+                    Keys.onSpacePressed: queryField.text = ""
                     TapHandler { onTapped: queryField.text = "" }
                 }
             }
@@ -130,14 +136,31 @@ Item {
                     id: resultsList
                     anchors.fill: parent
                     anchors.margins: Theme.s2
+                    focus: true
+                    keyNavigationEnabled: true
+                    highlightMoveDuration: Theme.durFast
+                    currentIndex: -1
                     model: searchResults.length > 0 ? searchResults : [{ kind: "empty", label: "", detail: "" }]
                     spacing: 2
+
+                    Keys.onReturnPressed: {
+                        if (currentIndex >= 0 && currentIndex < searchResults.length) {
+                            root.open = false
+                        }
+                    }
+                    Keys.onEnterPressed: {
+                        if (currentIndex >= 0 && currentIndex < searchResults.length) {
+                            root.open = false
+                        }
+                    }
 
                     delegate: Rectangle {
                         width: resultsList.width
                         height: searchResults.length > 0 ? 44 : 60
                         radius: Theme.rSm
-                        color: resultsHover.containsMouse ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                        color: resultsList.currentIndex === index
+                            ? Theme.alpha(Theme.palette.primary, 0.14)
+                            : (resultsHover.containsMouse ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent")
                         visible: searchResults.length > 0 || modelData.kind !== "empty"
 
                         RowLayout {
@@ -185,6 +208,9 @@ Item {
                         }
 
                         HoverHandler { id: resultsHover }
+                        TapHandler {
+                            onTapped: root.open = false
+                        }
                     }
                 }
             }
