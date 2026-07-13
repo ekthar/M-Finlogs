@@ -138,6 +138,7 @@ qt_add_qml_module(mfinlogs-native
         qml/DateRangePicker.qml
         qml/GlobalSearch.qml
         qml/ShortcutOverlay.qml
+        qml/StaggerEntrance.qml
 )
 
 # Compile the Qt resource (icons) explicitly into the target
