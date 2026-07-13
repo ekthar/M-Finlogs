@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumHeight: 680
     visible: true
     title: "M-Finlogs"
-    color: Theme.bg0
+    color: Theme.palette.bg
     flags: Qt.Window | Qt.FramelessWindowHint
 
     AuroraBackground {
@@ -25,7 +25,7 @@ ApplicationWindow {
         anchors.right: parent.right
         height: 38
         z: 10000
-        color: Theme.alpha(Theme.bg0, 0.6)
+        color: Theme.alpha(Theme.palette.bg, 0.75)
 
         MouseArea {
             anchors.fill: parent
@@ -43,20 +43,16 @@ ApplicationWindow {
             Rectangle {
                 width: 20; height: 20; radius: 6
                 anchors.verticalCenter: parent.verticalCenter
-                gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: Theme.grad0 }
-                    GradientStop { position: 1.0; color: Theme.grad1 }
-                }
-                Text { anchors.centerIn: parent; text: "M"; color: "#fff"; font.pixelSize: 11; font.weight: Font.Bold; font.family: Theme.fontFamily }
+                color: Theme.palette.primary
+                Text { anchors.centerIn: parent; text: "M"; color: Theme.palette.primaryFg; font.pixelSize: 11; font.weight: Font.Bold; font.family: Theme.fontFamily }
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: "M-Finlogs"
-                color: Theme.textDim
+                color: Theme.palette.fgMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSmall
-                font.weight: Font.DemiBold
+                font.weight: Theme.wSemibold
             }
         }
 
@@ -67,15 +63,15 @@ ApplicationWindow {
 
             Rectangle {
                 width: 46; height: 38
-                color: minHover.hovered ? Theme.glass : "transparent"
-                Text { anchors.centerIn: parent; text: "\u2013"; color: Theme.textDim; font.pixelSize: 14 }
+                color: minHover.hovered ? Theme.alpha(Theme.palette.fg, 0.06) : "transparent"
+                Text { anchors.centerIn: parent; text: "\u2013"; color: Theme.palette.fgMuted; font.pixelSize: 14 }
                 HoverHandler { id: minHover }
                 TapHandler { onTapped: window.showMinimized() }
             }
             Rectangle {
                 width: 46; height: 38
-                color: maxHover.hovered ? Theme.glass : "transparent"
-                Text { anchors.centerIn: parent; text: "\u25A1"; color: Theme.textDim; font.pixelSize: 12 }
+                color: maxHover.hovered ? Theme.alpha(Theme.palette.fg, 0.06) : "transparent"
+                Text { anchors.centerIn: parent; text: "\u25A1"; color: Theme.palette.fgMuted; font.pixelSize: 12 }
                 HoverHandler { id: maxHover }
                 TapHandler {
                     onTapped: window.visibility === Window.Maximized
@@ -84,8 +80,8 @@ ApplicationWindow {
             }
             Rectangle {
                 width: 46; height: 38
-                color: closeHover.hovered ? Theme.danger : "transparent"
-                Text { anchors.centerIn: parent; text: "\u2715"; color: closeHover.hovered ? "#fff" : Theme.textDim; font.pixelSize: 13 }
+                color: closeHover.hovered ? Theme.palette.danger : "transparent"
+                Text { anchors.centerIn: parent; text: "\u2715"; color: closeHover.hovered ? "#fff" : Theme.palette.fgMuted; font.pixelSize: 13 }
                 HoverHandler { id: closeHover }
                 TapHandler { onTapped: Qt.quit() }
             }
@@ -109,11 +105,6 @@ ApplicationWindow {
             Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             Behavior on scale { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             sourceComponent: LoginView {}
-            onActiveChanged: console.log("[MAIN] loginLoader active:", active, "opacity:", opacity, "item:", item)
-            onLoaded: console.log("[MAIN] loginLoader loaded, item:", item)
-            onItemChanged: console.log("[MAIN] loginLoader item changed:", item)
-            onOpacityChanged: console.log("[MAIN] loginLoader opacity:", opacity, "visible:", visible)
-            onVisibleChanged: console.log("[MAIN] loginLoader visible:", visible)
         }
 
         Loader {
@@ -126,15 +117,9 @@ ApplicationWindow {
             Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             Behavior on scale { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOut } }
             sourceComponent: AppShell {}
-            onActiveChanged: console.log("[MAIN] shellLoader active:", active, "opacity:", opacity, "item:", item)
-            onLoaded: console.log("[MAIN] shellLoader loaded, item:", item)
-            onItemChanged: console.log("[MAIN] shellLoader item changed:", item)
-            onOpacityChanged: console.log("[MAIN] shellLoader opacity:", opacity, "visible:", visible)
-            onVisibleChanged: console.log("[MAIN] shellLoader visible:", visible)
         }
     }
 
-    // Theme crossfade overlay
     Rectangle {
         id: fadeOverlay
         anchors.fill: parent
@@ -166,17 +151,9 @@ ApplicationWindow {
 
     Connections {
         target: backend
-        function onAuthChanged() {
-            console.log("[MAIN] backend.authChanged - authenticated:", backend.authenticated,
-                        "user:", backend.currentUser, "role:", backend.currentRole,
-                        "setupRequired:", backend.setupRequired)
-        }
-        function onSetupChanged() {
-            console.log("[MAIN] backend.setupChanged - setupRequired:", backend.setupRequired)
-        }
-        function onDataChanged() {
-            console.log("[MAIN] backend.dataChanged")
-        }
+        function onAuthChanged() {}
+        function onSetupChanged() {}
+        function onDataChanged() {}
     }
 
     Timer {

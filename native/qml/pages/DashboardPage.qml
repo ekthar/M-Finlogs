@@ -94,11 +94,6 @@ Item {
                     glyph: "\u25C8"
                     accent: Theme.palette.success
                     value: Number(page.metrics.sales_today || 0)
-                    opacity: 0; y: 12
-                    Component.onCompleted: stagger1.start()
-                    Timer { id: stagger1; interval: 1 * Theme.staggerCard; onTriggered: { parent.opacity = 1; parent.y = 0 } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
-                    Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -106,11 +101,6 @@ Item {
                     glyph: "\u25A4"
                     accent: Theme.palette.primary
                     value: Number(page.metrics.sales_month || 0)
-                    opacity: 0; y: 12
-                    Component.onCompleted: stagger2.start()
-                    Timer { id: stagger2; interval: 2 * Theme.staggerCard; onTriggered: { parent.opacity = 1; parent.y = 0 } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
-                    Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -118,23 +108,13 @@ Item {
                     glyph: "\u25C9"
                     accent: Theme.palette.info
                     value: Number(page.metrics.cash_balance || 0)
-                    opacity: 0; y: 12
-                    Component.onCompleted: stagger3.start()
-                    Timer { id: stagger3; interval: 3 * Theme.staggerCard; onTriggered: { parent.opacity = 1; parent.y = 0 } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
-                    Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
                 }
                 MetricCard {
                     Layout.fillWidth: true
                     label: "Bank Balance"
                     glyph: "\u2637"
-                    accent: Theme.accent2
+                    accent: Theme.palette.info
                     value: Number(page.metrics.bank_balance || 0)
-                    opacity: 0; y: 12
-                    Component.onCompleted: stagger4.start()
-                    Timer { id: stagger4; interval: 4 * Theme.staggerCard; onTriggered: { parent.opacity = 1; parent.y = 0 } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
-                    Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
                 }
                 MetricCard {
                     Layout.fillWidth: true
@@ -142,11 +122,6 @@ Item {
                     glyph: "\u26A0"
                     accent: Theme.palette.danger
                     value: Number(page.metrics.receivables || 0)
-                    opacity: 0; y: 12
-                    Component.onCompleted: stagger5.start()
-                    Timer { id: stagger5; interval: 5 * Theme.staggerCard; onTriggered: { parent.opacity = 1; parent.y = 0 } }
-                    Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
-                    Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeOutExpo } }
                 }
             }
 
@@ -236,7 +211,7 @@ Item {
                                     ctx.lineWidth = 16
                                     ctx.lineCap = "round"
                                     ctx.beginPath()
-                                    ctx.strokeStyle = Theme.accent2
+                                    ctx.strokeStyle = Theme.palette.primary
                                     ctx.arc(cx, cy, r, -Math.PI/2 + cashFrac*2*Math.PI, -Math.PI/2 + 2*Math.PI)
                                     ctx.stroke()
                                     ctx.beginPath()
@@ -280,7 +255,7 @@ Item {
                             }
                             RowLayout {
                                 spacing: 6
-                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.accent2 }
+                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.palette.primary }
                                 Text { text: "Bank"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsCaption }
                             }
                             Item { Layout.fillWidth: true }

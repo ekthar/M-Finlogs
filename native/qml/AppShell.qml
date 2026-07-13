@@ -10,7 +10,6 @@ Item {
     property bool collapsed: false
     property int currentIndex: 0
 
-    // Navigation model: groups (header) + items. pageId maps to StackView pages.
     readonly property var navModel: [
         { kind: "item", label: "Dashboard", glyph: "\u25C9", page: "DashboardPage" },
         { kind: "item", label: "Daily Entry", glyph: "\u270E", page: "DailyEntryPage" },
@@ -40,22 +39,13 @@ Item {
     property string currentPage: "DashboardPage"
 
     function navigate(page) {
-        console.log("[NAV] navigate() from:", currentPage, "to:", page)
-
-        // If already on this page, call refresh() if available and return
         if (page === currentPage && stack.currentItem) {
-            console.log("[NAV] same page - calling refresh() if available")
             if (typeof stack.currentItem.refresh === "function") {
                 stack.currentItem.refresh()
             }
             return
         }
 
-        // Close any open visible overlays on the current page before leaving.
-        // We only iterate direct children of the page item; Dialogs in QML
-        // Controls are parented to the ApplicationWindow overlay layer which
-        // we cannot walk without importing QtQuick.Window — skipping that to
-        // avoid a ReferenceError crashing this function.
         if (stack.currentItem) {
             var pageItem = stack.currentItem
             for (var i = 0; i < pageItem.children.length; i++) {
@@ -70,36 +60,30 @@ Item {
         var prev = currentPage
         currentPage = page
         var url = Qt.resolvedUrl("pages/" + page + ".qml")
-        console.log("[NAV] stack.replace with url:", url)
         var item = stack.replace(url, {}, StackView.ReplaceTransition)
         if (!item) {
-            // replace failed (e.g. QML parse error in target file)
-            console.log("[NAV] stack.replace returned null - reverting currentPage to:", prev)
             currentPage = prev
         }
-        console.log("[NAV] replace returned item:", item)
     }
 
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        // ---------------- Sidebar ----------------
         Item {
             id: sidebar
             Layout.fillHeight: true
             Layout.preferredWidth: shell.collapsed ? 76 : 244
             Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.durBase; easing.type: Theme.easeInOut } }
 
-            // Glass sidebar surface
             Rectangle {
                 anchors.fill: parent
-                color: Theme.alpha(Theme.bg0, 0.55)
+                color: Theme.palette.bg
                 Rectangle {
                     anchors.right: parent.right
                     width: 1
                     height: parent.height
-                    color: Theme.glassBorderSoft
+                    color: Theme.palette.border
                 }
             }
 
@@ -109,7 +93,6 @@ Item {
                 anchors.bottomMargin: Theme.s4
                 spacing: Theme.s2
 
-                // Brand
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 20
@@ -117,18 +100,14 @@ Item {
                     spacing: 10
                     Rectangle {
                         width: 34; height: 34; radius: 10
-                        gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: Theme.grad0 }
-                            GradientStop { position: 1.0; color: Theme.grad1 }
-                        }
-                        Text { anchors.centerIn: parent; text: "M"; color: "#fff"; font.pixelSize: 18; font.weight: Font.Bold; font.family: Theme.fontFamily }
+                        color: Theme.palette.primary
+                        Text { anchors.centerIn: parent; text: "M"; color: Theme.palette.primaryFg; font.pixelSize: 18; font.weight: Font.Bold; font.family: Theme.fontFamily }
                     }
                     Text {
                         visible: !shell.collapsed
                         Layout.fillWidth: true
                         text: "M-Finlogs"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: 17
                         font.weight: Font.Bold
@@ -136,8 +115,8 @@ Item {
                     }
                     Rectangle {
                         width: 26; height: 26; radius: 7
-                        color: collapseHover.hovered ? Theme.glassStrong : "transparent"
-                        Text { anchors.centerIn: parent; text: shell.collapsed ? "\u00BB" : "\u00AB"; color: Theme.textDim; font.pixelSize: 14 }
+                        color: collapseHover.hovered ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
+                        Text { anchors.centerIn: parent; text: shell.collapsed ? "\u00BB" : "\u00AB"; color: Theme.palette.fgMuted; font.pixelSize: 14 }
                         HoverHandler { id: collapseHover; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: shell.collapsed = !shell.collapsed }
                     }
@@ -145,7 +124,6 @@ Item {
 
                 Item { height: Theme.s3 }
 
-                // Nav list
                 ListView {
                     id: navList
                     Layout.fillWidth: true
@@ -170,7 +148,7 @@ Item {
                                     anchors.bottom: parent.bottom
                                     anchors.bottomMargin: 6
                                     text: modelData.label
-                                    color: Theme.textFaint
+                                    color: Theme.palette.fgSubtle
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsTiny
                                     font.weight: Font.Bold
@@ -193,7 +171,6 @@ Item {
                     }
                 }
 
-                // Footer credit
                 Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 36
@@ -201,7 +178,7 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: "Crafted by EKTHAR"
-                        color: Theme.textFaint
+                        color: Theme.palette.fgSubtle
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsTiny
                         font.letterSpacing: 0.5
@@ -210,13 +187,11 @@ Item {
             }
         }
 
-        // ---------------- Main column ----------------
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: 0
 
-            // Top bar
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 66
@@ -231,14 +206,14 @@ Item {
                         spacing: 0
                         Text {
                             text: shell.pageTitle()
-                            color: Theme.text
+                            color: Theme.palette.fg
                             font.family: Theme.fontFamily
                             font.pixelSize: 20
                             font.weight: Font.Bold
                         }
                         Text {
                             text: backend.companyName.length > 0 ? backend.companyName : "Financial workspace"
-                            color: Theme.textDim
+                            color: Theme.palette.fgMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsTiny
                         }
@@ -246,44 +221,39 @@ Item {
 
                     Item { Layout.fillWidth: true }
 
-                    // User chip
                     Rectangle {
                         Layout.preferredHeight: 38
                         Layout.preferredWidth: userRow.implicitWidth + 28
                         radius: Theme.rPill
-                        color: Theme.glass
+                        color: Theme.palette.surface
                         border.width: 1
-                        border.color: Theme.glassBorder
+                        border.color: Theme.palette.border
                         RowLayout {
                             id: userRow
                             anchors.centerIn: parent
                             spacing: 8
                             Rectangle {
                                 width: 24; height: 24; radius: 12
-                                gradient: Gradient {
-                                    orientation: Gradient.Horizontal
-                                    GradientStop { position: 0.0; color: Theme.grad0 }
-                                    GradientStop { position: 1.0; color: Theme.grad2 }
-                                }
+                                color: Theme.palette.primary
                                 Text {
                                     anchors.centerIn: parent
                                     text: backend.currentUser.length > 0 ? backend.currentUser.charAt(0).toUpperCase() : "?"
-                                    color: "#fff"; font.pixelSize: 12; font.weight: Font.Bold
+                                    color: Theme.palette.primaryFg; font.pixelSize: 12; font.weight: Font.Bold
                                 }
                             }
                             Text {
                                 text: backend.currentUser
-                                color: Theme.text
+                                color: Theme.palette.fg
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall
-                                font.weight: Font.DemiBold
+                                font.weight: Theme.wSemibold
                             }
                             Rectangle {
-                                width: 1; height: 18; color: Theme.glassBorder
+                                width: 1; height: 18; color: Theme.palette.border
                             }
                             Text {
                                 text: backend.isAdmin ? "Admin" : "Accounts"
-                                color: Theme.textDim
+                                color: Theme.palette.fgMuted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fsTiny
                             }
@@ -301,26 +271,16 @@ Item {
                     anchors.bottom: parent.bottom
                     width: parent.width
                     height: 1
-                    color: Theme.glassBorderSoft
+                    color: Theme.palette.border
                 }
             }
 
-            // Page stack
             StackView {
                 id: stack
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 initialItem: Qt.resolvedUrl("pages/DashboardPage.qml")
-                onCurrentItemChanged: console.log("[STACK] currentItem changed to:", currentItem, "depth:", depth, "busy:", busy)
-
-                onBusyChanged: {
-                    if (!busy && currentItem) {
-                        console.log("[STACK] transition complete - currentItem:", currentItem,
-                                    "width:", currentItem.width, "height:", currentItem.height,
-                                    "opacity:", currentItem.opacity, "visible:", currentItem.visible)
-                    }
-                }
 
                 pushEnter: Transition {
                     ParallelAnimation {
@@ -347,7 +307,7 @@ Item {
     // ============ Keyboard shortcuts ============
     // Alt+N → Daily Entry, Alt+D → Dashboard, Alt+L → Ledger
     // Alt+I → Inventory, Alt+P → Parties, Alt+S → Settings
-    // Ctrl+K → focus search (future), Alt+Left/Right → prev/next page
+    // Ctrl+K → focus search, Alt+Left/Right → prev/next page
     focus: true
     Keys.onPressed: function(event) {
         if (event.modifiers & Qt.AltModifier) {
@@ -368,25 +328,21 @@ Item {
         }
     }
 
-    // Sidebar items selectable with keyboard (Tab into sidebar then Up/Down)
     Shortcut {
         sequence: "Ctrl+["
         onActivated: shell.collapsed = !shell.collapsed
     }
 
-    // Global search overlay
     Shortcut {
         sequence: "Ctrl+K"
         onActivated: searchOverlay.toggle()
     }
 
-    // Keyboard shortcut help overlay
     Shortcut {
         sequence: "Ctrl+/"
         onActivated: shortcutOverlay.toggle()
     }
 
-    // ============ Overlays ============
     GlobalSearch {
         id: searchOverlay
     }

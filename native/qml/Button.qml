@@ -6,8 +6,8 @@ Button {
     id: control
 
     property string variant: "primary"
-    property color from: Theme.grad0
-    property color to: Theme.grad1
+    property color from: Theme.palette.primary
+    property color to: Theme.alpha(Theme.palette.primary, 0.8)
 
     implicitHeight: 40
     implicitWidth: variant === "icon" ? 40 : Math.max(120, contentItem.implicitWidth + 44)

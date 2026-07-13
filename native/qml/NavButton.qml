@@ -1,7 +1,6 @@
 import QtQuick
 import MFinlogs
 
-// Sidebar navigation entry with an animated glass highlight and glyph.
 Item {
     id: root
     property string label: ""
@@ -19,30 +18,28 @@ Item {
         anchors.leftMargin: 10
         anchors.rightMargin: 10
         radius: Theme.rMd
-        color: root.active ? Theme.alpha(Theme.accent, 0.0) : (hover.hovered ? Theme.glass : "transparent")
+        color: root.active ? Theme.alpha(Theme.palette.primary, 0.15) : (hover.hovered ? Theme.alpha(Theme.palette.fg, 0.06) : "transparent")
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
-        // Active gradient fill
         Rectangle {
             anchors.fill: parent
             radius: parent.radius
             visible: root.active
             gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0.0; color: Theme.alpha(Theme.grad0, 0.9) }
-                GradientStop { position: 1.0; color: Theme.alpha(Theme.grad1, 0.85) }
+                GradientStop { position: 0.0; color: Theme.alpha(Theme.palette.primary, 0.20) }
+                GradientStop { position: 1.0; color: Theme.alpha(Theme.palette.primary, 0.08) }
             }
             opacity: root.active ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
         }
     }
 
-    // Active indicator bar
     Rectangle {
         width: 3
         height: root.active ? 22 : 0
         radius: 2
-        color: "#ffffff"
+        color: Theme.palette.primary
         anchors.verticalCenter: parent.verticalCenter
         anchors.left: parent.left
         anchors.leftMargin: 4
@@ -57,39 +54,31 @@ Item {
 
         Text {
             text: root.glyph
-            color: root.active ? Theme.accentInk : Theme.textDim
+            color: root.active ? Theme.palette.primaryFg : Theme.palette.fgMuted
             font.pixelSize: 15
             anchors.verticalCenter: parent.verticalCenter
         }
         Text {
             visible: !root.collapsed
             text: root.label
-            color: root.active ? Theme.accentInk : Theme.textDim
+            color: root.active ? Theme.palette.primaryFg : Theme.palette.fgMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsBody
-            font.weight: root.active ? Font.DemiBold : Font.Medium
+            font.weight: root.active ? Theme.wSemibold : Theme.wMedium
             anchors.verticalCenter: parent.verticalCenter
             Behavior on color { ColorAnimation { duration: Theme.durFast } }
         }
     }
 
-    // Keyboard accessible: focusable + Enter/Space activates
     activeFocusOnTab: true
     Keys.onReturnPressed: root.clicked()
     Keys.onEnterPressed: root.clicked()
     Keys.onSpacePressed: root.clicked()
 
-    // Focus ring
-    Rectangle {
-        anchors.fill: bg
-        radius: bg.radius
-        color: "transparent"
-        border.width: root.activeFocus ? 1.5 : 0
-        border.color: Theme.accent
-        opacity: root.activeFocus ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
+    FocusRing {
+        visible: root.activeFocus
     }
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
-    TapHandler { onTapped: { console.log("[NAVBUTTON] tapped:", label, "active:", root.active); root.clicked() } }
+    TapHandler { onTapped: root.clicked() }
 }

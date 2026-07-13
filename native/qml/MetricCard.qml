@@ -1,14 +1,12 @@
 import QtQuick
 import MFinlogs
 
-// A dashboard metric tile: glass surface, label, animated count-up value,
-// an accent icon glyph and a subtle hover lift.
 GlassPanel {
     id: root
     property string label: ""
     property real value: 0
     property string prefix: "\u20b9 "
-    property color accent: Theme.accent
+    property color accent: Theme.palette.primary
     property string glyph: "\u25C9"
     property string deltaText: ""
     property bool deltaUp: true
@@ -16,19 +14,16 @@ GlassPanel {
     implicitHeight: 116
     radius: Theme.rLg
 
-    // Animated displayed value (count-up)
     property real shown: 0
     Behavior on shown { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeOut } }
     onValueChanged: shown = value
     Component.onCompleted: shown = value
 
-    // Hover lift
     property bool hovered: hoverArea.hovered
     y: 0
     transform: Translate { y: root.hovered ? -4 : 0; Behavior on y { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } } }
     HoverHandler { id: hoverArea }
 
-    // Accent edge
     Rectangle {
         width: 3
         height: parent.height - Theme.s5
@@ -57,10 +52,10 @@ GlassPanel {
             }
             Text {
                 text: root.label
-                color: Theme.textDim
+                color: Theme.palette.fgMuted
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
-                font.weight: Font.DemiBold
+                font.weight: Theme.wSemibold
                 font.capitalization: Font.AllUppercase
                 font.letterSpacing: 0.5
             }
@@ -68,7 +63,7 @@ GlassPanel {
 
         Text {
             text: root.prefix + backend.formatMoney(root.shown)
-            color: Theme.text
+            color: Theme.palette.fg
             font.family: Theme.fontFamily
             font.pixelSize: 26
             font.weight: Font.Bold
@@ -79,12 +74,12 @@ GlassPanel {
             visible: root.deltaText.length > 0
             Text {
                 text: root.deltaUp ? "\u25B2" : "\u25BC"
-                color: root.deltaUp ? Theme.success : Theme.danger
+                color: root.deltaUp ? Theme.palette.success : Theme.palette.danger
                 font.pixelSize: 9
             }
             Text {
                 text: root.deltaText
-                color: root.deltaUp ? Theme.success : Theme.danger
+                color: root.deltaUp ? Theme.palette.success : Theme.palette.danger
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
             }
