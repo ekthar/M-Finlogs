@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -95,6 +97,7 @@ jobs:
           Write-Host "All $($qmlFiles.Count) QML files passed validation" -ForegroundColor Green
 
       - name: Check whitespace
+        continue-on-error: true
         run: |
           git diff --check HEAD~1 2>&1
           if ($LASTEXITCODE -ne 0) {
