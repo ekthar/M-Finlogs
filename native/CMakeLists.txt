@@ -226,19 +226,10 @@ install(TARGETS mfinlogs-native
 )
 
 # --- Test targets (QtTest) ------------------------------------------------
-# Only build tests if Qt6::Test is available. Tests are run via ctest.
-find_package(Qt6 6.5 QUIET COMPONENTS Test)
-if(Qt6Test_FOUND)
+# Tests are gated behind BUILD_TESTING (defaults ON). Disable with:
+#   cmake -DBUILD_TESTING=OFF ...
+option(BUILD_TESTING "Build the test suite" ON)
+if(BUILD_TESTING)
     enable_testing()
-
-    qt_add_executable(test_balance_calculator
-        tests/test_balance_calculator.cpp
-    )
-    target_include_directories(test_balance_calculator PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-    )
-    target_link_libraries(test_balance_calculator PRIVATE
-        Qt6::Test
-    )
-    add_test(NAME BalanceCalculatorTest COMMAND test_balance_calculator)
+    add_subdirectory(tests)
 endif()

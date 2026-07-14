@@ -54,12 +54,52 @@ jobs:
             -DCMAKE_PREFIX_PATH="$env:QT_ROOT"
 
       - name: Build
-        run: cmake --build native\build --config Release --target mfinlogs-native
+        run: cmake --build native\build --config Release
+
+      - name: Run tests
+        run: |
+          ctest --test-dir native\build --build-config Release --output-on-failure --timeout 120
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "=== TEST FAILURE DIAGNOSTICS ===" -ForegroundColor Red
+            Write-Host "One or more unit/integration tests failed." -ForegroundColor Red
+            Write-Host "Review the output above for assertion failures." -ForegroundColor Yellow
+            Write-Host "To reproduce locally:" -ForegroundColor Yellow
+            Write-Host "  cmake --build native\build --config Release" -ForegroundColor Cyan
+            Write-Host "  ctest --test-dir native\build --build-config Release -V" -ForegroundColor Cyan
+            exit 1
+          }
+          Write-Host "All tests passed" -ForegroundColor Green
 
       - name: Validate QML
         run: |
-          Get-ChildItem native\qml -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
-          Get-ChildItem native\qml\pages -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
+          $exitCode = 0
+          $qmlFiles = @()
+          $qmlFiles += Get-ChildItem native\qml -Filter *.qml -File -Recurse
+          Write-Host "Validating $($qmlFiles.Count) QML files..." -ForegroundColor Cyan
+          foreach ($file in $qmlFiles) {
+            $output = qmllint $file.FullName 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "FAIL: $($file.FullName)" -ForegroundColor Red
+              Write-Host $output -ForegroundColor Yellow
+              $exitCode = 1
+            }
+          }
+          if ($exitCode -ne 0) {
+            Write-Host ""
+            Write-Host "=== QML VALIDATION FAILED ===" -ForegroundColor Red
+            Write-Host "Fix the QML errors above. Run locally with:" -ForegroundColor Yellow
+            Write-Host "  qmllint native/qml/**/*.qml" -ForegroundColor Cyan
+            exit 1
+          }
+          Write-Host "All $($qmlFiles.Count) QML files passed validation" -ForegroundColor Green
+
+      - name: Check whitespace
+        run: |
+          git diff --check HEAD~1 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Whitespace issues detected. Run 'git diff --check' locally." -ForegroundColor Yellow
+          }
 
       - name: Package native executable
         run: |
