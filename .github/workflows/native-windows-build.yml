@@ -72,7 +72,7 @@ jobs:
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           # qwindows is selected for the installed desktop app. Include qoffscreen
           # as well so the isolated CI smoke test can start without a display.
-          windeployqt --release --qmldir native\qml --add-plugin qoffscreen --compiler-runtime "$packageDir\mfinlogs-native.exe"
+          windeployqt --release --qmldir native\qml --include-plugins qoffscreen --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
       - name: Smoke-test deployed QML runtime
         run: |
