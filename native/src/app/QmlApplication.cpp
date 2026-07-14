@@ -181,20 +181,17 @@ void reportStartupFailure(const QString& detail,
 // ─── Terminate handler ──────────────────────────────────────────────────────
 
 void startupTerminateHandler() {
-    // Attempt to write diagnostic before process dies.
-    const QString detail = QStringLiteral(
-        "std::terminate called during startup (possible uncaught exception or abort).");
-    writeStartupDiagnostic(detail);
-
-    // Attempt to show a message box - may not work in all termination scenarios
-    // but is worth trying so the user sees something.
-    QMessageBox::critical(nullptr,
-        QStringLiteral("M-Finlogs - Unexpected Termination"),
-        QStringLiteral("The application terminated unexpectedly during startup.\n\n"
-                       "Stage: %1\n\n"
-                       "A diagnostic was saved. Please report this issue.")
-            .arg(QString::fromLatin1(startupStageName(g_currentStage))));
-
+    // After std::terminate the heap may be corrupt and locks may be held.
+    // Keep this handler minimal: attempt a file write wrapped in try/catch,
+    // then abort immediately. No QMessageBox (unsafe - requires event loop
+    // and window creation in a potentially corrupt state).
+    try {
+        const QString detail = QStringLiteral(
+            "std::terminate called during startup (possible uncaught exception or abort).");
+        writeStartupDiagnostic(detail);
+    } catch (...) {
+        // Nothing we can safely do here.
+    }
     std::abort();
 }
 
@@ -295,6 +292,10 @@ int runQmlApplication(int argc, char** argv) {
 
         if (verifyQml) {
             app.processEvents();
+            if (!g_qmlErrors.isEmpty()) {
+                writeStartupDiagnostic(g_qmlErrors.join(QLatin1Char('\n')), &engine);
+                return 2;
+            }
             return 0;
         }
 

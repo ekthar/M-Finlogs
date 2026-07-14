@@ -147,7 +147,12 @@ jobs:
       - name: Smoke test QML loading
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
-          $proc = Start-Process -FilePath "native\build\package\mfinlogs-native.exe" -ArgumentList "--verify-qml" -Wait -PassThru -NoNewWindow
+          $proc = Start-Process -FilePath "native\build\package\mfinlogs-native.exe" -ArgumentList "--verify-qml" -PassThru -NoNewWindow
+          if (-not $proc.WaitForExit(30000)) {
+            $proc.Kill()
+            Write-Error "QML smoke test timed out after 30 seconds"
+            exit 1
+          }
           if ($proc.ExitCode -ne 0) {
             Write-Error "QML verification failed with exit code $($proc.ExitCode)"
             Write-Host "The packaged binary could not load QML modules correctly." -ForegroundColor Red

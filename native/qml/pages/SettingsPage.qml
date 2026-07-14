@@ -82,12 +82,15 @@ Item {
                             Text { text: "Light is easier on the eyes in bright rooms"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                         }
                         Item { Layout.fillWidth: true }
-                        // segmented Light / Dark control
+                        // segmented Light / Dark control (pill shape via per-corner radius, Qt 6.7+)
                         Row {
                             spacing: 0
                             Rectangle {
                                 width: 90; height: 36
-                                radius: Theme.rMd
+                                topLeftRadius: Theme.rMd
+                                bottomLeftRadius: Theme.rMd
+                                topRightRadius: 0
+                                bottomRightRadius: 0
                                 color: !Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
                                 activeFocusOnTab: true
@@ -101,7 +104,10 @@ Item {
                             }
                             Rectangle {
                                 width: 90; height: 36
-                                radius: Theme.rMd
+                                topLeftRadius: 0
+                                bottomLeftRadius: 0
+                                topRightRadius: Theme.rMd
+                                bottomRightRadius: Theme.rMd
                                 color: Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
                                 activeFocusOnTab: true
