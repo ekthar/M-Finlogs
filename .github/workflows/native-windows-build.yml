@@ -82,7 +82,12 @@ jobs:
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QT_DEBUG_PLUGINS = "1"
           & "native\build\package\mfinlogs-native.exe" --verify-qml
-          if ($LASTEXITCODE -ne 0) {
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            $diagnostic = Join-Path $env:LOCALAPPDATA "Ekthar\M-Finlogs\startup-error.log"
+            if (Test-Path -LiteralPath $diagnostic) {
+              Get-Content -LiteralPath $diagnostic
+            }
             throw "The packaged native executable could not create its QML root window."
           }
 

@@ -49,7 +49,7 @@ void loadBundledFonts() {
     }
 }
 
-void reportStartupFailure(const QString& detail) {
+QString writeStartupDiagnostic(const QString& detail) {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     const QString logPath = QDir(dataDir.isEmpty() ? QDir::homePath() : dataDir)
         .filePath(QStringLiteral("startup-error.log"));
@@ -58,7 +58,11 @@ void reportStartupFailure(const QString& detail) {
         QTextStream stream(&log);
         stream << detail << Qt::endl;
     }
+    return logPath;
+}
 
+void reportStartupFailure(const QString& detail) {
+    const QString logPath = writeStartupDiagnostic(detail);
     QMessageBox::critical(nullptr,
         QStringLiteral("M-Finlogs could not start"),
         QStringLiteral("The application could not load its interface.\n\n%1\n\n"
@@ -123,6 +127,7 @@ int runQmlApplication(int argc, char** argv) {
                 ? QStringLiteral("The MFinlogs QML module did not create a root window.")
                 : qmlErrors.join(QLatin1Char('\n'));
             qCritical().noquote() << "M-Finlogs QML startup failure:" << detail;
+            writeStartupDiagnostic(detail);
             if (!verifyQml) {
                 splash.close();
                 reportStartupFailure(detail);
