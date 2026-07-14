@@ -531,7 +531,6 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Edit transaction"
-                Accessible.onPressAction: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onReturnPressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onSpacePressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mDelItem.forceActiveFocus()
@@ -567,7 +566,6 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Delete transaction"
-                Accessible.onPressAction: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onReturnPressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onSpacePressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mEditItem.forceActiveFocus()

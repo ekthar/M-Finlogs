@@ -32,5 +32,4 @@ Button {
 
     Accessible.name: control.glyph + " button"
     Accessible.role: Accessible.Button
-    Accessible.onPressAction: control.clicked()
 }

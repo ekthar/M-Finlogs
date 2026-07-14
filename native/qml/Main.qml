@@ -69,7 +69,6 @@ ApplicationWindow {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Minimize"
-                Accessible.onPressAction: window.showMinimized()
                 Keys.onReturnPressed: window.showMinimized()
                 Keys.onSpacePressed: window.showMinimized()
                 Text { anchors.centerIn: parent; text: "\u2013"; color: Theme.palette.fgMuted; font.pixelSize: 14 }
@@ -82,7 +81,6 @@ ApplicationWindow {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Maximize"
-                Accessible.onPressAction: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
                 Keys.onReturnPressed: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
                 Keys.onSpacePressed: window.visibility === Window.Maximized ? window.showNormal() : window.showMaximized()
                 Text { anchors.centerIn: parent; text: "\u25A1"; color: Theme.palette.fgMuted; font.pixelSize: 12 }
@@ -98,7 +96,6 @@ ApplicationWindow {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Close"
-                Accessible.onPressAction: Qt.quit()
                 Keys.onReturnPressed: Qt.quit()
                 Keys.onSpacePressed: Qt.quit()
                 Text { anchors.centerIn: parent; text: "\u2715"; color: closeHover.hovered ? "#fff" : Theme.palette.fgMuted; font.pixelSize: 13 }

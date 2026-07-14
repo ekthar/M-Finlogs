@@ -119,7 +119,6 @@ Item {
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: shell.collapsed ? "Expand sidebar" : "Collapse sidebar"
-                        Accessible.onPressAction: shell.collapsed = !shell.collapsed
                         Keys.onReturnPressed: shell.collapsed = !shell.collapsed
                         Keys.onSpacePressed: shell.collapsed = !shell.collapsed
                         Text { anchors.centerIn: parent; text: shell.collapsed ? "\u00BB" : "\u00AB"; color: Theme.palette.fgMuted; font.pixelSize: 14 }

@@ -87,13 +87,12 @@ Item {
                             spacing: 0
                             Rectangle {
                                 width: 90; height: 36
-                                topLeftRadius: Theme.rMd; bottomLeftRadius: Theme.rMd
+                                radius: Theme.rMd
                                 color: !Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: "Light theme"
-                                Accessible.onPressAction: Theme.dark = false
                                 Keys.onReturnPressed: Theme.dark = false
                                 Keys.onSpacePressed: Theme.dark = false
                                 FocusRing { visible: parent.activeFocus }
@@ -102,13 +101,12 @@ Item {
                             }
                             Rectangle {
                                 width: 90; height: 36
-                                topRightRadius: Theme.rMd; bottomRightRadius: Theme.rMd
+                                radius: Theme.rMd
                                 color: Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
                                 border.width: 1; border.color: Theme.palette.border
                                 activeFocusOnTab: true
                                 Accessible.role: Accessible.Button
                                 Accessible.name: "Dark theme"
-                                Accessible.onPressAction: Theme.dark = true
                                 Keys.onReturnPressed: Theme.dark = true
                                 Keys.onSpacePressed: Theme.dark = true
                                 FocusRing { visible: parent.activeFocus }
@@ -136,7 +134,6 @@ Item {
                             activeFocusOnTab: true
                             Accessible.role: Accessible.CheckBox
                             Accessible.name: "Follow system theme"
-                            Accessible.onPressAction: Theme.followSystemTheme = !Theme.followSystemTheme
                             Keys.onReturnPressed: Theme.followSystemTheme = !Theme.followSystemTheme
                             Keys.onSpacePressed: Theme.followSystemTheme = !Theme.followSystemTheme
                             Rectangle {
@@ -171,7 +168,6 @@ Item {
                             activeFocusOnTab: true
                             Accessible.role: Accessible.CheckBox
                             Accessible.name: "Animations"
-                            Accessible.onPressAction: Theme.animationsEnabled = !Theme.animationsEnabled
                             Keys.onReturnPressed: Theme.animationsEnabled = !Theme.animationsEnabled
                             Keys.onSpacePressed: Theme.animationsEnabled = !Theme.animationsEnabled
                             Rectangle {

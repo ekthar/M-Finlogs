@@ -77,8 +77,4 @@ Item {
     Accessible.role: Accessible.Switch
     Accessible.name: root.label
     Accessible.checked: root.checked
-    Accessible.onPressAction: {
-        root.checked = !root.checked
-        root.toggled(root.checked)
-    }
 }

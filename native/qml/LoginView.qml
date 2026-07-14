@@ -117,7 +117,6 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Configure Database"
-                Accessible.onPressAction: root.showDbConfig = true
                 Keys.onReturnPressed: root.showDbConfig = true
                 Keys.onSpacePressed: root.showDbConfig = true
                 Text {

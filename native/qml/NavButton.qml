@@ -77,7 +77,6 @@ Item {
 
     Accessible.role: Accessible.Button
     Accessible.name: root.label
-    Accessible.onPressAction: root.clicked()
 
     FocusRing {
         visible: root.activeFocus

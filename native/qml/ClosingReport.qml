@@ -66,7 +66,6 @@ Item {
                     activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: "Close report"
-                    Accessible.onPressAction: root.close()
                     Keys.onReturnPressed: root.close()
                     Keys.onSpacePressed: root.close()
                     Text { anchors.centerIn: parent; text: "\u2715"; color: Theme.palette.fgMuted; font.pixelSize: 13 }

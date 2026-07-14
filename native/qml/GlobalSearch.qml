@@ -114,7 +114,6 @@ Item {
                     activeFocusOnTab: true
                     Accessible.role: Accessible.Button
                     Accessible.name: "Clear search"
-                    Accessible.onPressAction: queryField.text = ""
                     Keys.onReturnPressed: queryField.text = ""
                     Keys.onSpacePressed: queryField.text = ""
                     TapHandler { onTapped: queryField.text = "" }

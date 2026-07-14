@@ -101,7 +101,6 @@ Button {
 
     Accessible.role: Accessible.Button
     Accessible.name: control.text
-    Accessible.onPressAction: control.clicked()
 
     onPressed: rippleGrow.restart()
 

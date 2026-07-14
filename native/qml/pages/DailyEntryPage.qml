@@ -565,7 +565,6 @@ Item {
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: "Smart Import"
-                            Accessible.onPressAction: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
                             Keys.onReturnPressed: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
                             Keys.onSpacePressed: { var res = backend.smartImportExcel(); if (res && res.ok === true) { page.refresh() } }
                             Layout.preferredWidth: 28; Layout.preferredHeight: 28
@@ -655,7 +654,6 @@ Item {
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: "Delete selected"
-                        Accessible.onPressAction: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
                         Keys.onReturnPressed: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
                         Keys.onSpacePressed: { deleteDialog.batchCount = transactionTable.checkedRows.length; deleteDialog.batchMode = true; deleteDialog.infoText = "Batch delete " + deleteDialog.batchCount + " transactions"; deleteDialog.open() }
 
@@ -698,7 +696,6 @@ Item {
                         activeFocusOnTab: true
                         Accessible.role: Accessible.Button
                         Accessible.name: "Clear selection"
-                        Accessible.onPressAction: transactionTable.deselectAll()
                         Keys.onReturnPressed: transactionTable.deselectAll()
                         Keys.onSpacePressed: transactionTable.deselectAll()
 
@@ -790,7 +787,6 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Edit transaction"
-                Accessible.onPressAction: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onReturnPressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onSpacePressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mDelItem.forceActiveFocus()
@@ -827,7 +823,6 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Delete transaction"
-                Accessible.onPressAction: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onReturnPressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onSpacePressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mEditItem.forceActiveFocus()
@@ -857,7 +852,6 @@ Item {
 
         Accessible.role: Accessible.MenuItem
         Accessible.name: "Close menu"
-        Accessible.onPressAction: { contextMenu.visible = false }
 
         TapHandler {
             onTapped: contextMenu.visible = false
@@ -875,7 +869,6 @@ Item {
         visible: contextMenu.visible
         Accessible.role: Accessible.Button
         Accessible.name: "Close menu"
-        Accessible.onPressAction: { contextMenu.visible = false }
         TapHandler {
             onTapped: contextMenu.visible = false
         }
