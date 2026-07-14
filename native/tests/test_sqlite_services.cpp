@@ -153,12 +153,12 @@ private slots:
     void testLoginFailsWithWrongPassword() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("correct"));
+            QStringLiteral("admin"), QStringLiteral("correct1"));
 
         bool threw = false;
         try {
             registry_.auth->login(
-                QStringLiteral("admin"), QStringLiteral("wrong"));
+                QStringLiteral("admin"), QStringLiteral("wrong123"));
         } catch (const DomainError&) {
             threw = true;
         }
@@ -172,7 +172,7 @@ private slots:
     void testTransactionAdd() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         // Create a party first
         registry_.parties->createParty(
@@ -204,7 +204,7 @@ private slots:
     void testTransactionEdit() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Customer A"), QStringLiteral("customer"), true);
 
@@ -234,7 +234,7 @@ private slots:
     void testTransactionDelete() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Customer B"), QStringLiteral("customer"), true);
 
@@ -271,7 +271,7 @@ private slots:
     void testLedgerReport() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Ledger Party"), QStringLiteral("customer"), true);
 
@@ -321,7 +321,7 @@ private slots:
     void testOutstandingReport() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Outstanding Party"), QStringLiteral("customer"), true);
 
@@ -351,7 +351,7 @@ private slots:
     void testTrialBalance() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Trial Party"), QStringLiteral("customer"), true);
 
@@ -371,7 +371,7 @@ private slots:
     void testProfitAndLoss() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("PL Party"), QStringLiteral("customer"), true);
 
@@ -401,7 +401,7 @@ private slots:
     void testDailySummary() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("Daily Party"), QStringLiteral("customer"), true);
 
@@ -426,7 +426,7 @@ private slots:
     void testDayBook() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
         registry_.parties->createParty(
             QStringLiteral("DayBook Party"), QStringLiteral("customer"), true);
 
@@ -454,7 +454,7 @@ private slots:
     void testInventorySnapshot() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         // Save a snapshot
         QJsonArray rows;
@@ -484,7 +484,7 @@ private slots:
     void testEmptyLedger() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         ReportRange range;
         range.start = QDate(2024, 4, 1);
@@ -500,7 +500,7 @@ private slots:
     void testEmptyDayBook() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         QJsonArray result = registry_.reports->dayBook(QDate(2020, 1, 1));
         QCOMPARE(result.size(), 0);
@@ -513,7 +513,7 @@ private slots:
     void testCreateAndListParties() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         registry_.parties->createParty(
             QStringLiteral("Alpha Corp"), QStringLiteral("customer"), true);
@@ -527,7 +527,7 @@ private slots:
     void testDuplicatePartyHandled() {
         setupServices();
         registry_.auth->setupAdmin(
-            QStringLiteral("admin"), QStringLiteral("pass"));
+            QStringLiteral("admin"), QStringLiteral("pass1234"));
 
         registry_.parties->createParty(
             QStringLiteral("Dup Party"), QStringLiteral("customer"), true);
