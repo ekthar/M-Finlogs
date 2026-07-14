@@ -124,10 +124,6 @@ int runQmlApplication(int argc, char** argv) {
                 }
             });
 
-        QObject::connect(
-            &engine, &QQmlApplicationEngine::objectCreationFailed,
-            &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
-
         engine.loadFromModule(QStringLiteral("MFinlogs"), QStringLiteral("Main"));
 
         if (engine.rootObjects().isEmpty()) {
