@@ -20,6 +20,7 @@
 #include <QTextStream>
 #include <QThread>
 #include <QTimer>
+#include <QWindow>
 #include <QtGlobal>
 
 #include <exception>
@@ -79,6 +80,10 @@ int runQmlApplication(int argc, char** argv) {
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("M-Finlogs"));
     app.setOrganizationName(QStringLiteral("Ekthar"));
+    // The QWidget splash and the QML ApplicationWindow are separate top-level
+    // windows. Keep the process alive while ownership moves from one to the
+    // other; otherwise closing the splash can trigger quitOnLastWindowClosed.
+    app.setQuitOnLastWindowClosed(false);
 
     // Set application icon (shows in taskbar + window chrome)
     const QIcon appIcon(QStringLiteral(":/icons/logo.svg"));
@@ -138,6 +143,20 @@ int runQmlApplication(int argc, char** argv) {
             return -1;
         }
 
+        auto* mainWindow = qobject_cast<QWindow*>(engine.rootObjects().constFirst());
+        if (!mainWindow) {
+            const QString detail = QStringLiteral("The QML root object is not a window.");
+            if (!verifyQml) {
+                splash.close();
+                reportStartupFailure(detail);
+            }
+            return -1;
+        }
+        mainWindow->setVisible(true);
+        mainWindow->show();
+        mainWindow->raise();
+        mainWindow->requestActivate();
+
         if (verifyQml) {
             app.processEvents();
             return 0;
@@ -145,7 +164,10 @@ int runQmlApplication(int argc, char** argv) {
 
         // Keep the animated splash visible long enough to enjoy it, then
         // cross-fade out while the QML window is already rendered behind it.
-        QTimer::singleShot(2000, &splash, [&splash]() { splash.close(); });
+        QTimer::singleShot(2000, &splash, [&splash, &app]() {
+            splash.close();
+            app.setQuitOnLastWindowClosed(true);
+        });
 
         return app.exec();
     } catch (const std::exception& err) {
