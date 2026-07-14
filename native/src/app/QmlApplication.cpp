@@ -287,12 +287,8 @@ int runQmlApplication(int argc, char** argv) {
         }
         g_currentStage = StartupStage::RootWindowCreated;
 
-        mainWindow->setVisible(true);
-        mainWindow->show();
-        mainWindow->raise();
-        mainWindow->requestActivate();
-        g_currentStage = StartupStage::RootWindowVisible;
-
+        // In verify mode, we've confirmed the QML module loads and creates
+        // a valid window. Exit without rendering (headless CI has no GPU).
         if (verifyQml) {
             app.processEvents();
             if (!g_qmlErrors.isEmpty()) {
@@ -301,6 +297,12 @@ int runQmlApplication(int argc, char** argv) {
             }
             return 0;
         }
+
+        mainWindow->setVisible(true);
+        mainWindow->show();
+        mainWindow->raise();
+        mainWindow->requestActivate();
+        g_currentStage = StartupStage::RootWindowVisible;
 
         // Keep the animated splash visible long enough to enjoy it, then
         // cross-fade out while the QML window is already rendered behind it.
