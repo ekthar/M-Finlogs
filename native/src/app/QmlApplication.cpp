@@ -24,7 +24,15 @@
 #include <QWindow>
 #include <QtGlobal>
 
+#include <cstring>
 #include <exception>
+#include <string>
+
+#if defined(Q_OS_WIN)
+#include <windows.h>
+#include <dbghelp.h>
+#include <psapi.h>
+#endif
 
 namespace mfinlogs::app {
 
@@ -195,11 +203,209 @@ void startupTerminateHandler() {
     std::abort();
 }
 
+#if defined(Q_OS_WIN)
+// ─── SEH crash handler (raw WinAPI only) ───────────────────────────────────
+//
+// Access violations and other hardware exceptions are NOT C++ exceptions
+// under MSVC's default /EHsc model: they cannot be caught by try/catch(...)
+// or std::set_terminate. To diagnose crashes like 0xC0000005 during startup
+// we install a SetUnhandledExceptionFilter that runs in the crashing thread
+// *before* Windows terminates the process. The handler avoids the Qt/CRT
+// heap (which may be corrupt) and uses only raw Win32 file APIs plus
+// DbgHelp for a symbolized stack trace.
+
+const char* exceptionCodeName(DWORD code) {
+    switch (code) {
+        case EXCEPTION_ACCESS_VIOLATION:      return "EXCEPTION_ACCESS_VIOLATION";
+        case EXCEPTION_STACK_OVERFLOW:        return "EXCEPTION_STACK_OVERFLOW";
+        case EXCEPTION_ILLEGAL_INSTRUCTION:   return "EXCEPTION_ILLEGAL_INSTRUCTION";
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:    return "EXCEPTION_INT_DIVIDE_BY_ZERO";
+        case EXCEPTION_DATATYPE_MISALIGNMENT: return "EXCEPTION_DATATYPE_MISALIGNMENT";
+        case EXCEPTION_PRIV_INSTRUCTION:      return "EXCEPTION_PRIV_INSTRUCTION";
+        case EXCEPTION_HEAP_CORRUPTION:       return "EXCEPTION_HEAP_CORRUPTION";
+        case 0xE06D7363:                      return "MSVC_CPP_EXCEPTION (0xE06D7363)";
+        default:                              return "UNKNOWN";
+    }
+}
+
+void appendRawLine(HANDLE file, const char* text) {
+    DWORD written = 0;
+    WriteFile(file, text, static_cast<DWORD>(strlen(text)), &written, nullptr);
+}
+
+void appendRawHex(HANDLE file, const char* label, DWORD64 value) {
+    char buf[64];
+    // sprintf_s is safe here: stack-based, no heap allocation.
+    sprintf_s(buf, sizeof(buf), "%s0x%016llX\r\n", label, value);
+    appendRawLine(file, buf);
+}
+
+// Resolves which loaded module (DLL/EXE) contains `address` and returns its
+// base file name plus the offset within that module. This works without any
+// PDB/symbol server - Release builds rarely ship symbols, so this is often
+// the ONLY reliable way to tell which component (our exe vs. a Qt DLL vs.
+// the CRT) actually crashed.
+void appendModuleForAddress(HANDLE file, const char* label, DWORD64 address) {
+    HMODULE hMod = nullptr;
+    if (GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(address), &hMod) && hMod != nullptr) {
+        wchar_t modPath[MAX_PATH] = {0};
+        DWORD len = GetModuleFileNameW(hMod, modPath, MAX_PATH);
+        std::wstring name = (len > 0) ? std::wstring(modPath, len) : std::wstring(L"<unknown module>");
+        const size_t slash = name.find_last_of(L"\\/");
+        if (slash != std::wstring::npos) {
+            name = name.substr(slash + 1);
+        }
+        MODULEINFO modInfo = {};
+        DWORD64 baseAddr = reinterpret_cast<DWORD64>(hMod);
+        if (GetModuleInformation(GetCurrentProcess(), hMod, &modInfo, sizeof(modInfo))) {
+            baseAddr = reinterpret_cast<DWORD64>(modInfo.lpBaseOfDll);
+        }
+        char nameBuf[MAX_PATH * 2];
+        int written = WideCharToMultiByte(CP_UTF8, 0, name.c_str(), -1,
+                                           nameBuf, sizeof(nameBuf), nullptr, nullptr);
+        if (written <= 0) {
+            nameBuf[0] = '\0';
+        }
+        char line[MAX_PATH * 2 + 128];
+        sprintf_s(line, sizeof(line), "%s%s (module base 0x%016llX, offset 0x%llX)\r\n",
+                  label, nameBuf, baseAddr, address - baseAddr);
+        appendRawLine(file, line);
+    } else {
+        char line[128];
+        sprintf_s(line, sizeof(line), "%s<address not in any loaded module>\r\n", label);
+        appendRawLine(file, line);
+    }
+}
+
+LONG WINAPI startupSehFilter(EXCEPTION_POINTERS* info) {
+    // Build the crash log path next to the executable (writable in CI and
+    // safe to inspect without needing AppData). Use raw Win32 calls only.
+    wchar_t exePath[MAX_PATH] = {0};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring logPath(exePath);
+    const size_t slash = logPath.find_last_of(L"\\/");
+    logPath = (slash == std::wstring::npos) ? L"." : logPath.substr(0, slash);
+    logPath += L"\\crash-error.log";
+
+    HANDLE file = CreateFileW(logPath.c_str(), GENERIC_WRITE, 0, nullptr,
+                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        appendRawLine(file, "=== M-Finlogs SEH Crash Handler ===\r\n");
+
+        char stageBuf[128];
+        sprintf_s(stageBuf, sizeof(stageBuf), "Startup Stage: %s\r\n",
+                  startupStageName(g_currentStage));
+        appendRawLine(file, stageBuf);
+
+        if (info && info->ExceptionRecord) {
+            const DWORD code = info->ExceptionRecord->ExceptionCode;
+            char codeBuf[128];
+            sprintf_s(codeBuf, sizeof(codeBuf), "Exception Code: 0x%08lX (%s)\r\n",
+                      code, exceptionCodeName(code));
+            appendRawLine(file, codeBuf);
+
+            const DWORD64 faultAddr = reinterpret_cast<DWORD64>(info->ExceptionRecord->ExceptionAddress);
+            appendRawHex(file, "Exception Address: ", faultAddr);
+            appendModuleForAddress(file, "Crashing Module: ", faultAddr);
+
+            if (code == EXCEPTION_ACCESS_VIOLATION &&
+                info->ExceptionRecord->NumberParameters >= 2) {
+                appendRawHex(file, "Access Violation Type (0=read,1=write): ",
+                             info->ExceptionRecord->ExceptionInformation[0]);
+                appendRawHex(file, "Faulting Address: ",
+                             info->ExceptionRecord->ExceptionInformation[1]);
+            }
+        } else {
+            appendRawLine(file, "Exception Code: <no exception record>\r\n");
+        }
+
+        // Best-effort symbolized stack trace via DbgHelp. Wrapped so a
+        // failure here never prevents the rest of the log from being
+        // written or the process from exiting.
+        appendRawLine(file, "\r\nStack Trace:\r\n");
+        HANDLE process = GetCurrentProcess();
+        if (SymInitialize(process, nullptr, TRUE)) {
+            SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+
+            CONTEXT contextCopy = *info->ContextRecord;
+            STACKFRAME64 frame = {};
+#if defined(_M_X64)
+            DWORD machineType = IMAGE_FILE_MACHINE_AMD64;
+            frame.AddrPC.Offset = contextCopy.Rip;
+            frame.AddrPC.Mode = AddrModeFlat;
+            frame.AddrFrame.Offset = contextCopy.Rbp;
+            frame.AddrFrame.Mode = AddrModeFlat;
+            frame.AddrStack.Offset = contextCopy.Rsp;
+            frame.AddrStack.Mode = AddrModeFlat;
+#else
+            DWORD machineType = IMAGE_FILE_MACHINE_I386;
+            frame.AddrPC.Offset = contextCopy.Eip;
+            frame.AddrPC.Mode = AddrModeFlat;
+            frame.AddrFrame.Offset = contextCopy.Ebp;
+            frame.AddrFrame.Mode = AddrModeFlat;
+            frame.AddrStack.Offset = contextCopy.Esp;
+            frame.AddrStack.Mode = AddrModeFlat;
+#endif
+            HANDLE thread = GetCurrentThread();
+            for (int depth = 0; depth < 32; ++depth) {
+                if (!StackWalk64(machineType, process, thread, &frame, &contextCopy,
+                                  nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr)) {
+                    break;
+                }
+                if (frame.AddrPC.Offset == 0) {
+                    break;
+                }
+                char symBuffer[sizeof(SYMBOL_INFO) + 256] = {0};
+                auto* symbol = reinterpret_cast<SYMBOL_INFO*>(symBuffer);
+                symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+                symbol->MaxNameLen = 256;
+                DWORD64 displacement = 0;
+                char lineBuf[512];
+                if (SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol)) {
+                    sprintf_s(lineBuf, sizeof(lineBuf), "  #%d 0x%016llX %s+0x%llX\r\n",
+                              depth, frame.AddrPC.Offset, symbol->Name, displacement);
+                } else {
+                    // Release builds usually ship no PDB, so SymFromAddr will
+                    // fail for almost every frame. Fall back to naming the
+                    // module (DLL/EXE) the address belongs to - this alone
+                    // is enough to tell whether the crash is inside our
+                    // code, Qt Quick, Qt Qml, or something else entirely.
+                    sprintf_s(lineBuf, sizeof(lineBuf), "  #%d 0x%016llX <no symbol>\r\n",
+                              depth, frame.AddrPC.Offset);
+                }
+                appendRawLine(file, lineBuf);
+                appendModuleForAddress(file, "       module: ", frame.AddrPC.Offset);
+            }
+            SymCleanup(process);
+        } else {
+            appendRawLine(file, "  <SymInitialize failed - no stack trace available>\r\n");
+        }
+
+        CloseHandle(file);
+    }
+
+    // Let the default handler run afterward (process still terminates, but
+    // now we have the log). EXCEPTION_CONTINUE_SEARCH lets Windows proceed
+    // with normal unhandled-exception termination.
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif // Q_OS_WIN
+
 } // namespace
 
 int runQmlApplication(int argc, char** argv) {
     // Install terminate handler early to catch unexpected terminations.
     std::set_terminate(startupTerminateHandler);
+
+#if defined(Q_OS_WIN)
+    // Install a raw SEH handler so hardware exceptions (access violations,
+    // stack overflows, etc.) during startup are logged with an address and
+    // stack trace even though they cannot be caught by try/catch(...) or
+    // std::set_terminate under MSVC's default /EHsc exception model.
+    SetUnhandledExceptionFilter(startupSehFilter);
+#endif
 
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("M-Finlogs"));

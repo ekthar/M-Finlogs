@@ -213,7 +213,7 @@ jobs:
           if ($proc.ExitCode -ne 0) {
             Write-Error "QML verification failed with exit code $($proc.ExitCode)"
             if ($proc.ExitCode -eq -1073741819) {
-              Write-Host "Access violation detected. This usually means the offscreen platform plugin is missing or a rendering backend crashed." -ForegroundColor Red
+              Write-Host "Access violation (0xC0000005) detected. See crash-error.log below for the exact address and stack trace." -ForegroundColor Red
             }
             Write-Host "--- stdout ---" -ForegroundColor Yellow
             Get-Content "$packageDir\verify-stdout.log" -ErrorAction SilentlyContinue
@@ -223,9 +223,27 @@ jobs:
               Write-Host "--- startup-error.log ---" -ForegroundColor Yellow
               Get-Content "$packageDir\startup-error.log"
             }
+            if (Test-Path "$packageDir\crash-error.log") {
+              Write-Host "--- crash-error.log (SEH handler) ---" -ForegroundColor Yellow
+              Get-Content "$packageDir\crash-error.log"
+            } else {
+              Write-Host "No crash-error.log was produced - the SEH filter may not have run." -ForegroundColor Yellow
+            }
             exit 1
           }
           Write-Host "QML smoke test passed - all modules load correctly" -ForegroundColor Green
+
+      - name: Upload crash diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mfinlogs-crash-diagnostics
+          path: |
+            native\build\package\crash-error.log
+            native\build\package\startup-error.log
+            native\build\package\verify-stdout.log
+            native\build\package\verify-stderr.log
+          if-no-files-found: ignore
 
       - name: Build installer
         run: |

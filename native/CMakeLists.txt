@@ -218,6 +218,11 @@ if(WIN32)
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+    # dbghelp.lib provides SymInitialize/StackWalk64/SymFromAddr, and
+    # psapi.lib provides GetModuleInformation - both used by the SEH crash
+    # handler in QmlApplication.cpp to symbolize stack traces and identify
+    # which module (exe vs. Qt DLL) crashed during startup.
+    target_link_libraries(mfinlogs-native PRIVATE dbghelp psapi)
 endif()
 
 install(TARGETS mfinlogs-native
