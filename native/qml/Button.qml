@@ -48,9 +48,21 @@ Button {
 
         gradient: Gradient {
             orientation: Gradient.Horizontal
-            GradientStop { position: 0.0; color: control.variant === "danger" ? Theme.danger : control.from }
-            GradientStop { position: 1.0; color: control.variant === "danger" ? Theme.alpha(Theme.danger, 0.85) : control.to }
-            visible: control.variant === "primary" || control.variant === "danger"
+            // Gradient has no visible property. Use transparent stops for
+            // ghost/outline variants while keeping the background available
+            // for their hover and border states.
+            GradientStop {
+                position: 0.0
+                color: control.variant === "danger"
+                    ? Theme.danger
+                    : (control.variant === "primary" ? control.from : "transparent")
+            }
+            GradientStop {
+                position: 1.0
+                color: control.variant === "danger"
+                    ? Theme.alpha(Theme.danger, 0.85)
+                    : (control.variant === "primary" ? control.to : "transparent")
+            }
         }
 
         Rectangle {
