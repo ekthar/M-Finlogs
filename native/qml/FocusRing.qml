@@ -9,8 +9,4 @@ Rectangle {
     border.color: Theme.palette.primary
     opacity: parent.activeFocus ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
-    pointerEvents: false
-
-    Accessible.role: Accessible.FocusRing
-    Accessible.name: "Focus ring"
 }
