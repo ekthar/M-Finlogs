@@ -50,7 +50,10 @@ void loadBundledFonts() {
 }
 
 QString writeStartupDiagnostic(const QString& detail) {
-    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const bool verificationRun = QCoreApplication::arguments().contains(QStringLiteral("--verify-qml"));
+    const QString dataDir = verificationRun
+        ? QCoreApplication::applicationDirPath()
+        : QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     const QString logPath = QDir(dataDir.isEmpty() ? QDir::homePath() : dataDir)
         .filePath(QStringLiteral("startup-error.log"));
     QFile log(logPath);

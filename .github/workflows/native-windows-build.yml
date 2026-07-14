@@ -86,7 +86,7 @@ jobs:
           & "native\build\package\mfinlogs-native.exe" --verify-qml
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
-            $diagnostic = Join-Path $env:LOCALAPPDATA "Ekthar\M-Finlogs\startup-error.log"
+            $diagnostic = "native\build\package\startup-error.log"
             if (Test-Path -LiteralPath $diagnostic) {
               Get-Content -LiteralPath $diagnostic
             }
