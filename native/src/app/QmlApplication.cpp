@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
+#include <QGuiApplication>
 #include <QIcon>
 #include <QMessageBox>
 #include <QQmlApplicationEngine>
@@ -28,6 +29,41 @@
 namespace mfinlogs::app {
 
 namespace {
+
+// ─── Startup stage tracking ─────────────────────────────────────────────────
+
+enum class StartupStage {
+    NotStarted,
+    QApplicationCreated,
+    SplashShown,
+    BackendCreated,
+    QmlEngineCreated,
+    QmlModuleLoaded,
+    RootWindowCreated,
+    RootWindowVisible,
+    EventLoopStarted,
+};
+
+const char* startupStageName(StartupStage stage) {
+    switch (stage) {
+        case StartupStage::NotStarted:          return "NotStarted";
+        case StartupStage::QApplicationCreated: return "QApplicationCreated";
+        case StartupStage::SplashShown:         return "SplashShown";
+        case StartupStage::BackendCreated:      return "BackendCreated";
+        case StartupStage::QmlEngineCreated:    return "QmlEngineCreated";
+        case StartupStage::QmlModuleLoaded:     return "QmlModuleLoaded";
+        case StartupStage::RootWindowCreated:   return "RootWindowCreated";
+        case StartupStage::RootWindowVisible:   return "RootWindowVisible";
+        case StartupStage::EventLoopStarted:    return "EventLoopStarted";
+    }
+    return "Unknown";
+}
+
+// Global stage tracker - accessible from terminate handler.
+static StartupStage g_currentStage = StartupStage::NotStarted;
+static QStringList g_qmlErrors;
+
+// ─── Font loading ───────────────────────────────────────────────────────────
 
 void loadBundledFonts() {
     // Inter Tight + Space Mono ship in a sibling fonts/ directory. Mirror the
@@ -50,23 +86,91 @@ void loadBundledFonts() {
     }
 }
 
-QString writeStartupDiagnostic(const QString& detail) {
+// ─── Diagnostic file writer ─────────────────────────────────────────────────
+
+QString writeStartupDiagnostic(const QString& detail,
+                               const QQmlApplicationEngine* engine = nullptr) {
     const bool verificationRun = QCoreApplication::arguments().contains(QStringLiteral("--verify-qml"));
     const QString dataDir = verificationRun
         ? QCoreApplication::applicationDirPath()
         : QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     const QString logPath = QDir(dataDir.isEmpty() ? QDir::homePath() : dataDir)
         .filePath(QStringLiteral("startup-error.log"));
+
+    QDir().mkpath(dataDir.isEmpty() ? QDir::homePath() : dataDir);
+
     QFile log(logPath);
     if (log.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         QTextStream stream(&log);
+
+        stream << QStringLiteral("=== M-Finlogs Startup Diagnostic ===") << Qt::endl;
+        stream << Qt::endl;
+
+        // Current startup stage
+        stream << QStringLiteral("Startup Stage: ")
+               << QString::fromLatin1(startupStageName(g_currentStage)) << Qt::endl;
+        stream << Qt::endl;
+
+        // Executable path
+        stream << QStringLiteral("Executable Path: ")
+               << QCoreApplication::applicationFilePath() << Qt::endl;
+
+        // Application data path
+        stream << QStringLiteral("App Data Path: ")
+               << QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) << Qt::endl;
+
+        // Platform
+        stream << QStringLiteral("Platform: ")
+               << QGuiApplication::platformName() << Qt::endl;
+        stream << Qt::endl;
+
+        // Qt library paths
+        stream << QStringLiteral("Qt Library Paths:") << Qt::endl;
+        const QStringList libPaths = QCoreApplication::libraryPaths();
+        for (const QString& path : libPaths) {
+            stream << QStringLiteral("  - ") << path << Qt::endl;
+        }
+        stream << Qt::endl;
+
+        // QML import paths (if engine is available)
+        if (engine) {
+            stream << QStringLiteral("QML Import Paths:") << Qt::endl;
+            const QStringList importPaths = engine->importPathList();
+            for (const QString& path : importPaths) {
+                stream << QStringLiteral("  - ") << path << Qt::endl;
+            }
+            stream << Qt::endl;
+        }
+
+        // QML module path (embedded in binary at this resource prefix)
+        stream << QStringLiteral("QML Module Path: :/qt/qml/MFinlogs") << Qt::endl;
+        stream << Qt::endl;
+
+        // Database mode
+        stream << QStringLiteral("Database Mode: SQLite (local)") << Qt::endl;
+        stream << Qt::endl;
+
+        // QML errors collected during loading
+        if (!g_qmlErrors.isEmpty()) {
+            stream << QStringLiteral("QML Errors:") << Qt::endl;
+            for (const QString& err : g_qmlErrors) {
+                stream << QStringLiteral("  ") << err << Qt::endl;
+            }
+            stream << Qt::endl;
+        }
+
+        // Exception/failure detail
+        stream << QStringLiteral("Failure Detail:") << Qt::endl;
         stream << detail << Qt::endl;
     }
     return logPath;
 }
 
-void reportStartupFailure(const QString& detail) {
-    const QString logPath = writeStartupDiagnostic(detail);
+// ─── Startup failure reporter ───────────────────────────────────────────────
+
+void reportStartupFailure(const QString& detail,
+                          const QQmlApplicationEngine* engine = nullptr) {
+    const QString logPath = writeStartupDiagnostic(detail, engine);
     QMessageBox::critical(nullptr,
         QStringLiteral("M-Finlogs could not start"),
         QStringLiteral("The application could not load its interface.\n\n%1\n\n"
@@ -74,12 +178,37 @@ void reportStartupFailure(const QString& detail) {
             .arg(detail, QDir::toNativeSeparators(logPath)));
 }
 
+// ─── Terminate handler ──────────────────────────────────────────────────────
+
+void startupTerminateHandler() {
+    // Attempt to write diagnostic before process dies.
+    const QString detail = QStringLiteral(
+        "std::terminate called during startup (possible uncaught exception or abort).");
+    writeStartupDiagnostic(detail);
+
+    // Attempt to show a message box - may not work in all termination scenarios
+    // but is worth trying so the user sees something.
+    QMessageBox::critical(nullptr,
+        QStringLiteral("M-Finlogs - Unexpected Termination"),
+        QStringLiteral("The application terminated unexpectedly during startup.\n\n"
+                       "Stage: %1\n\n"
+                       "A diagnostic was saved. Please report this issue.")
+            .arg(QString::fromLatin1(startupStageName(g_currentStage))));
+
+    std::abort();
+}
+
 } // namespace
 
 int runQmlApplication(int argc, char** argv) {
+    // Install terminate handler early to catch unexpected terminations.
+    std::set_terminate(startupTerminateHandler);
+
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("M-Finlogs"));
     app.setOrganizationName(QStringLiteral("Ekthar"));
+    g_currentStage = StartupStage::QApplicationCreated;
+
     // The QWidget splash and the QML ApplicationWindow are separate top-level
     // windows. Keep the process alive while ownership moves from one to the
     // other; otherwise closing the splash can trigger quitOnLastWindowClosed.
@@ -95,7 +224,7 @@ int runQmlApplication(int argc, char** argv) {
 
     loadBundledFonts();
 
-    // Branded splash — show early and keep visible until QML window renders.
+    // Branded splash -- show early and keep visible until QML window renders.
     const bool verifyQml = QCoreApplication::arguments().contains(QStringLiteral("--verify-qml"));
     SplashScreen splash;
     if (!verifyQml) {
@@ -108,50 +237,61 @@ int runQmlApplication(int argc, char** argv) {
             app.processEvents();
         }
     }
+    g_currentStage = StartupStage::SplashShown;
 
     try {
         static AppContext context(QStringLiteral("Ekthar"), QStringLiteral("M-Finlogs"));
         static QmlBackend backend(context);
+        g_currentStage = StartupStage::BackendCreated;
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+        g_currentStage = StartupStage::QmlEngineCreated;
 
-        QStringList qmlErrors;
         QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
-            [&qmlErrors](const QList<QQmlError>& warnings) {
+            [](const QList<QQmlError>& warnings) {
                 for (const QQmlError& warning : warnings) {
-                    qmlErrors.append(warning.toString());
+                    g_qmlErrors.append(warning.toString());
                 }
             });
 
         engine.loadFromModule(QStringLiteral("MFinlogs"), QStringLiteral("Main"));
+        g_currentStage = StartupStage::QmlModuleLoaded;
 
         if (engine.rootObjects().isEmpty()) {
-            const QString detail = qmlErrors.isEmpty()
+            const QString detail = g_qmlErrors.isEmpty()
                 ? QStringLiteral("The MFinlogs QML module did not create a root window.")
-                : qmlErrors.join(QLatin1Char('\n'));
+                : g_qmlErrors.join(QLatin1Char('\n'));
             qCritical().noquote() << "M-Finlogs QML startup failure:" << detail;
-            writeStartupDiagnostic(detail);
+            writeStartupDiagnostic(detail, &engine);
             if (!verifyQml) {
                 splash.close();
-                reportStartupFailure(detail);
+                reportStartupFailure(detail, &engine);
             }
             return -1;
         }
 
         auto* mainWindow = qobject_cast<QWindow*>(engine.rootObjects().constFirst());
         if (!mainWindow) {
-            const QString detail = QStringLiteral("The QML root object is not a window.");
+            const QString detail = QStringLiteral(
+                "The QML root object is not a QWindow/ApplicationWindow. "
+                "Root object type: %1")
+                .arg(QString::fromLatin1(engine.rootObjects().constFirst()->metaObject()->className()));
+            qCritical().noquote() << "M-Finlogs QML startup failure:" << detail;
+            writeStartupDiagnostic(detail, &engine);
             if (!verifyQml) {
                 splash.close();
-                reportStartupFailure(detail);
+                reportStartupFailure(detail, &engine);
             }
             return -1;
         }
+        g_currentStage = StartupStage::RootWindowCreated;
+
         mainWindow->setVisible(true);
         mainWindow->show();
         mainWindow->raise();
         mainWindow->requestActivate();
+        g_currentStage = StartupStage::RootWindowVisible;
 
         if (verifyQml) {
             app.processEvents();
@@ -165,12 +305,26 @@ int runQmlApplication(int argc, char** argv) {
             app.setQuitOnLastWindowClosed(true);
         });
 
+        g_currentStage = StartupStage::EventLoopStarted;
         return app.exec();
     } catch (const std::exception& err) {
         splash.close();
+        const QString detail = QString::fromUtf8(err.what());
         qCritical("Failed to start M-Finlogs: %s", err.what());
         if (!verifyQml) {
-            reportStartupFailure(QString::fromUtf8(err.what()));
+            reportStartupFailure(detail);
+        } else {
+            writeStartupDiagnostic(detail);
+        }
+        return 1;
+    } catch (...) {
+        splash.close();
+        const QString detail = QStringLiteral("Unknown exception during startup.");
+        qCritical("Failed to start M-Finlogs: unknown exception");
+        if (!verifyQml) {
+            reportStartupFailure(detail);
+        } else {
+            writeStartupDiagnostic(detail);
         }
         return 1;
     }
