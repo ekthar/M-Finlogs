@@ -445,7 +445,8 @@ Item {
                     onRangeChanged: Qt.callLater(page.load)
                 }
                 PrimaryButton { Layout.alignment: Qt.AlignBottom; Layout.preferredWidth: 120; text: "Show"; onClicked: page.load() }
-                GhostButton { Layout.alignment: Qt.AlignBottom; text: "Export"; onClicked: {} }
+                GhostButton { Layout.alignment: Qt.AlignBottom; text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+                GhostButton { Layout.alignment: Qt.AlignBottom; text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
             }
         }
 
@@ -628,5 +629,25 @@ Item {
         editingRow = row
         deleteDialog.infoText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
         deleteDialog.open()
+    }
+
+    function doExportPdf() {
+        var cols = ["Date", "Bill", "Type", "Mode", "Debit (Dr)", "Credit (Cr)", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.bill_no || ""), String(r.type || ""), String(r.mode || ""), r.debit ? String(r.debit) : "", r.credit ? String(r.credit) : "", String(r.balance_label || "")])
+        }
+        backend.exportTableToPdf("Party Ledger - " + partyField.text, cols, data)
+    }
+
+    function doExportCsv() {
+        var cols = ["Date", "Bill", "Type", "Mode", "Debit (Dr)", "Credit (Cr)", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.bill_no || ""), String(r.type || ""), String(r.mode || ""), r.debit ? String(r.debit) : "", r.credit ? String(r.credit) : "", String(r.balance_label || "")])
+        }
+        backend.exportTableToExcel("Party Ledger - " + partyField.text, cols, data)
     }
 }

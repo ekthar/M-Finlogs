@@ -87,6 +87,8 @@ Item {
             StatusPill { text: "Total Cr: " + backend.formatMoney(page.totalCr); tint: page.totalCr > 0 ? Theme.palette.info : Theme.success }
             Item { Layout.fillWidth: true }
             GhostButton { text: "Refresh"; implicitWidth: 100; onClicked: page.refresh() }
+            GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+            GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
         ErrorBanner {
@@ -227,5 +229,25 @@ Item {
                 }
             }
         }
+    }
+
+    function doExportPdf() {
+        var cols = ["Party", "Balance", "Status", "Last Date", "Type", "Closing Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.party || ""), String(r.balanceLabel || ""), page.statusLabel(r), String(r.lastDate || ""), Number(r.balance || 0) >= 0 ? "Dr" : "Cr", String(r.closing_balance || r.balance || "0")])
+        }
+        backend.exportTableToPdf("Credit Ledger", cols, data)
+    }
+
+    function doExportCsv() {
+        var cols = ["Party", "Balance", "Status", "Last Date", "Type", "Closing Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.party || ""), String(r.balanceLabel || ""), page.statusLabel(r), String(r.lastDate || ""), Number(r.balance || 0) >= 0 ? "Dr" : "Cr", String(r.closing_balance || r.balance || "0")])
+        }
+        backend.exportTableToExcel("Credit Ledger", cols, data)
     }
 }
