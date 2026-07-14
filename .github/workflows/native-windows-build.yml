@@ -74,7 +74,13 @@ jobs:
 
       - name: Smoke-test deployed QML runtime
         run: |
+          # Do not allow the CI installation of Qt to hide missing files in
+          # the deploy folder. The executable must resolve plugins and imports
+          # relative to its own directory, exactly as it will after install.
+          Remove-Item Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
+          Remove-Item Env:QML2_IMPORT_PATH -ErrorAction SilentlyContinue
           $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QT_DEBUG_PLUGINS = "1"
           & "native\build\package\mfinlogs-native.exe" --verify-qml
           if ($LASTEXITCODE -ne 0) {
             throw "The packaged native executable could not create its QML root window."

@@ -6,6 +6,7 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
@@ -121,6 +122,7 @@ int runQmlApplication(int argc, char** argv) {
             const QString detail = qmlErrors.isEmpty()
                 ? QStringLiteral("The MFinlogs QML module did not create a root window.")
                 : qmlErrors.join(QLatin1Char('\n'));
+            qCritical().noquote() << "M-Finlogs QML startup failure:" << detail;
             if (!verifyQml) {
                 splash.close();
                 reportStartupFailure(detail);
