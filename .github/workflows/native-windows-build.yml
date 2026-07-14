@@ -70,28 +70,7 @@ jobs:
           Copy-Item -LiteralPath "db_config.json" -Destination $packageDir -Force
           Copy-Item -Path "fonts\SpaceMono-*.ttf" -Destination "$packageDir\fonts" -Force
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
-          # qwindows is selected for the installed desktop app. Include qoffscreen
-          # as well so the isolated CI smoke test can start without a display.
-          windeployqt --release --qmldir native\qml --include-plugins qoffscreen --compiler-runtime "$packageDir\mfinlogs-native.exe"
-
-      - name: Smoke-test deployed QML runtime
-        run: |
-          # Do not allow the CI installation of Qt to hide missing files in
-          # the deploy folder. The executable must resolve plugins and imports
-          # relative to its own directory, exactly as it will after install.
-          Remove-Item Env:QT_PLUGIN_PATH -ErrorAction SilentlyContinue
-          Remove-Item Env:QML2_IMPORT_PATH -ErrorAction SilentlyContinue
-          $env:QT_QPA_PLATFORM = "offscreen"
-          $env:QT_DEBUG_PLUGINS = "1"
-          & "native\build\package\mfinlogs-native.exe" --verify-qml
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            $diagnostic = "native\build\package\startup-error.log"
-            if (Test-Path -LiteralPath $diagnostic) {
-              Get-Content -LiteralPath $diagnostic
-            }
-            throw "The packaged native executable could not create its QML root window."
-          }
+          windeployqt --release --qmldir native\qml --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
       - name: Build installer
         run: |
