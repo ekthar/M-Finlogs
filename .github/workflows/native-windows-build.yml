@@ -115,6 +115,15 @@ jobs:
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --qmldir native\qml --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
+          $offscreenSrc = Join-Path $env:QT_ROOT "plugins\platforms\qoffscreen.dll"
+          $offscreenDest = Join-Path $packageDir "platforms"
+          if (Test-Path $offscreenSrc) {
+            Copy-Item -LiteralPath $offscreenSrc -Destination $offscreenDest -Force
+            Write-Host "Copied qoffscreen.dll for headless CI verification" -ForegroundColor Green
+          } else {
+            Write-Host "WARNING: qoffscreen.dll not found at $offscreenSrc" -ForegroundColor Yellow
+          }
+
       - name: Verify package contents
         run: |
           $packageDir = "native\build\package"
@@ -132,6 +141,7 @@ jobs:
             "Qt6Sql.dll",
             "Qt6Network.dll",
             "platforms\qwindows.dll",
+            "platforms\qoffscreen.dll",
             "fonts\InterTight-Regular.ttf",
             "fonts\SpaceMono-Regular.ttf",
             "db_config.json"
@@ -189,9 +199,12 @@ jobs:
 
       - name: Smoke test QML loading
         run: |
+          $packageDir = "native\build\package"
+          Write-Host "Platform plugins available:" -ForegroundColor Cyan
+          Get-ChildItem "$packageDir\platforms" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  - $($_.Name)" }
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:QSG_RHI_BACKEND = "null"
-          $proc = Start-Process -FilePath "native\build\package\mfinlogs-native.exe" -ArgumentList "--verify-qml" -PassThru -NoNewWindow
+          $proc = Start-Process -FilePath "$packageDir\mfinlogs-native.exe" -ArgumentList "--verify-qml" -PassThru -NoNewWindow -RedirectStandardError "$packageDir\verify-stderr.log" -RedirectStandardOutput "$packageDir\verify-stdout.log"
           if (-not $proc.WaitForExit(30000)) {
             $proc.Kill()
             Write-Error "QML smoke test timed out after 30 seconds"
@@ -199,8 +212,17 @@ jobs:
           }
           if ($proc.ExitCode -ne 0) {
             Write-Error "QML verification failed with exit code $($proc.ExitCode)"
-            Write-Host "The packaged binary could not load QML modules correctly." -ForegroundColor Red
-            Write-Host "Check that windeployqt deployed all required QML modules and plugins." -ForegroundColor Yellow
+            if ($proc.ExitCode -eq -1073741819) {
+              Write-Host "Access violation detected. This usually means the offscreen platform plugin is missing or a rendering backend crashed." -ForegroundColor Red
+            }
+            Write-Host "--- stdout ---" -ForegroundColor Yellow
+            Get-Content "$packageDir\verify-stdout.log" -ErrorAction SilentlyContinue
+            Write-Host "--- stderr ---" -ForegroundColor Yellow
+            Get-Content "$packageDir\verify-stderr.log" -ErrorAction SilentlyContinue
+            if (Test-Path "$packageDir\startup-error.log") {
+              Write-Host "--- startup-error.log ---" -ForegroundColor Yellow
+              Get-Content "$packageDir\startup-error.log"
+            }
             exit 1
           }
           Write-Host "QML smoke test passed - all modules load correctly" -ForegroundColor Green
