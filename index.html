@@ -4,21 +4,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://unpkg.com; connect-src 'self' http: https: https://unpkg.com https://cdn.jsdelivr.net;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' http: https:;">
     <title>M-Finlogs</title>
-    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="assets/finlogs.svg">
     <link rel="icon" type="image/x-icon" href="assets/finlogs.ico">
     <link rel="stylesheet" href="index.css">
     <link rel="stylesheet" href="skeleton-loaders.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,500,1,0">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="node_modules/flatpickr/dist/flatpickr.min.css">
     <!-- Ionicons for Icons -->
-    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
-    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+    <script type="module" src="node_modules/ionicons/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="node_modules/ionicons/dist/ionicons/ionicons.js"></script>
     <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="node_modules/chart.js/dist/chart.umd.js"></script>
+    <script src="node_modules/flatpickr/dist/flatpickr.min.js"></script>
     <!-- XLSX (SheetJS) is lazy-loaded on first use via ensureXlsxLoaded() in renderer.js -->
 </head>
 
@@ -204,60 +202,60 @@
                 </button>
             </div>
 
-            <a class="nav-item active" onclick="showView('entryView'); activateNav(this)">
+            <button type="button" class="nav-item active" aria-current="page" onclick="showView('entryView'); activateNav(this)">
                 <ion-icon name="create-outline"></ion-icon> Daily Entry
-            </a>
-            <a class="nav-item" onclick="showDashboard(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showDashboard(); activateNav(this)">
                 <ion-icon name="grid-outline"></ion-icon> Dashboard
-            </a>
+            </button>
 
             <div class="nav-group-title">Reports</div>
-            <a class="nav-item" onclick="showView('ledgerView'); activateNav(this)">
+            <button type="button" class="nav-item" onclick="showView('ledgerView'); activateNav(this)">
                 <ion-icon name="book-outline"></ion-icon> Party Ledger
-            </a>
-            <a class="nav-item" onclick="showDayBook(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showDayBook(); activateNav(this)">
                 <ion-icon name="calendar-outline"></ion-icon> Day Book
-            </a>
-            <a class="nav-item" onclick="showDailySummary(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showDailySummary(); activateNav(this)">
                 <ion-icon name="today-outline"></ion-icon> Daily Summary
-            </a>
-            <a class="nav-item" onclick="showShortReport(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showShortReport(); activateNav(this)">
                 <ion-icon name="alert-outline"></ion-icon> Short Report
-            </a>
-               <a class="nav-item" onclick="showPurchaseReport(); activateNav(this)">
+            </button>
+               <button type="button" class="nav-item" onclick="showPurchaseReport(); activateNav(this)">
                    <ion-icon name="cart-outline"></ion-icon> Purchase Report
-               </a>
-            <a class="nav-item" onclick="showExpenseReport(); activateNav(this)">
+               </button>
+            <button type="button" class="nav-item" onclick="showExpenseReport(); activateNav(this)">
                 <ion-icon name="wallet-outline"></ion-icon> Expenses
-            </a>
-            <a class="nav-item" onclick="showOutstanding(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showOutstanding(); activateNav(this)">
                 <ion-icon name="alert-circle-outline"></ion-icon> Outstanding
-            </a>
-            <a class="nav-item" onclick="showTrialBalance(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showTrialBalance(); activateNav(this)">
                 <ion-icon name="swap-vertical-outline"></ion-icon> Trial Balance
-            </a>
-            <a class="nav-item" onclick="showPnL(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showPnL(); activateNav(this)">
                 <ion-icon name="trending-up-outline"></ion-icon> P & L
-            </a>
+            </button>
 
             <div class="nav-group-title">Inventory</div>
-            <a class="nav-item" onclick="showInventoryManagement(); activateNav(this)">
+            <button type="button" class="nav-item" onclick="showInventoryManagement(); activateNav(this)">
                 <ion-icon name="layers-outline"></ion-icon> Inventory Management
-            </a>
-            <a class="nav-item" onclick="showInventoryValueReport(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showInventoryValueReport(); activateNav(this)">
                 <ion-icon name="cash-outline"></ion-icon> Stock Value Report
-            </a>
+            </button>
 
             <div class="nav-group-title">Management</div>
-            <a class="nav-item" onclick="showView('partyView'); activateNav(this)"> 
+            <button type="button" class="nav-item" onclick="showView('partyView'); activateNav(this)">
                 <ion-icon name="people-outline"></ion-icon> Add Party
-            </a>
-            <a class="nav-item" onclick="showAuditLogs(); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showAuditLogs(); activateNav(this)">
                 <ion-icon name="document-text-outline"></ion-icon> Audit Logs
-            </a>
-            <a class="nav-item" onclick="showView('settingsView'); activateNav(this)">
+            </button>
+            <button type="button" class="nav-item" onclick="showView('settingsView'); activateNav(this)">
                 <ion-icon name="settings-outline"></ion-icon> Settings
-            </a>
+            </button>
 
             <div style="flex:1;"></div>
             <div class="sidebar-credit" style="margin: 6px 12px 14px; padding: 8px 10px; border-radius: 10px; background: linear-gradient(135deg, rgba(79,70,229,0.18), rgba(16,185,129,0.18)); border: 1px solid rgba(79,70,229,0.25); display:flex; align-items:center; gap:8px;">
@@ -266,9 +264,9 @@
                     Developed by <span style="color:#000000; font-weight:600; letter-spacing:0.3px;">EKTHAR</span>
                 </div>
             </div>
-            <a class="nav-item" onclick="handleLogout()" style="color: var(--danger);">
+            <button type="button" class="nav-item" onclick="handleLogout()" style="color: var(--danger);">
                 <ion-icon name="log-out-outline"></ion-icon> Logout
-            </a>
+            </button>
         </div>
 
         <!-- Main Content -->
@@ -1174,8 +1172,14 @@
     <script>
         // Simple helper for active nav state
         function activateNav(el) {
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            el.classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(n => {
+                n.classList.remove('active');
+                n.removeAttribute('aria-current');
+            });
+            if (el) {
+                el.classList.add('active');
+                el.setAttribute('aria-current', 'page');
+            }
         }
     </script>
 </body>

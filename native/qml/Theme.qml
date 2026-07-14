@@ -8,6 +8,8 @@ QtObject {
     // ---- User preferences ------------------------------------------------
     property bool dark: true
     property bool animationsEnabled: true
+    // Ambient full-screen blur/animation is opt-in; normal UI transitions stay enabled.
+    property bool ambientEffectsEnabled: false
 
     // Follow the OS dark/light mode preference via Qt.styleHints.colorScheme
     property bool followSystemTheme: true
@@ -34,6 +36,7 @@ QtObject {
         category: "ui"
         property alias dark: theme.dark
         property alias animationsEnabled: theme.animationsEnabled
+        property alias ambientEffectsEnabled: theme.ambientEffectsEnabled
     }
 
     // ======================================================================
@@ -118,8 +121,8 @@ QtObject {
     property color danger:          palette.danger
 
     // ---- Typography ---------------------------------------------------------
-    readonly property string fontFamily:   "Inter"
-    readonly property string monoFamily:   "JetBrains Mono"
+    readonly property string fontFamily:   "Inter Tight"
+    readonly property string monoFamily:   "Space Mono"
 
     readonly property int fsDisplay:  36
     readonly property int fsHero:     30

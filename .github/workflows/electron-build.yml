@@ -4,11 +4,16 @@ on:
   push:
     branches:
       - C
+      - ui/aurora-shadcn-motion-revamp
     tags:
       - 'v*'
   pull_request:
     branches:
       - C
+      - main
+      - ui/aurora-shadcn-motion-revamp
+  release:
+    types: [published]
   workflow_dispatch: {}
 
 jobs:
@@ -48,6 +53,9 @@ jobs:
       - name: Preflight checks
         run: npm run preflight:build
 
+      - name: Static source checks
+        run: npm run check:source
+
       - name: Build backend.exe with PyInstaller
         run: npm run build:backend
 
@@ -76,7 +84,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: M-Finlogs-Installer-C
+          name: M-Finlogs-Electron-Installer
           path: |
             release/desktop-app-build/*.exe
           if-no-files-found: warn
@@ -84,7 +92,7 @@ jobs:
       - name: Upload unpacked app artifact
         uses: actions/upload-artifact@v4
         with:
-          name: M-Finlogs-Unpacked-C
+          name: M-Finlogs-Electron-Unpacked
           path: |
             release/desktop-app-build/win-unpacked/**
           if-no-files-found: warn
@@ -92,7 +100,7 @@ jobs:
       - name: Upload backend.exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: M-Finlogs-backend-exe
+          name: M-Finlogs-Electron-Backend
           path: dist/backend.exe
           if-no-files-found: warn
 
@@ -109,7 +117,7 @@ jobs:
       - name: Download installer artifact
         uses: actions/download-artifact@v4
         with:
-          name: M-Finlogs-Installer-C
+          name: M-Finlogs-Electron-Installer
           path: release-assets
 
       - name: Create Release

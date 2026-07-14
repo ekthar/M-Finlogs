@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - C
+      - ui/aurora-shadcn-motion-revamp
+  pull_request:
+    branches:
+      - C
+      - main
+      - ui/aurora-shadcn-motion-revamp
+  release:
+    types: [published]
   workflow_dispatch: {}
 
 jobs:
@@ -47,6 +55,9 @@ jobs:
 
       - name: Build
         run: cmake --build native\build --config Release --target mfinlogs-native
+
+      - name: Validate QML
+        run: qmllint native\qml\*.qml native\qml\pages\*.qml
 
       - name: Package native executable
         run: |

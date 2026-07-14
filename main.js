@@ -7,11 +7,9 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 
-// --- RAM & performance optimizations ---
-app.commandLine.appendSwitch('disable-accelerated-2d-canvas');
-app.commandLine.appendSwitch('disable-background-timer-throttling');
-app.commandLine.appendSwitch('disable-renderer-backgrounding');
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=384 --expose-gc');
+// Keep Chromium's GPU canvas and background throttling enabled. Accounting
+// reports and charts benefit from them, and disabling throttling wastes power
+// while the window is inactive.
 app.commandLine.appendSwitch('no-pings');
 
 let autoUpdaterRef = null;
@@ -117,8 +115,7 @@ function createMainWindow() {
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js'),
             spellcheck: false,
-            v8CacheOptions: 'bypassHeatCheck',
-            backgroundThrottling: false
+            backgroundThrottling: true
         }
     });
     mainWindow.loadFile('index.html');

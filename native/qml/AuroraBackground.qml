@@ -6,7 +6,9 @@ Item {
     id: root
     clip: true
 
-    readonly property bool fancy: Theme.animationsEnabled
+    // Full-screen blur is expensive on integrated GPUs. Retain the visual
+    // language only when the user explicitly enables motion.
+    readonly property bool fancy: Theme.animationsEnabled && Theme.ambientEffectsEnabled
 
     Rectangle {
         anchors.fill: parent
