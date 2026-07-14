@@ -113,14 +113,21 @@ Item {
         if (fyList.length > 0) selectedFy = String(fyList[0])
         load()
     }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onInventoryReportLoaded(result) {
+            if (result && result.ok === false) return
+            page.rows = result.rows || []
+            page.stockRows = result.stockRows || []
+            page.recalcMetrics()
+        }
+    }
 
     function load() {
         if (!selectedFy) return
         cachedDaysInMonth = daysInMonth()
-        rows = backend.inventorySnapshot(selectedFy, selectedMonth)
-        stockRows = backend.stockValue(selectedFy, selectedMonth)
-        recalcMetrics()
+        backend.fetchInventoryReport(selectedFy, selectedMonth)
     }
 
     // Mutate a single field of a single row WITHOUT replacing the whole array,

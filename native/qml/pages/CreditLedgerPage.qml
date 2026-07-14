@@ -10,7 +10,10 @@ Item {
     property real totalCr: 0
 
     function refresh() {
-        rows = backend.allPartyBalances()
+        backend.fetchPartyBalances()
+    }
+    function applyRows(result) {
+        rows = result || []
         var dr = 0, cr = 0
         for (var i = 0; i < rows.length; i++) {
             var b = Number(rows[i].balance || 0)
@@ -52,6 +55,7 @@ Item {
     Connections {
         target: backend
         function onDataChanged() { page.refresh() }
+        function onPartyBalancesLoaded(result) { page.applyRows(result) }
     }
 
     ColumnLayout {
@@ -102,9 +106,9 @@ Item {
                                 { title: "Party", weight: 2.5 },
                                 { title: "Balance", weight: 1.5, align: Text.AlignRight },
                                 { title: "Status", weight: 1.2 },
-                                { title: "Last Tx", weight: 1.2 },
-                                { title: "Last Type", weight: 1 },
-                                { title: "Last Amt", weight: 1.2, align: Text.AlignRight }
+                                { title: "Last Receipt", weight: 1.2 },
+                                { title: "Status", weight: 1 },
+                                { title: "Ledger Closing", weight: 1.2, align: Text.AlignRight }
                             ]
                             delegate: Text {
                                 Layout.fillWidth: true
@@ -185,7 +189,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1
-                                text: modelData.lastType || ""
+                                text: Number(modelData.balance || 0) >= 0 ? "Dr" : "Cr"
                                 color: Theme.typeColor(modelData.lastType || "")
                                 font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.DemiBold
                                 verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
@@ -193,7 +197,7 @@ Item {
 
                             Text {
                                 Layout.fillWidth: true; Layout.preferredWidth: 1.2
-                                text: modelData.lastAmount ? backend.formatMoney(Number(modelData.lastAmount)) : ""
+                                text: backend.formatMoney(Number(modelData.closing_balance || modelData.balance || 0))
                                 color: Theme.palette.fg; font.family: Theme.monoFamily; font.pixelSize: Theme.fsSmall
                                 horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight

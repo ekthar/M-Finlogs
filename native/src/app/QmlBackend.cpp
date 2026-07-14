@@ -83,6 +83,26 @@ QVariant jsonValueToVariant(const QJsonValue& value) {
     }
 }
 
+QVariantList partyBalancesFromOutstanding(const QJsonObject& outstanding) {
+    QVariantList result;
+    const QJsonArray rows = outstanding.value(QStringLiteral("data")).toArray();
+    result.reserve(rows.size());
+    for (const QJsonValue& value : rows) {
+        const QJsonObject row = value.toObject();
+        const double balance = row.value(QStringLiteral("closing_balance")).toDouble(
+            row.value(QStringLiteral("balance")).toDouble());
+        QVariantMap entry = jsonObjectToMap(row);
+        entry.insert(QStringLiteral("balance"), balance);
+        entry.insert(QStringLiteral("balanceLabel"), QLocale().toString(qAbs(balance), 'f', 2)
+            + (balance >= 0.0 ? QStringLiteral(" Dr") : QStringLiteral(" Cr")));
+        entry.insert(QStringLiteral("lastDate"), row.value(QStringLiteral("last_receipt")).toString());
+        entry.insert(QStringLiteral("lastType"), QStringLiteral("Receipt"));
+        entry.insert(QStringLiteral("lastAmount"), 0.0);
+        result.append(entry);
+    }
+    return result;
+}
+
 // ---- Enum mapping (mirrors DesktopApplication helpers) -------------------
 
 domain::TransactionType transactionTypeFromText(const QString& text) {
@@ -171,7 +191,13 @@ public:
         GetLedger,
         GetDayBook,
         GetDashboard,
-        GetDailySummary
+        GetDailySummary,
+        GetOutstanding,
+        GetTrialBalance,
+        GetProfitAndLoss,
+        GetPartyBalances,
+        GetAuditLogs,
+        GetInventoryReport
     };
 
     DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params, QObject* receiver)
@@ -216,6 +242,37 @@ public:
                 res = jsonArrayToList(context_.services().reports->dailySummary(range));
             } catch (...) {}
             QMetaObject::invokeMethod(receiver_, "onDailySummaryTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+        } else if (type_ == GetOutstanding) {
+            QVariantMap res;
+            try { res = jsonObjectToMap(context_.services().reports->outstanding()); }
+            catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            QMetaObject::invokeMethod(receiver_, "onOutstandingTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+        } else if (type_ == GetTrialBalance) {
+            QVariantList res;
+            try { res = jsonArrayToList(context_.services().reports->trialBalance()); } catch (...) {}
+            QMetaObject::invokeMethod(receiver_, "onTrialBalanceTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+        } else if (type_ == GetProfitAndLoss) {
+            QVariantMap res;
+            try { res = jsonObjectToMap(context_.services().reports->profitAndLoss()); }
+            catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            QMetaObject::invokeMethod(receiver_, "onProfitAndLossTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+        } else if (type_ == GetPartyBalances) {
+            QVariantList res;
+            try { res = partyBalancesFromOutstanding(context_.services().reports->outstanding()); } catch (...) {}
+            QMetaObject::invokeMethod(receiver_, "onPartyBalancesTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+        } else if (type_ == GetAuditLogs) {
+            QVariantList res;
+            try { res = jsonArrayToList(context_.services().audit->listAuditLogs(QStringLiteral("native"))); } catch (...) {}
+            QMetaObject::invokeMethod(receiver_, "onAuditLogsTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+        } else if (type_ == GetInventoryReport) {
+            QVariantMap res;
+            try {
+                const QString financialYear = params_.value(QStringLiteral("financialYear")).toString();
+                const int month = params_.value(QStringLiteral("month")).toInt();
+                res.insert(QStringLiteral("rows"), jsonArrayToList(context_.services().inventory->loadSnapshot(financialYear, month)));
+                res.insert(QStringLiteral("stockRows"), jsonArrayToList(context_.services().inventory->stockValue(financialYear, month)));
+            } catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            QMetaObject::invokeMethod(receiver_, "onInventoryReportTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
         }
     }
 
@@ -697,6 +754,18 @@ void QmlBackend::fetchDailySummary(const QString& startIso, const QString& endIs
     QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this));
 }
 
+void QmlBackend::fetchOutstanding() { QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetOutstanding, context_, {}, this)); }
+void QmlBackend::fetchTrialBalance() { QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetTrialBalance, context_, {}, this)); }
+void QmlBackend::fetchProfitAndLoss() { QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetProfitAndLoss, context_, {}, this)); }
+void QmlBackend::fetchPartyBalances() { QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetPartyBalances, context_, {}, this)); }
+void QmlBackend::fetchAuditLogs() { QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetAuditLogs, context_, {}, this)); }
+void QmlBackend::fetchInventoryReport(const QString& financialYear, int month) {
+    QVariantMap params;
+    params.insert(QStringLiteral("financialYear"), financialYear);
+    params.insert(QStringLiteral("month"), month);
+    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetInventoryReport, context_, params, this));
+}
+
 void QmlBackend::onLedgerTaskFinished(const QVariantMap& result) {
     emit ledgerLoaded(result);
 }
@@ -712,6 +781,12 @@ void QmlBackend::onDashboardTaskFinished(const QVariantMap& result) {
 void QmlBackend::onDailySummaryTaskFinished(const QVariantList& result) {
     emit dailySummaryLoaded(result);
 }
+void QmlBackend::onOutstandingTaskFinished(const QVariantMap& result) { emit outstandingLoaded(result); }
+void QmlBackend::onTrialBalanceTaskFinished(const QVariantList& result) { emit trialBalanceLoaded(result); }
+void QmlBackend::onProfitAndLossTaskFinished(const QVariantMap& result) { emit profitAndLossLoaded(result); }
+void QmlBackend::onPartyBalancesTaskFinished(const QVariantList& result) { emit partyBalancesLoaded(result); }
+void QmlBackend::onAuditLogsTaskFinished(const QVariantList& result) { emit auditLogsLoaded(result); }
+void QmlBackend::onInventoryReportTaskFinished(const QVariantMap& result) { emit inventoryReportLoaded(result); }
 
 QVariantMap QmlBackend::saveCashInHand(const QString& dateIso, double amount) {
     try {
@@ -2015,22 +2090,7 @@ QVariantMap QmlBackend::exportRecentExcel(int days) {
 
 QVariantList QmlBackend::allPartyBalances() {
     try {
-        const QStringList names = partyNames();
-        QVariantList result;
-        for (const QString& name : names) {
-            const QVariantMap bal = partyBalance(name);
-            if (bal.value(QStringLiteral("hasData")).toBool()) {
-                QVariantMap entry;
-                entry.insert(QStringLiteral("party"), name);
-                entry.insert(QStringLiteral("balance"), bal.value(QStringLiteral("balance")));
-                entry.insert(QStringLiteral("balanceLabel"), bal.value(QStringLiteral("balanceLabel")));
-                entry.insert(QStringLiteral("lastDate"), bal.value(QStringLiteral("lastDate")));
-                entry.insert(QStringLiteral("lastType"), bal.value(QStringLiteral("lastType")));
-                entry.insert(QStringLiteral("lastAmount"), bal.value(QStringLiteral("lastAmount")));
-                result.append(entry);
-            }
-        }
-        return result;
+        return partyBalancesFromOutstanding(context_.services().reports->outstanding());
     } catch (...) {
         return {};
     }

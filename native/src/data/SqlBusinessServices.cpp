@@ -1150,7 +1150,6 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        const QPair<QDate, QDate> bounds = financialYearBounds(selectedFinancialYear(database.handle()));
         QSqlQuery query(database.handle());
         query.prepare(QStringLiteral(
             "SELECT p.name, p.type, "
@@ -1158,11 +1157,9 @@ public:
             "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END), "
             "MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.txn_date END), "
             "MIN(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.txn_date END) "
-            "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id AND t.txn_date >= ? AND t.txn_date <= ? "
+            "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id "
             "WHERE p.type IN ('Customer','Credit Customer') GROUP BY p.name, p.type ORDER BY p.name"
         ));
-        query.addBindValue(bounds.first);
-        query.addBindValue(bounds.second);
         executePrepared(query, QStringLiteral("Read outstanding report"));
 
         QJsonArray rows;
@@ -1202,6 +1199,7 @@ public:
             item.insert(QStringLiteral("status"), riskLabel(daysUnpaid, lastReceipt.isValid()));
             item.insert(QStringLiteral("days_unpaid"), daysUnpaid);
             item.insert(QStringLiteral("last_receipt"), lastReceipt.isValid() ? lastReceipt.toString(Qt::ISODate) : QStringLiteral("No receipt"));
+            item.insert(QStringLiteral("closing_balance"), balance);
             item.insert(QStringLiteral("balance"), balance);
             rows.append(item);
             total += balance;

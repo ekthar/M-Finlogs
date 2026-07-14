@@ -9,7 +9,11 @@ Item {
     property real totalOutstanding: 0
 
     function refresh() {
-        rows = backend.creditFollowupList()
+        backend.fetchPartyBalances()
+    }
+    function applyRows(result) {
+        var all = result || []
+        rows = all.filter(function(row) { return Number(row.balance || 0) > 0 })
         var t = 0
         for (var i = 0; i < rows.length; i++) t += Number(rows[i].balance || 0)
         totalOutstanding = t
@@ -43,21 +47,21 @@ Item {
     }
 
     function doExportCsv() {
-        var cols = ["Party", "Outstanding", "Last Transaction", "Last Type", "Age"]
+        var cols = ["Party", "Ledger Closing Balance", "Last Receipt", "Status", "Age"]
         var data = []
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i]
-            data.push([r.party, String(r.balance || "0"), r.lastDate || "", r.lastType || "", page.ageLabel(r)])
+            data.push([r.party, String(r.closing_balance || r.balance || "0"), r.lastDate || "", "Dr", page.ageLabel(r)])
         }
         backend.exportTableToExcel("Credit Followup", cols, data)
     }
 
     function doExportPdf() {
-        var cols = ["Party", "Outstanding", "Last Transaction", "Last Type", "Age"]
+        var cols = ["Party", "Ledger Closing Balance", "Last Receipt", "Status", "Age"]
         var data = []
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i]
-            data.push([r.party, String(r.balance || "0"), r.lastDate || "", r.lastType || "", page.ageLabel(r)])
+            data.push([r.party, String(r.closing_balance || r.balance || "0"), r.lastDate || "", "Dr", page.ageLabel(r)])
         }
         backend.exportTableToPdf("Credit Followup", cols, data)
     }
@@ -66,6 +70,7 @@ Item {
     Connections {
         target: backend
         function onDataChanged() { page.refresh() }
+        function onPartyBalancesLoaded(result) { page.applyRows(result) }
     }
 
     ColumnLayout {

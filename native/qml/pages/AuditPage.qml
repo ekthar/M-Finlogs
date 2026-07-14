@@ -6,9 +6,13 @@ Item {
     id: page
     property var rows: []
 
-    function load() { rows = backend.auditLogs() }
+    function load() { backend.fetchAuditLogs() }
     Component.onCompleted: { load() }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onAuditLogsLoaded(result) { page.rows = result || [] }
+    }
 
     function doExportPdf() {
         var cols = ["Time", "User", "Action", "Details"]

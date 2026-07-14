@@ -139,6 +139,12 @@ public:
     Q_INVOKABLE void fetchDayBook(const QString& dateIso);
     Q_INVOKABLE void fetchDashboard();
     Q_INVOKABLE void fetchDailySummary(const QString& startIso, const QString& endIso);
+    Q_INVOKABLE void fetchOutstanding();
+    Q_INVOKABLE void fetchTrialBalance();
+    Q_INVOKABLE void fetchProfitAndLoss();
+    Q_INVOKABLE void fetchPartyBalances();
+    Q_INVOKABLE void fetchAuditLogs();
+    Q_INVOKABLE void fetchInventoryReport(const QString& financialYear, int month);
 
 signals:
     void authChanged();
@@ -149,12 +155,24 @@ signals:
     void dayBookLoaded(const QVariantList& result);
     void dashboardLoaded(const QVariantMap& result);
     void dailySummaryLoaded(const QVariantList& result);
+    void outstandingLoaded(const QVariantMap& result);
+    void trialBalanceLoaded(const QVariantList& result);
+    void profitAndLossLoaded(const QVariantMap& result);
+    void partyBalancesLoaded(const QVariantList& result);
+    void auditLogsLoaded(const QVariantList& result);
+    void inventoryReportLoaded(const QVariantMap& result);
 
 public slots:
     void onLedgerTaskFinished(const QVariantMap& result);
     void onDayBookTaskFinished(const QVariantList& result);
     void onDashboardTaskFinished(const QVariantMap& result);
     void onDailySummaryTaskFinished(const QVariantList& result);
+    void onOutstandingTaskFinished(const QVariantMap& result);
+    void onTrialBalanceTaskFinished(const QVariantList& result);
+    void onProfitAndLossTaskFinished(const QVariantMap& result);
+    void onPartyBalancesTaskFinished(const QVariantList& result);
+    void onAuditLogsTaskFinished(const QVariantList& result);
+    void onInventoryReportTaskFinished(const QVariantMap& result);
 
 private:
     AppContext& context_;

@@ -6,9 +6,13 @@ Item {
     id: page
     property var data: ({})
 
-    function load() { data = backend.profitAndLoss() }
+    function load() { backend.fetchProfitAndLoss() }
     Component.onCompleted: { load() }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onProfitAndLossLoaded(result) { if (!result || result.ok !== false) page.data = result || ({}) }
+    }
 
     property real sales: Number(data.sales || 0)
     property real expenses: Number(data.expenses || 0)

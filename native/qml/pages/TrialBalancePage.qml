@@ -9,7 +9,10 @@ Item {
     property var totals: ({})
 
     function load() {
-        rows = backend.trialBalance()
+        backend.fetchTrialBalance()
+    }
+    function applyRows(result) {
+        rows = result || []
         var d = 0, c = 0
         for (var i = 0; i < rows.length; i++) {
             d += Number(rows[i].debit || 0)
@@ -18,7 +21,11 @@ Item {
         totals = { debit: d, credit: c }
     }
     Component.onCompleted: { load() }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onTrialBalanceLoaded(result) { page.applyRows(result) }
+    }
 
     function doExportPdf() {
         var cols = ["Account/Party", "Debit", "Credit"]

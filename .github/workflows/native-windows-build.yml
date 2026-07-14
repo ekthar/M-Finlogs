@@ -24,7 +24,7 @@ jobs:
         shell: pwsh
 
     env:
-      QT_ROOT: C:\Qt\6.8.3\msvc2022_64
+      QT_ROOT: C:\Qt\Qt\6.8.3\msvc2022_64
 
     steps:
       - name: Checkout
@@ -57,7 +57,9 @@ jobs:
         run: cmake --build native\build --config Release --target mfinlogs-native
 
       - name: Validate QML
-        run: qmllint native\qml\*.qml native\qml\pages\*.qml
+        run: |
+          Get-ChildItem native\qml -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
+          Get-ChildItem native\qml\pages -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
 
       - name: Package native executable
         run: |

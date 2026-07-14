@@ -8,7 +8,7 @@ jobs:
     runs-on: windows-2022
 
     env:
-      QT_ROOT: C:\Qt\6.8.3\msvc2022_64
+      QT_ROOT: C:\Qt\Qt\6.8.3\msvc2022_64
 
     steps:
       - name: Checkout
@@ -40,7 +40,9 @@ jobs:
         run: windeployqt native/build/Release/mfinlogs-native.exe --qmldir native/qml
 
       - name: Run qmllint (syntax check)
-        run: qmllint native/qml/*.qml native/qml/pages/*.qml
+        run: |
+          Get-ChildItem native\qml -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
+          Get-ChildItem native\qml\pages -Filter *.qml -File | ForEach-Object { qmllint $_.FullName }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

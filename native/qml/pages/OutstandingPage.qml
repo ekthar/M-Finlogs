@@ -9,14 +9,20 @@ Item {
     property var stats: ({})
 
     function load() {
-        var res = backend.outstanding()
+        backend.fetchOutstanding()
+    }
+    function applyResult(res) {
         if (res && res.ok === false) return
         rows = res.data || []
         total = Number(res.total || 0)
         stats = res.stats || {}
     }
     Component.onCompleted: { load() }
-    Connections { target: backend; function onDataChanged() { page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onOutstandingLoaded(res) { page.applyResult(res) }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -81,7 +87,7 @@ Item {
                     { title: "Status", key: "status", chip: true, weight: 1.2 },
                     { title: "Days", key: "days_unpaid", align: "right", weight: 0.8 },
                     { title: "Last Receipt", key: "last_receipt", weight: 1.3 },
-                    { title: "Balance", key: "balance", money: true, align: "right", weight: 1.3 }
+                    { title: "Ledger Closing", key: "closing_balance", money: true, align: "right", weight: 1.3 }
                 ]
             }
             }
@@ -89,20 +95,20 @@ Item {
     }
 
     function doExportPdf() {
-        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Balance"]
+        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Ledger Closing Balance"]
         var data = []
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i]
-            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.balance)])
+            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.closing_balance)])
         }
         backend.exportTableToPdf("Credit Outstanding", cols, data)
     }
     function doExportCsv() {
-        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Balance"]
+        var cols = ["Party", "Type", "Status", "Days Unpaid", "Last Receipt", "Ledger Closing Balance"]
         var data = []
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i]
-            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.balance)])
+            data.push([r.party, r.type, r.status, String(r.days_unpaid), r.last_receipt, String(r.closing_balance)])
         }
         backend.exportTableToExcel("Credit Outstanding", cols, data)
     }
