@@ -72,6 +72,14 @@ jobs:
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --qmldir native\qml --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
+      - name: Smoke-test deployed QML runtime
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & "native\build\package\mfinlogs-native.exe" --verify-qml
+          if ($LASTEXITCODE -ne 0) {
+            throw "The packaged native executable could not create its QML root window."
+          }
+
       - name: Build installer
         run: |
           choco install innosetup -y --no-progress

@@ -7,11 +7,16 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFontDatabase>
 #include <QIcon>
+#include <QMessageBox>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlError>
 #include <QQuickStyle>
+#include <QStandardPaths>
+#include <QTextStream>
 #include <QThread>
 #include <QTimer>
 #include <QtGlobal>
@@ -43,6 +48,23 @@ void loadBundledFonts() {
     }
 }
 
+void reportStartupFailure(const QString& detail) {
+    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    const QString logPath = QDir(dataDir.isEmpty() ? QDir::homePath() : dataDir)
+        .filePath(QStringLiteral("startup-error.log"));
+    QFile log(logPath);
+    if (log.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        QTextStream stream(&log);
+        stream << detail << Qt::endl;
+    }
+
+    QMessageBox::critical(nullptr,
+        QStringLiteral("M-Finlogs could not start"),
+        QStringLiteral("The application could not load its interface.\n\n%1\n\n"
+                       "A diagnostic was saved to:\n%2")
+            .arg(detail, QDir::toNativeSeparators(logPath)));
+}
+
 } // namespace
 
 int runQmlApplication(int argc, char** argv) {
@@ -61,14 +83,17 @@ int runQmlApplication(int argc, char** argv) {
     loadBundledFonts();
 
     // Branded splash — show early and keep visible until QML window renders.
+    const bool verifyQml = QCoreApplication::arguments().contains(QStringLiteral("--verify-qml"));
     SplashScreen splash;
-    splash.show();
-    splash.runIndeterminate(2200);
-    app.processEvents();
-    // Process events several times to ensure splash paint completes
-    for (int i = 0; i < 5; ++i) {
-        QThread::msleep(50);
+    if (!verifyQml) {
+        splash.show();
+        splash.runIndeterminate(2200);
         app.processEvents();
+        // Process events several times to ensure splash paint completes.
+        for (int i = 0; i < 5; ++i) {
+            QThread::msleep(50);
+            app.processEvents();
+        }
     }
 
     try {
@@ -78,6 +103,14 @@ int runQmlApplication(int argc, char** argv) {
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
 
+        QStringList qmlErrors;
+        QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
+            [&qmlErrors](const QList<QQmlError>& warnings) {
+                for (const QQmlError& warning : warnings) {
+                    qmlErrors.append(warning.toString());
+                }
+            });
+
         QObject::connect(
             &engine, &QQmlApplicationEngine::objectCreationFailed,
             &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -85,7 +118,19 @@ int runQmlApplication(int argc, char** argv) {
         engine.loadFromModule(QStringLiteral("MFinlogs"), QStringLiteral("Main"));
 
         if (engine.rootObjects().isEmpty()) {
+            const QString detail = qmlErrors.isEmpty()
+                ? QStringLiteral("The MFinlogs QML module did not create a root window.")
+                : qmlErrors.join(QLatin1Char('\n'));
+            if (!verifyQml) {
+                splash.close();
+                reportStartupFailure(detail);
+            }
             return -1;
+        }
+
+        if (verifyQml) {
+            app.processEvents();
+            return 0;
         }
 
         // Keep the animated splash visible long enough to enjoy it, then
@@ -96,6 +141,9 @@ int runQmlApplication(int argc, char** argv) {
     } catch (const std::exception& err) {
         splash.close();
         qCritical("Failed to start M-Finlogs: %s", err.what());
+        if (!verifyQml) {
+            reportStartupFailure(QString::fromUtf8(err.what()));
+        }
         return 1;
     }
 }
