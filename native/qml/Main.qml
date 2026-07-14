@@ -9,7 +9,7 @@ ApplicationWindow {
     height: 860
     minimumWidth: 900
     minimumHeight: 600
-    visible: true
+    visible: !verifyQmlMode
     title: "M-Finlogs"
     color: Theme.palette.bg
     flags: Qt.Window | Qt.FramelessWindowHint

@@ -246,6 +246,7 @@ int runQmlApplication(int argc, char** argv) {
 
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+        engine.rootContext()->setContextProperty(QStringLiteral("verifyQmlMode"), verifyQml);
         g_currentStage = StartupStage::QmlEngineCreated;
 
         QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
