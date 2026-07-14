@@ -14,6 +14,9 @@ GlassPanel {
     implicitHeight: 116
     radius: Theme.rLg
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: root.label + ": " + root.prefix + backend.formatMoney(root.value)
+
     property real shown: 0
     Behavior on shown { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeOut } }
     onValueChanged: shown = value

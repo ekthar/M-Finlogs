@@ -7,12 +7,20 @@ Item {
     property var rows: []
     property real total: 0
     property var stats: ({})
+    property bool isLoading: false
+    property string errorMessage: ""
 
     function load() {
+        page.isLoading = true
         backend.fetchOutstanding()
     }
     function applyResult(res) {
-        if (res && res.ok === false) return
+        page.isLoading = false
+        if (res && res.ok === false) {
+            page.errorMessage = res.error || "Failed to load outstanding data"
+            return
+        }
+        page.errorMessage = ""
         rows = res.data || []
         total = Number(res.total || 0)
         stats = res.stats || {}
@@ -67,6 +75,13 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 spacing: Theme.s3
+
+                ErrorBanner {
+                    Layout.fillWidth: true
+                    message: page.errorMessage
+                    onRetry: page.load()
+                }
+
                 RowLayout {
                     Layout.fillWidth: true
                     Text { text: "Outstanding Details"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
@@ -77,7 +92,8 @@ Item {
             DataTable {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                emptyText: "No outstanding balances \u2014 all parties have cleared their dues"
+                emptyText: "No outstanding balances - all parties have cleared their dues"
+                loading: page.isLoading
                 rows: page.rows
                 totals: ({ balance: page.total })
                 totalsLabel: "Total Outstanding"

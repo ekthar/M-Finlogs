@@ -7,8 +7,8 @@ ApplicationWindow {
     id: window
     width: 1360
     height: 860
-    minimumWidth: 1080
-    minimumHeight: 680
+    minimumWidth: 900
+    minimumHeight: 600
     visible: true
     title: "M-Finlogs"
     color: Theme.palette.bg

@@ -11,6 +11,8 @@ Item {
     property var partyList: []
     property var totals: ({})
     property var editingRow: null
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Component.onCompleted: {
         partyList = backend.partyNames()
@@ -57,10 +59,12 @@ Item {
     Connections {
         target: backend
         function onLedgerLoaded(res) {
+            page.isLoading = false
             if (res && res.error) {
-                backend.toast(res.error, "error")
+                page.errorMessage = res.error
                 return
             }
+            page.errorMessage = ""
             openingBalance = Number(res.opening_balance || 0)
             rawRows = res.data || []
             rows = transformRows(rawRows)
@@ -72,6 +76,7 @@ Item {
             backend.toast("Choose a party first", "error")
             return
         }
+        page.isLoading = true
         backend.fetchLedger(partyField.text, dateRange.fromIso, dateRange.toIso)
     }
 
@@ -84,6 +89,11 @@ Item {
         width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
         height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
+        onOpened: editDateField.forceActiveFocus()
+        onClosed: {
+            page.editingRow = null
+            if (transactionTable) transactionTable.forceActiveFocus()
+        }
 
         property var originalValues: ({})
         property var targetRow: null
@@ -323,7 +333,7 @@ Item {
                 Text {
                     text: "\u26A0"
                     color: Theme.danger
-                    font.pixelSize: 32
+                    font.pixelSize: Theme.fsHero
                     Layout.alignment: Qt.AlignTop
                 }
 
@@ -439,6 +449,12 @@ Item {
             }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -469,6 +485,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     emptyText: "Select a party and press Show"
+                    loading: page.isLoading
                     rows: page.rows
                     totals: page.totals
                     totalsLabel: "Total"
@@ -494,15 +511,12 @@ Item {
     }
 
     // ── Context menu for edit / delete actions ────────────────────────────
-    Rectangle {
+    Popup {
         id: contextMenu
-        visible: false
         width: 160
-        height: cmCol.implicitHeight + 8
-        radius: Theme.rMd
-        color: Theme.alpha(Theme.palette.fg, 0.06)
-        border.width: 1
-        border.color: Theme.palette.border
+        padding: 4
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent | Popup.CloseOnPressOutside
+        modal: false
         z: 999
 
         property var targetRow: null
@@ -512,14 +526,20 @@ Item {
             var localPos = page.mapFromGlobal(globalX, globalY)
             x = Math.max(Theme.s4, Math.min(localPos.x, page.width  - width  - Theme.s4))
             y = Math.max(Theme.s4, Math.min(localPos.y, page.height - height - Theme.s4))
-            visible = true
-            forceActiveFocus()
+            open()
         }
 
-        ColumnLayout {
+        onOpened: mEditItem.forceActiveFocus()
+
+        background: Rectangle {
+            radius: Theme.rMd
+            color: Theme.palette.popover
+            border.width: 1
+            border.color: Theme.palette.border
+        }
+
+        contentItem: ColumnLayout {
             id: cmCol
-            anchors.fill: parent
-            anchors.margins: 4
             spacing: 2
 
             Rectangle {
@@ -531,16 +551,17 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Edit transaction"
-                Keys.onReturnPressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
-                Keys.onSpacePressed: { contextMenu.visible = false; page.openEditDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mDelItem.forceActiveFocus()
                 Keys.onUpPressed: mDelItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: 14 }
+                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: Theme.fsBody }
                     Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
@@ -551,7 +572,7 @@ Item {
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openEditDialog(contextMenu.targetRow)
                     }
                 }
@@ -566,16 +587,17 @@ Item {
                 activeFocusOnTab: true
                 Accessible.role: Accessible.Button
                 Accessible.name: "Delete transaction"
-                Keys.onReturnPressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
-                Keys.onSpacePressed: { contextMenu.visible = false; page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onReturnPressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
                 Keys.onDownPressed: mEditItem.forceActiveFocus()
                 Keys.onUpPressed: mEditItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u2716"; color: Theme.danger; font.pixelSize: 14 }
+                    Text { text: "\u2716"; color: Theme.danger; font.pixelSize: Theme.fsBody }
                     Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
@@ -586,26 +608,12 @@ Item {
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openDeleteDialog(contextMenu.targetRow)
                     }
                 }
             }
         }
-
-        TapHandler {
-            onTapped: contextMenu.visible = false
-        }
-
-        Keys.onEscapePressed: contextMenu.visible = false
-        Keys.onDownPressed: mEditItem.forceActiveFocus()
-        Keys.onUpPressed: mDelItem.forceActiveFocus()
-        focus: true
-    }
-
-    TapHandler {
-        enabled: contextMenu.visible
-        onTapped: contextMenu.visible = false
     }
 
     function openEditDialog(row) {

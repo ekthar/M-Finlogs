@@ -143,6 +143,8 @@ qt_add_qml_module(mfinlogs-native
         qml/StaggerEntrance.qml
         qml/Button.qml
         qml/Checkbox.qml
+        qml/LoadingOverlay.qml
+        qml/ErrorBanner.qml
         qml/FocusRing.qml
         qml/IconButton.qml
         qml/Switch.qml

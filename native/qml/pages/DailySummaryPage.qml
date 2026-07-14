@@ -5,15 +5,24 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Connections {
         target: backend
         function onDailySummaryLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
             rows = result || []
         }
     }
 
     function load() {
+        page.isLoading = true
         backend.fetchDailySummary(dateRange.fromIso, dateRange.toIso)
     }
     Component.onCompleted: {
@@ -79,6 +88,12 @@ Item {
             }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -87,6 +102,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No data for the selected range"
+                loading: page.isLoading
                 rows: page.rows
                 columns: [
                     { title: "Date", key: "date", date: true, weight: 1.2 },

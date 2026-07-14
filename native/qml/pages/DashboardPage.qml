@@ -9,14 +9,18 @@ Item {
 
     property var metrics: ({})
     property var trend: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Connections {
         target: backend
         function onDashboardLoaded(res) {
+            page.isLoading = false
             if (res && res.error) {
-                backend.toast(res.error, "error")
+                page.errorMessage = res.error
                 return
             }
+            page.errorMessage = ""
             metrics = res
             trend = backend.salesTrend(30)
         }
@@ -26,16 +30,37 @@ Item {
     }
 
     function refresh() {
+        page.isLoading = true
         backend.fetchDashboard()
     }
 
     Component.onCompleted: refresh()
 
+    LoadingOverlay {
+        anchors.fill: parent
+        active: page.isLoading
+        text: "Loading dashboard..."
+    }
+
+    ErrorBanner {
+        id: dashError
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.leftMargin: Theme.s8
+        anchors.rightMargin: Theme.s8
+        anchors.topMargin: Theme.s5
+        message: page.errorMessage
+        z: Theme.zSticky
+        onRetry: page.refresh()
+    }
+
     Flickable {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
         anchors.rightMargin: Theme.s8
-        anchors.topMargin: Theme.s6
+        anchors.topMargin: Theme.s5
+        anchors.bottomMargin: Theme.s6
         contentWidth: width
         contentHeight: col.implicitHeight + Theme.s10
         clip: true

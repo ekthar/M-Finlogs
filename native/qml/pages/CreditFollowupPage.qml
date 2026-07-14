@@ -7,11 +7,20 @@ Item {
     id: page
     property var rows: []
     property real totalOutstanding: 0
+    property bool isLoading: false
+    property string errorMessage: ""
 
     function refresh() {
+        page.isLoading = true
         backend.fetchPartyBalances()
     }
     function applyRows(result) {
+        page.isLoading = false
+        if (result && result.error) {
+            page.errorMessage = result.error
+            return
+        }
+        page.errorMessage = ""
         var all = result || []
         rows = all.filter(function(row) { return Number(row.balance || 0) > 0 })
         var t = 0
@@ -108,6 +117,12 @@ Item {
             GhostButton { text: "Refresh"; implicitWidth: 100; onClicked: page.refresh() }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.refresh()
+        }
+
         Rectangle {
             Layout.fillWidth: true
             height: 1
@@ -118,13 +133,13 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.s4
-            Text { text: "\u25CF"; color: Theme.success; font.pixelSize: 10 }
+            Text { text: "\u25CF"; color: Theme.success; font.pixelSize: Theme.fsOverline }
             Text { text: "< 15 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-            Text { text: "\u25CF"; color: Theme.palette.primary; font.pixelSize: 10 }
+            Text { text: "\u25CF"; color: Theme.palette.primary; font.pixelSize: Theme.fsOverline }
             Text { text: "15-30 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-            Text { text: "\u25CF"; color: Theme.warning; font.pixelSize: 10 }
+            Text { text: "\u25CF"; color: Theme.warning; font.pixelSize: Theme.fsOverline }
             Text { text: "30-60 days"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
-            Text { text: "\u25CF"; color: Theme.danger; font.pixelSize: 10 }
+            Text { text: "\u25CF"; color: Theme.danger; font.pixelSize: Theme.fsOverline }
             Text { text: "60+ days overdue"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
             Item { Layout.fillWidth: true }
         }
@@ -178,8 +193,8 @@ Item {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 16
+                            anchors.leftMargin: Theme.s4
+                            anchors.rightMargin: Theme.s4
                             spacing: 0
 
                             Text {

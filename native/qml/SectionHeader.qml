@@ -8,6 +8,9 @@ Column {
     property string subtitle: ""
     spacing: 4
 
+    Accessible.role: Accessible.Heading
+    Accessible.name: root.title
+
     Text {
         text: root.title
         color: Theme.palette.fg

@@ -8,11 +8,20 @@ Item {
     property var rows: []
     property real totalDr: 0
     property real totalCr: 0
+    property bool isLoading: false
+    property string errorMessage: ""
 
     function refresh() {
+        page.isLoading = true
         backend.fetchPartyBalances()
     }
     function applyRows(result) {
+        page.isLoading = false
+        if (result && result.error) {
+            page.errorMessage = result.error
+            return
+        }
+        page.errorMessage = ""
         rows = result || []
         var dr = 0, cr = 0
         for (var i = 0; i < rows.length; i++) {
@@ -78,6 +87,12 @@ Item {
             StatusPill { text: "Total Cr: " + backend.formatMoney(page.totalCr); tint: page.totalCr > 0 ? Theme.palette.info : Theme.success }
             Item { Layout.fillWidth: true }
             GhostButton { text: "Refresh"; implicitWidth: 100; onClicked: page.refresh() }
+        }
+
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.refresh()
         }
 
         GlassPanel {
@@ -147,8 +162,8 @@ Item {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 16
+                            anchors.leftMargin: Theme.s4
+                            anchors.rightMargin: Theme.s4
                             spacing: 0
 
                             Text {

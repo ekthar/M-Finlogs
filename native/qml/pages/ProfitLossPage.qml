@@ -5,13 +5,24 @@ import MFinlogs
 Item {
     id: page
     property var data: ({})
+    property bool isLoading: false
+    property string errorMessage: ""
 
-    function load() { backend.fetchProfitAndLoss() }
+    function load() { page.isLoading = true; backend.fetchProfitAndLoss() }
     Component.onCompleted: { load() }
     Connections {
         target: backend
         function onDataChanged() { page.load() }
-        function onProfitAndLossLoaded(result) { if (!result || result.ok !== false) page.data = result || ({}) }
+        function onProfitAndLossLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
+            if (!result || result.ok === false) return
+            page.data = result || ({})
+        }
     }
 
     property real sales: Number(data.sales || 0)
@@ -37,6 +48,12 @@ Item {
         backend.exportTableToExcel("Profit & Loss", cols, data)
     }
 
+    LoadingOverlay {
+        anchors.fill: parent
+        active: page.isLoading
+        text: "Loading profit & loss..."
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -54,6 +71,12 @@ Item {
             Item { Layout.fillWidth: true }
             GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
             GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
+        }
+
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
         }
 
         GridLayout {

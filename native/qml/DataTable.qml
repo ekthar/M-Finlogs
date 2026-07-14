@@ -14,6 +14,9 @@ Item {
     property bool checkable: false
     property var checkedRows: []
     property var checkedMap: ({})
+
+    Accessible.role: Accessible.Table
+    Accessible.name: root.emptyText
     onCheckedRowsChanged: {
         var m = {}
         for (var i = 0; i < checkedRows.length; i++) m[checkedRows[i]] = true
@@ -196,6 +199,7 @@ Item {
             }
 
             focus: true
+            activeFocusOnTab: true
             keyNavigationEnabled: true
             keyNavigationWraps: false
             highlightMoveDuration: Theme.durFast
@@ -384,19 +388,24 @@ Item {
             Column {
                 anchors.centerIn: parent
                 visible: (!root.loading) && (!root.rows || root.rows.length === 0)
-                spacing: 10
+                spacing: Theme.s3
+
+                Accessible.role: Accessible.StaticText
+                Accessible.name: root.emptyText
+
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "\u25CB"
                     color: Theme.palette.fgSubtle
-                    font.pixelSize: 34
+                    font.pixelSize: 40
+                    opacity: 0.6
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: root.emptyText
-                    color: Theme.palette.fgSubtle
+                    color: Theme.palette.fgMuted
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fsSmall
+                    font.pixelSize: Theme.fsBody
                 }
             }
 

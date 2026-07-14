@@ -5,13 +5,23 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
-    function load() { backend.fetchAuditLogs() }
+    function load() { page.isLoading = true; backend.fetchAuditLogs() }
     Component.onCompleted: { load() }
     Connections {
         target: backend
         function onDataChanged() { page.load() }
-        function onAuditLogsLoaded(result) { page.rows = result || [] }
+        function onAuditLogsLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
+            page.rows = result || []
+        }
     }
 
     function doExportPdf() {
@@ -53,6 +63,12 @@ Item {
             GhostButton { text: "Refresh"; onClicked: page.load() }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -61,6 +77,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No audit entries"
+                loading: page.isLoading
                 rows: page.rows
                 columns: [
                     { title: "Time", key: "timestamp", weight: 1.6 },

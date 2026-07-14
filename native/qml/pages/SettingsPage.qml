@@ -433,7 +433,7 @@ Item {
                     Text { text: "Native financial workspace with the Aurora design system."; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     RowLayout {
                         spacing: 8
-                        Text { text: "\u2728"; color: Theme.palette.primary; font.pixelSize: 14 }
+                        Text { text: "\u2728"; color: Theme.palette.primary; font.pixelSize: Theme.fsBody }
                         Text { text: "Crafted by EKTHAR"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                     }
                 }

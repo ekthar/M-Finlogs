@@ -13,7 +13,7 @@ Item {
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: "\u2728"
-            font.pixelSize: 40
+            font.pixelSize: Theme.s10
             color: Theme.palette.primary
         }
         Text {

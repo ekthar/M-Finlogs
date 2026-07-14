@@ -18,6 +18,8 @@ Item {
     property string purchaseQty: ""
     property int purchaseRowIdx: -1
     property bool purchaseDialogOpen: false
+    property bool isLoading: false
+    property string errorMessage: ""
 
     readonly property var monthNames: ["January","February","March","April","May",
         "June","July","August","September","October","November","December"]
@@ -117,7 +119,12 @@ Item {
         target: backend
         function onDataChanged() { page.load() }
         function onInventoryReportLoaded(result) {
-            if (result && result.ok === false) return
+            page.isLoading = false
+            if (result && result.ok === false) {
+                page.errorMessage = result.error || "Failed to load inventory"
+                return
+            }
+            page.errorMessage = ""
             page.rows = result.rows || []
             page.stockRows = result.stockRows || []
             page.recalcMetrics()
@@ -127,6 +134,7 @@ Item {
     function load() {
         if (!selectedFy) return
         cachedDaysInMonth = daysInMonth()
+        page.isLoading = true
         backend.fetchInventoryReport(selectedFy, selectedMonth)
     }
 
@@ -202,7 +210,13 @@ Item {
 
         SectionHeader {
             title: "Inventory"
-            subtitle: "Daily stock quantities and purchase tracking \u2014 " + monthNames[selectedMonth - 1]
+            subtitle: "Daily stock quantities and purchase tracking - " + monthNames[selectedMonth - 1]
+        }
+
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
         }
 
         // Toolbar

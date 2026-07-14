@@ -101,6 +101,9 @@ Button {
 
     Accessible.role: Accessible.Button
     Accessible.name: control.text
+    activeFocusOnTab: true
+
+    FocusRing { visible: control.activeFocus }
 
     onPressed: rippleGrow.restart()
 

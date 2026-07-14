@@ -5,13 +5,21 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
-
     property var totals: ({})
+    property bool isLoading: false
+    property string errorMessage: ""
 
     function load() {
+        page.isLoading = true
         backend.fetchTrialBalance()
     }
     function applyRows(result) {
+        page.isLoading = false
+        if (result && result.error) {
+            page.errorMessage = result.error
+            return
+        }
+        page.errorMessage = ""
         rows = result || []
         var d = 0, c = 0
         for (var i = 0; i < rows.length; i++) {
@@ -65,6 +73,12 @@ Item {
             GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -73,6 +87,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No account data"
+                loading: page.isLoading
                 rows: page.rows
                 totals: page.totals
                 totalsLabel: "Total"
