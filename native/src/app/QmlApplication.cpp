@@ -222,7 +222,7 @@ const char* exceptionCodeName(DWORD code) {
         case EXCEPTION_INT_DIVIDE_BY_ZERO:    return "EXCEPTION_INT_DIVIDE_BY_ZERO";
         case EXCEPTION_DATATYPE_MISALIGNMENT: return "EXCEPTION_DATATYPE_MISALIGNMENT";
         case EXCEPTION_PRIV_INSTRUCTION:      return "EXCEPTION_PRIV_INSTRUCTION";
-        case EXCEPTION_HEAP_CORRUPTION:       return "EXCEPTION_HEAP_CORRUPTION";
+        case 0xC0000374:                      return "EXCEPTION_HEAP_CORRUPTION";
         case 0xE06D7363:                      return "MSVC_CPP_EXCEPTION (0xE06D7363)";
         default:                              return "UNKNOWN";
     }
