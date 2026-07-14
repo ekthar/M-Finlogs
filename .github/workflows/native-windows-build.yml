@@ -72,10 +72,98 @@ jobs:
           Copy-Item -Path "fonts\InterTight-*.ttf" -Destination "$packageDir\fonts" -Force
           windeployqt --release --qmldir native\qml --compiler-runtime "$packageDir\mfinlogs-native.exe"
 
+      - name: Verify package contents
+        run: |
+          $packageDir = "native\build\package"
+          $missing = @()
+
+          # Critical executables and DLLs
+          $requiredFiles = @(
+            "mfinlogs-native.exe",
+            "Qt6Core.dll",
+            "Qt6Gui.dll",
+            "Qt6Quick.dll",
+            "Qt6Qml.dll",
+            "Qt6QuickControls2.dll",
+            "Qt6Widgets.dll",
+            "Qt6Sql.dll",
+            "Qt6Network.dll",
+            "platforms\qwindows.dll",
+            "fonts\InterTight-Regular.ttf",
+            "fonts\SpaceMono-Regular.ttf",
+            "db_config.json"
+          )
+
+          foreach ($file in $requiredFiles) {
+            $fullPath = Join-Path $packageDir $file
+            if (-not (Test-Path $fullPath)) {
+              $missing += $file
+              Write-Host "MISSING: $file" -ForegroundColor Red
+            } else {
+              Write-Host "OK: $file" -ForegroundColor Green
+            }
+          }
+
+          # At least one SQL driver plugin must be present
+          $sqlDrivers = @("sqldrivers\qsqlodbc.dll", "sqldrivers\qsqlite.dll")
+          $hasSqlDriver = $false
+          foreach ($driver in $sqlDrivers) {
+            $fullPath = Join-Path $packageDir $driver
+            if (Test-Path $fullPath) {
+              $hasSqlDriver = $true
+              Write-Host "OK: $driver (SQL driver)" -ForegroundColor Green
+            }
+          }
+          if (-not $hasSqlDriver) {
+            $missing += "sqldrivers\qsqlodbc.dll OR sqldrivers\qsqlite.dll"
+            Write-Host "MISSING: No SQL driver plugin found (need qsqlodbc.dll or qsqlite.dll)" -ForegroundColor Red
+          }
+
+          # Check for QML modules deployed by windeployqt
+          $qmlDir = Join-Path $packageDir "qml"
+          if (Test-Path $qmlDir) {
+            Write-Host "OK: QML modules directory exists" -ForegroundColor Green
+          } else {
+            Write-Host "WARNING: qml/ directory not found - QML modules may be compiled into binary" -ForegroundColor Yellow
+          }
+
+          # Summary
+          if ($missing.Count -gt 0) {
+            Write-Host ""
+            Write-Host "=== PACKAGING VALIDATION FAILED ===" -ForegroundColor Red
+            Write-Host "Missing $($missing.Count) required file(s):" -ForegroundColor Red
+            $missing | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+            Write-Host ""
+            Write-Host "Package contents:" -ForegroundColor Yellow
+            Get-ChildItem -Path $packageDir -Recurse | ForEach-Object {
+              Write-Host "  $($_.FullName.Replace((Resolve-Path $packageDir).Path, ''))"
+            }
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "=== All required package files verified ===" -ForegroundColor Green
+
+      - name: Smoke test QML loading
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $proc = Start-Process -FilePath "native\build\package\mfinlogs-native.exe" -ArgumentList "--verify-qml" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "QML verification failed with exit code $($proc.ExitCode)"
+            Write-Host "The packaged binary could not load QML modules correctly." -ForegroundColor Red
+            Write-Host "Check that windeployqt deployed all required QML modules and plugins." -ForegroundColor Yellow
+            exit 1
+          }
+          Write-Host "QML smoke test passed - all modules load correctly" -ForegroundColor Green
+
       - name: Build installer
         run: |
           choco install innosetup -y --no-progress
-          native\installer\build_installer.bat
+          & native\installer\build_installer.bat
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Inno Setup installer build failed with exit code $LASTEXITCODE"
+            exit 1
+          }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
