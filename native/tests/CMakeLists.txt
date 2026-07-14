@@ -49,6 +49,11 @@ target_link_libraries(test_sqlite_services PRIVATE
 target_sources(test_sqlite_services PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqliteBusinessServices.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqliteSchemaInitializer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SchemaInitializer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqlDatabase.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqlBusinessServices.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/ConnectionPool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/MigrationService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/PasswordVerifier.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/ConfigService.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/domain/ServiceRegistry.cpp
@@ -88,6 +93,7 @@ target_sources(test_qml_backend PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/XlsxReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqliteBusinessServices.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqliteSchemaInitializer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SchemaInitializer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqlBusinessServices.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/SqlDatabase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/data/ConnectionPool.cpp
