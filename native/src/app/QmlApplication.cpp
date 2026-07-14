@@ -223,6 +223,9 @@ int runQmlApplication(int argc, char** argv) {
 
     // Branded splash -- show early and keep visible until QML window renders.
     const bool verifyQml = QCoreApplication::arguments().contains(QStringLiteral("--verify-qml"));
+    if (verifyQml) {
+        qputenv("QSG_RHI_BACKEND", "null");
+    }
     SplashScreen splash;
     if (!verifyQml) {
         splash.show();

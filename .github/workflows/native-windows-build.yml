@@ -190,6 +190,7 @@ jobs:
       - name: Smoke test QML loading
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
+          $env:QSG_RHI_BACKEND = "null"
           $proc = Start-Process -FilePath "native\build\package\mfinlogs-native.exe" -ArgumentList "--verify-qml" -PassThru -NoNewWindow
           if (-not $proc.WaitForExit(30000)) {
             $proc.Kill()
