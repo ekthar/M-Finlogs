@@ -17,7 +17,7 @@ Rectangle {
     border.width: 1
     border.color: Theme.alpha(Theme.palette.danger, 0.25)
 
-    Accessible.role: Accessible.AlertMessage
+    Accessible.role: Accessible.StaticText
     Accessible.name: "Error: " + root.message
 
     RowLayout {

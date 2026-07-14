@@ -3,12 +3,12 @@
 #include "app/AppContext.h"
 
 #include <QAtomicInt>
-#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QThreadPool>
 #include <QVariant>
 #include <QVariantList>
 #include <QVariantMap>
@@ -41,6 +41,7 @@ class QmlBackend final : public QObject {
 
 public:
     explicit QmlBackend(AppContext& context, QObject* parent = nullptr);
+    ~QmlBackend() override;
 
     bool authenticated() const { return authenticated_; }
     QString currentUser() const { return currentUser_; }

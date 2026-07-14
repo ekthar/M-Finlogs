@@ -1109,6 +1109,8 @@ public:
         // Sundry Debtors: Use canonical balance calculation (Sale - Receipt/SaleReturn)
         // for Credit Customer parties. Uses the same logic as outstanding() to ensure
         // trial balance Sundry Debtors == sum of outstanding balances within FY.
+        // UPPER(TRIM(...)) normalization ensures case/whitespace differences in the
+        // parties.type column do not silently exclude valid rows.
         QSqlQuery debtorQuery(db.handle());
         debtorQuery.prepare(QStringLiteral(
             "SELECT ")
@@ -1117,7 +1119,7 @@ public:
             + domain::creditSumSql(QStringLiteral("t.txn_type"), QStringLiteral("t.amount"))
             + QStringLiteral(
             " FROM transactions t JOIN parties p ON t.party_id=p.party_id "
-            "WHERE p.type='Credit Customer' AND t.txn_date >= ? AND t.txn_date <= ?")
+            "WHERE UPPER(TRIM(p.type)) IN ('CUSTOMER','CREDIT CUSTOMER') AND t.txn_date >= ? AND t.txn_date <= ?")
         );
         debtorQuery.addBindValue(bounds.first.toString(Qt::ISODate));
         debtorQuery.addBindValue(bounds.second.toString(Qt::ISODate));

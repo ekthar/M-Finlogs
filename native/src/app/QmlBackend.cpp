@@ -225,16 +225,17 @@ public:
     };
 
     DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params,
-                 QObject* receiver, int generation, qint64 requestStartNs)
+                 QObject* receiver, int generation, qint64 requestStartMs)
         : type_(type), context_(context), params_(params),
-          receiver_(receiver), generation_(generation), requestStartNs_(requestStartNs) {}
+          receiver_(receiver), generation_(generation), requestStartMs_(requestStartMs) {}
 
     void run() override {
         QElapsedTimer timer;
         timer.start();
 
         QVariantMap timings;
-        timings.insert(QStringLiteral("request_start_ns"), requestStartNs_);
+        timings.insert(QStringLiteral("request_start_ms"), requestStartMs_);
+        timings.insert(QStringLiteral("queue_delay_ms"), QDateTime::currentMSecsSinceEpoch() - requestStartMs_);
         timings.insert(QStringLiteral("db_start_ns"), timer.nsecsElapsed());
 
         if (type_ == GetLedger) {
@@ -536,7 +537,7 @@ private:
     QVariantMap params_;
     QPointer<QObject> receiver_;
     int generation_;
-    qint64 requestStartNs_;
+    qint64 requestStartMs_;
 
     // Deliver a QVariantMap result safely - checks receiver still exists
     void deliverMapResult(const char* slot, const QVariantMap& result, const QVariantMap& timings) {
@@ -570,6 +571,12 @@ QmlBackend::QmlBackend(AppContext& context, QObject* parent)
     } catch (...) {
         // Database may not be configured yet; QML will surface config UI.
     }
+}
+
+QmlBackend::~QmlBackend() {
+    // Ensure all in-flight DatabaseTask instances complete before the AppContext
+    // reference they hold becomes invalid during application teardown.
+    QThreadPool::globalInstance()->waitForDone();
 }
 
 bool QmlBackend::setupRequired() const {
@@ -1010,9 +1017,8 @@ void QmlBackend::fetchLedger(const QString& party, const QString& startIso, cons
     params.insert(QStringLiteral("party"), party);
     params.insert(QStringLiteral("startIso"), startIso);
     params.insert(QStringLiteral("endIso"), endIso);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetLedger, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetLedger, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDayBook(const QString& dateIso) {
@@ -1020,17 +1026,15 @@ void QmlBackend::fetchDayBook(const QString& dateIso) {
     setLoading(DatabaseTask::GetDayBook, true);
     QVariantMap params;
     params.insert(QStringLiteral("dateIso"), dateIso);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetDayBook, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetDayBook, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDashboard() {
     const int gen = nextGeneration(DatabaseTask::GetDashboard);
     setLoading(DatabaseTask::GetDashboard, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDailySummary(const QString& startIso, const QString& endIso) {
@@ -1039,49 +1043,43 @@ void QmlBackend::fetchDailySummary(const QString& startIso, const QString& endIs
     QVariantMap params;
     params.insert(QStringLiteral("startIso"), startIso);
     params.insert(QStringLiteral("endIso"), endIso);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchOutstanding() {
     const int gen = nextGeneration(DatabaseTask::GetOutstanding);
     setLoading(DatabaseTask::GetOutstanding, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetOutstanding, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetOutstanding, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchTrialBalance() {
     const int gen = nextGeneration(DatabaseTask::GetTrialBalance);
     setLoading(DatabaseTask::GetTrialBalance, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetTrialBalance, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetTrialBalance, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchProfitAndLoss() {
     const int gen = nextGeneration(DatabaseTask::GetProfitAndLoss);
     setLoading(DatabaseTask::GetProfitAndLoss, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetProfitAndLoss, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetProfitAndLoss, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchPartyBalances() {
     const int gen = nextGeneration(DatabaseTask::GetPartyBalances);
     setLoading(DatabaseTask::GetPartyBalances, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetPartyBalances, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetPartyBalances, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchAuditLogs() {
     const int gen = nextGeneration(DatabaseTask::GetAuditLogs);
     setLoading(DatabaseTask::GetAuditLogs, true);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetAuditLogs, context_, {}, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetAuditLogs, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchInventoryReport(const QString& financialYear, int month) {
@@ -1090,9 +1088,8 @@ void QmlBackend::fetchInventoryReport(const QString& financialYear, int month) {
     QVariantMap params;
     params.insert(QStringLiteral("financialYear"), financialYear);
     params.insert(QStringLiteral("month"), month);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetInventoryReport, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetInventoryReport, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchTransactions(int page, int limit, int days) {
@@ -1102,9 +1099,8 @@ void QmlBackend::fetchTransactions(int page, int limit, int days) {
     params.insert(QStringLiteral("page"), page);
     params.insert(QStringLiteral("limit"), limit);
     params.insert(QStringLiteral("days"), days);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::GetTransactions, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::GetTransactions, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchExport(const QString& format, const QString& title,
@@ -1116,9 +1112,8 @@ void QmlBackend::fetchExport(const QString& format, const QString& title,
     params.insert(QStringLiteral("title"), title);
     params.insert(QStringLiteral("columns"), QVariant::fromValue(columns));
     params.insert(QStringLiteral("rows"), QVariant::fromValue(rows));
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::DoExport, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::DoExport, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchBackup(const QString& targetDir) {
@@ -1126,9 +1121,8 @@ void QmlBackend::fetchBackup(const QString& targetDir) {
     setLoading(DatabaseTask::DoBackup, true);
     QVariantMap params;
     params.insert(QStringLiteral("targetDir"), targetDir);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::DoBackup, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::DoBackup, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchRestore(const QString& backupPath) {
@@ -1136,9 +1130,8 @@ void QmlBackend::fetchRestore(const QString& backupPath) {
     setLoading(DatabaseTask::DoRestore, true);
     QVariantMap params;
     params.insert(QStringLiteral("backupPath"), backupPath);
-    QElapsedTimer t; t.start();
     QThreadPool::globalInstance()->start(
-        new DatabaseTask(DatabaseTask::DoRestore, context_, params, this, gen, t.nsecsElapsed()));
+        new DatabaseTask(DatabaseTask::DoRestore, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 // --- onXTaskFinished slots with generation check and timing emission ------
@@ -2827,14 +2820,16 @@ QString QmlBackend::todayIso() const {
 int QmlBackend::nextGeneration(int taskType) {
     // Increment and return the new generation value.
     // This makes any in-flight request for this task type stale.
-    return requestTrackers_[taskType].generation.fetchAndAddRelaxed(1) + 1;
+    // Use Acquire ordering to ensure the store is visible to the
+    // comparison in isStale() even under nested event-loop re-entry.
+    return requestTrackers_[taskType].generation.fetchAndAddAcquire(1) + 1;
 }
 
 bool QmlBackend::isStale(int taskType, int generation) const {
     // If the generation delivered does not match current, the result is stale.
     auto it = requestTrackers_.constFind(taskType);
     if (it == requestTrackers_.constEnd()) return true;
-    return it->generation.loadRelaxed() != generation;
+    return it->generation.loadAcquire() != generation;
 }
 
 void QmlBackend::setLoading(int taskType, bool loading) {
