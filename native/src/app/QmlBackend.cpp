@@ -2,6 +2,7 @@
 #include "app/XlsxReader.h"
 
 #include "data/MigrationService.h"
+#include "domain/BalanceCalculator.h"
 #include "domain/DomainErrors.h"
 #include "domain/Types.h"
 
@@ -91,10 +92,16 @@ QVariantList partyBalancesFromOutstanding(const QJsonObject& outstanding) {
     result.reserve(rows.size());
     for (const QJsonValue& value : rows) {
         const QJsonObject row = value.toObject();
+        // closing_balance is the full historical balance (lifetime debit - credit)
         const double balance = row.value(QStringLiteral("closing_balance")).toDouble(
             row.value(QStringLiteral("balance")).toDouble());
         QVariantMap entry = jsonObjectToMap(row);
         entry.insert(QStringLiteral("balance"), balance);
+        entry.insert(QStringLiteral("closing_balance"), balance);
+        entry.insert(QStringLiteral("debit"), row.value(QStringLiteral("debit")).toDouble());
+        entry.insert(QStringLiteral("credit"), row.value(QStringLiteral("credit")).toDouble());
+        entry.insert(QStringLiteral("transaction_count"), row.value(QStringLiteral("transaction_count")).toInt());
+        entry.insert(QStringLiteral("last_transaction_date"), row.value(QStringLiteral("last_transaction_date")).toString());
         entry.insert(QStringLiteral("balanceLabel"), QLocale().toString(qAbs(balance), 'f', 2)
             + (balance >= 0.0 ? QStringLiteral(" Dr") : QStringLiteral(" Cr")));
         entry.insert(QStringLiteral("lastDate"), row.value(QStringLiteral("last_receipt")).toString());
@@ -2654,6 +2661,13 @@ QVariantMap QmlBackend::closingReport() {
         const double closingCash = opening + cashReceipts + cashSales;
         const double upiTotal = upiReceipts + upiSales;
 
+        // Compute total receivables using canonical balance from outstanding report
+        double totalReceivables = 0.0;
+        try {
+            const QJsonObject outstandingData = context_.services().reports->outstanding();
+            totalReceivables = outstandingData.value(QStringLiteral("total")).toDouble();
+        } catch (...) {}
+
         QVariantMap result;
         result.insert(QStringLiteral("date"), todayIso);
         result.insert(QStringLiteral("openingCash"), opening);
@@ -2665,6 +2679,7 @@ QVariantMap QmlBackend::closingReport() {
         result.insert(QStringLiteral("closingCash"), closingCash);
         result.insert(QStringLiteral("upiTotal"), upiTotal);
         result.insert(QStringLiteral("totalCollected"), cashReceipts + upiReceipts + cashSales + upiSales);
+        result.insert(QStringLiteral("receivables"), totalReceivables);
         result.insert(QStringLiteral("receiptCount"), receiptCount);
         result.insert(QStringLiteral("cashSaleCount"), cashSaleCount);
         result.insert(QStringLiteral("upiSaleCount"), upiSaleCount);
