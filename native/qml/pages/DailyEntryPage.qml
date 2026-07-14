@@ -20,8 +20,12 @@ Item {
         backend.fetchTransactions(1, 100, 0)
     }
     function refreshParties() {
-        var result = backend.partyNames()
-        partyList = result || []
+        try {
+            var result = backend.partyNames()
+            partyList = result || []
+        } catch(e) {
+            partyList = []
+        }
     }
     function lookupPartyBalance(name) {
         if (!name || name.trim().length === 0) {
@@ -42,12 +46,39 @@ Item {
     // FIX: defer forceActiveFocus so layout geometry is settled before we call it
     Component.onCompleted: {
         refresh()
-        refreshParties()
-        Qt.callLater(function() {
-            if (billField && billField.inputField) {
-                billField.inputField.forceActiveFocus()
+        deferredInitTimer.start()
+    }
+
+    // Defer synchronous calls to avoid freezing the GUI thread on unreachable DB
+    Timer {
+        id: deferredInitTimer
+        interval: 50
+        running: false
+        repeat: false
+        onTriggered: {
+            try {
+                refreshParties()
+            } catch(e) {
+                partyList = []
             }
-        })
+            Qt.callLater(function() {
+                if (billField && billField.inputField) {
+                    billField.inputField.forceActiveFocus()
+                }
+            })
+        }
+    }
+
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
     }
 
     Connections {

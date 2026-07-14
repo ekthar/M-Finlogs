@@ -25,6 +25,18 @@ Item {
         total = Number(res.total || 0)
         stats = res.stats || {}
     }
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
     Component.onCompleted: { load() }
     Connections {
         target: backend

@@ -9,19 +9,46 @@ Item {
     property var dbConfig: ({})
 
     Component.onCompleted: {
-        openingField.text = backend.formatMoney(backend.openingCashSeed())
-        if (backend.isAdmin) loadUsers()
-        dbConfig = backend.readDatabaseConfig()
-        if (dbConfig && !dbConfig.error) {
-            dbServer.text = dbConfig.server || ""
-            dbDatabase.text = dbConfig.database || ""
-            dbAuthType.currentIndex = dbConfig.useWindowsAuth === false ? 1 : 0
-            dbUsername.text = dbConfig.username || ""
-            dbBackupDir.text = dbConfig.backupDir || ""
-            dbApiBase.text = dbConfig.apiBaseUrl || ""
+        // Defer blocking synchronous calls to next event loop tick
+        // so the page renders first and doesn't freeze the GUI thread
+        deferredInitTimer.start()
+    }
+
+    Timer {
+        id: deferredInitTimer
+        interval: 50
+        running: false
+        repeat: false
+        onTriggered: {
+            try {
+                openingField.text = backend.formatMoney(backend.openingCashSeed())
+            } catch(e) {
+                openingField.text = "0"
+            }
+            try {
+                if (backend.isAdmin) loadUsers()
+            } catch(e) {
+                // Users load failed silently
+            }
+            try {
+                dbConfig = backend.readDatabaseConfig()
+                if (dbConfig && !dbConfig.error) {
+                    dbServer.text = dbConfig.server || ""
+                    dbDatabase.text = dbConfig.database || ""
+                    dbAuthType.currentIndex = dbConfig.useWindowsAuth === false ? 1 : 0
+                    dbUsername.text = dbConfig.username || ""
+                    dbBackupDir.text = dbConfig.backupDir || ""
+                    dbApiBase.text = dbConfig.apiBaseUrl || ""
+                }
+            } catch(e) {
+                // Database config read failed - page still usable
+            }
         }
     }
-    function loadUsers() { userList = backend.users() }
+
+    function loadUsers() {
+        try { userList = backend.users() || [] } catch(e) { userList = [] }
+    }
 
     Flickable {
         anchors.fill: parent

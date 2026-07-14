@@ -8,6 +8,18 @@ Item {
     property bool isLoading: false
     property string errorMessage: ""
 
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
     function load() { page.isLoading = true; backend.fetchProfitAndLoss() }
     Component.onCompleted: { load() }
     Connections {
