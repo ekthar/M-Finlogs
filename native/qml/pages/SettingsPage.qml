@@ -9,20 +9,46 @@ Item {
     property var dbConfig: ({})
 
     Component.onCompleted: {
-        console.log("[SETTINGS] Component.onCompleted - isAdmin:", backend.isAdmin)
-        openingField.text = backend.formatMoney(backend.openingCashSeed())
-        if (backend.isAdmin) loadUsers()
-        dbConfig = backend.readDatabaseConfig()
-        if (dbConfig && !dbConfig.error) {
-            dbServer.text = dbConfig.server || ""
-            dbDatabase.text = dbConfig.database || ""
-            dbAuthType.currentIndex = dbConfig.useWindowsAuth === false ? 1 : 0
-            dbUsername.text = dbConfig.username || ""
-            dbBackupDir.text = dbConfig.backupDir || ""
-            dbApiBase.text = dbConfig.apiBaseUrl || ""
+        // Defer blocking synchronous calls to next event loop tick
+        // so the page renders first and doesn't freeze the GUI thread
+        deferredInitTimer.start()
+    }
+
+    Timer {
+        id: deferredInitTimer
+        interval: 50
+        running: false
+        repeat: false
+        onTriggered: {
+            try {
+                openingField.text = backend.formatMoney(backend.openingCashSeed())
+            } catch(e) {
+                openingField.text = "0"
+            }
+            try {
+                if (backend.isAdmin) loadUsers()
+            } catch(e) {
+                // Users load failed silently
+            }
+            try {
+                dbConfig = backend.readDatabaseConfig()
+                if (dbConfig && !dbConfig.error) {
+                    dbServer.text = dbConfig.server || ""
+                    dbDatabase.text = dbConfig.database || ""
+                    dbAuthType.currentIndex = dbConfig.useWindowsAuth === false ? 1 : 0
+                    dbUsername.text = dbConfig.username || ""
+                    dbBackupDir.text = dbConfig.backupDir || ""
+                    dbApiBase.text = dbConfig.apiBaseUrl || ""
+                }
+            } catch(e) {
+                // Database config read failed - page still usable
+            }
         }
     }
-    function loadUsers() { userList = backend.users() }
+
+    function loadUsers() {
+        try { userList = backend.users() || [] } catch(e) { userList = [] }
+    }
 
     Flickable {
         anchors.fill: parent
@@ -40,12 +66,12 @@ Item {
             contentItem: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.accent, 0.45)
+                color: Theme.alpha(Theme.palette.primary, 0.45)
             }
             background: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.glass, 0.2)
+                color: Theme.alpha(Theme.palette.fg, 0.04)
             }
         }
 
@@ -71,7 +97,7 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s4
-                    Text { text: "Appearance"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Appearance"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
 
                     // Theme toggle row
                     RowLayout {
@@ -79,33 +105,82 @@ Item {
                         spacing: Theme.s3
                         ColumnLayout {
                             spacing: 2
-                            Text { text: "Theme"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
-                            Text { text: "Light is easier on the eyes in bright rooms"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                            Text { text: "Theme"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Light is easier on the eyes in bright rooms"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                         }
                         Item { Layout.fillWidth: true }
-                        // segmented Light / Dark control
+                        // segmented Light / Dark control (pill shape via per-corner radius, Qt 6.7+)
                         Row {
                             spacing: 0
                             Rectangle {
                                 width: 90; height: 36
-                                topLeftRadius: Theme.rMd; bottomLeftRadius: Theme.rMd
-                                color: !Theme.dark ? Theme.accent : Theme.glass
-                                border.width: 1; border.color: Theme.glassBorder
-                                Text { anchors.centerIn: parent; text: "\u2600 Light"; color: !Theme.dark ? Theme.accentInk : Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
+                                topLeftRadius: Theme.rMd
+                                bottomLeftRadius: Theme.rMd
+                                topRightRadius: 0
+                                bottomRightRadius: 0
+                                color: !Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
+                                border.width: 1; border.color: Theme.palette.border
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Light theme"
+                                Keys.onReturnPressed: Theme.dark = false
+                                Keys.onSpacePressed: Theme.dark = false
+                                FocusRing { visible: parent.activeFocus }
+                                Text { anchors.centerIn: parent; text: "\u2600 Light"; color: !Theme.dark ? Theme.palette.primaryFg : Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = false }
                             }
                             Rectangle {
                                 width: 90; height: 36
-                                topRightRadius: Theme.rMd; bottomRightRadius: Theme.rMd
-                                color: Theme.dark ? Theme.accent : Theme.glass
-                                border.width: 1; border.color: Theme.glassBorder
-                                Text { anchors.centerIn: parent; text: "\u263D Dark"; color: Theme.dark ? Theme.accentInk : Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
+                                topLeftRadius: 0
+                                bottomLeftRadius: 0
+                                topRightRadius: Theme.rMd
+                                bottomRightRadius: Theme.rMd
+                                color: Theme.dark ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
+                                border.width: 1; border.color: Theme.palette.border
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Dark theme"
+                                Keys.onReturnPressed: Theme.dark = true
+                                Keys.onSpacePressed: Theme.dark = true
+                                FocusRing { visible: parent.activeFocus }
+                                Text { anchors.centerIn: parent; text: "\u263D Dark"; color: Theme.dark ? Theme.palette.primaryFg : Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall; font.weight: Font.DemiBold }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.dark = true }
                             }
                         }
                     }
 
-                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.glassBorderSoft }
+                    // Follow system theme toggle
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.s3
+                        ColumnLayout {
+                            spacing: 2
+                            Text { text: "Follow System Theme"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Automatically match your OS dark/light preference"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                        }
+                        Item { Layout.fillWidth: true }
+                        Rectangle {
+                            width: 52; height: 30; radius: 15
+                            color: Theme.followSystemTheme ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
+                            border.width: 1; border.color: Theme.followSystemTheme ? Theme.palette.primary : Theme.palette.border
+                            Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: "Follow system theme"
+                            Keys.onReturnPressed: Theme.followSystemTheme = !Theme.followSystemTheme
+                            Keys.onSpacePressed: Theme.followSystemTheme = !Theme.followSystemTheme
+                            Rectangle {
+                                width: 24; height: 24; radius: 12
+                                color: "#ffffff"
+                                y: 3
+                                x: Theme.followSystemTheme ? parent.width - width - 3 : 3
+                                Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
+                            }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.followSystemTheme = !Theme.followSystemTheme }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: Theme.palette.borderSubtle }
 
                     // Animations toggle row
                     RowLayout {
@@ -113,24 +188,32 @@ Item {
                         spacing: Theme.s3
                         ColumnLayout {
                             spacing: 2
-                            Text { text: "Animations"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
-                            Text { text: "Turn off for snappier performance on low-end systems"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                            Text { text: "Animations"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsBody; font.weight: Font.DemiBold }
+                            Text { text: "Turn off for snappier performance on low-end systems"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                         }
                         Item { Layout.fillWidth: true }
                         // toggle switch
                         Rectangle {
                             width: 52; height: 30; radius: 15
-                            color: Theme.animationsEnabled ? Theme.accent : Theme.glass
-                            border.width: 1; border.color: Theme.animationsEnabled ? Theme.accent : Theme.glassBorder
+                            color: Theme.animationsEnabled ? Theme.palette.primary : Theme.alpha(Theme.palette.fg, 0.04)
+                            border.width: 1; border.color: Theme.animationsEnabled ? Theme.palette.primary : Theme.palette.border
                             Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.CheckBox
+                            Accessible.name: "Animations"
+                            Keys.onReturnPressed: Theme.animationsEnabled = !Theme.animationsEnabled
+                            Keys.onSpacePressed: Theme.animationsEnabled = !Theme.animationsEnabled
                             Rectangle {
-                                width: 24; height: 24; radius: 12
-                                color: "#ffffff"
-                                y: 3
-                                x: Theme.animationsEnabled ? parent.width - width - 3 : 3
-                                Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
-                            }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.animationsEnabled = !Theme.animationsEnabled }
+                                    width: 24; height: 24; radius: 12
+                                    color: "#ffffff"
+                                    y: 3
+                                    x: Theme.animationsEnabled ? parent.width - width - 3 : 3
+                                    Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Theme.easeOut } }
+                                }
+
+                                FocusRing { visible: parent.activeFocus }
+
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: Theme.animationsEnabled = !Theme.animationsEnabled }
                         }
                     }
                 }
@@ -149,7 +232,7 @@ Item {
                     anchors.margins: Theme.s5
                     spacing: Theme.s3
 
-                    Text { text: "Database Configuration"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Database Configuration"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
 
                     GridLayout {
                         Layout.fillWidth: true
@@ -165,7 +248,7 @@ Item {
                         FieldInput { id: dbBackupDir; Layout.fillWidth: true; Layout.columnSpan: 2; label: "Backup Directory"; placeholder: "D:/finlogs"; showCompletions: false }
                     }
 
-                    Text { id: dbStatus; visible: text.length > 0; text: ""; color: Theme.accent; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; wrapMode: Text.WordWrap }
+                    Text { id: dbStatus; visible: text.length > 0; text: ""; color: Theme.palette.primary; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; wrapMode: Text.WordWrap }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -220,7 +303,7 @@ Item {
                                 dbStatus.color = Theme.success
                             } else if (r && r.ok === true) {
                                 dbStatus.text = "Restore cancelled."
-                                dbStatus.color = Theme.textDim
+                                dbStatus.color = Theme.palette.fgMuted
                             } else {
                                 dbStatus.text = "\u2717 " + (r.error || "Restore failed")
                                 dbStatus.color = Theme.danger
@@ -242,8 +325,8 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s3
-                    Text { text: "Native Server Controls"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
-                    Text { text: "Start/stop the native HTTP server for client mode"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                    Text { text: "Native Server Controls"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Start/stop the native HTTP server for client mode"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                     RowLayout {
                         spacing: Theme.s3
                         PrimaryButton { text: "Start Server"; onClicked: backend.startNativeServer() }
@@ -264,8 +347,8 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s3
-                    Text { text: "Data Import"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
-                    Text { text: "Import transactions from CSV or Excel (.xlsx) files"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                    Text { text: "Data Import"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Import transactions from CSV or Excel (.xlsx) files"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                     RowLayout {
                         spacing: Theme.s3
                         PrimaryButton {
@@ -289,7 +372,7 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s3
-                    Text { text: "Opening Cash (first day)"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Opening Cash (first day)"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.s3
@@ -313,7 +396,7 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s3
-                    Text { text: "User Management"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "User Management"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -373,12 +456,12 @@ Item {
                     anchors.top: parent.top
                     anchors.margins: Theme.s5
                     spacing: Theme.s2
-                    Text { text: "About M-Finlogs"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
-                    Text { text: "Native financial workspace with the Aurora design system."; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "About M-Finlogs"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Native financial workspace with the Aurora design system."; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     RowLayout {
                         spacing: 8
-                        Text { text: "\u2728"; color: Theme.accent; font.pixelSize: 14 }
-                        Text { text: "Crafted by EKTHAR"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                        Text { text: "\u2728"; color: Theme.palette.primary; font.pixelSize: Theme.fsBody }
+                        Text { text: "Crafted by EKTHAR"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
                     }
                 }
             }

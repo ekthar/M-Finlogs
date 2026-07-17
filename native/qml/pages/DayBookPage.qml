@@ -9,10 +9,18 @@ Item {
     property var totals: ({})
     property var partyList: []
     property var editingRow: null
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Connections {
         target: backend
         function onDayBookLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
             var res = result || []
             // Natural Sorting: sort date-wise, then bill-wise naturally
             res.sort(function(a, b) {
@@ -31,13 +39,24 @@ Item {
     }
 
     function load() {
-        console.log("[DAYBOOK] load() called date:", dateField ? dateField.isoText : "no dateField")
+        page.isLoading = true
         backend.fetchDayBook(dateField.isoText)
     }
 
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
     Component.onCompleted: {
-        console.log("[DAYBOOK] Component.onCompleted")
-        partyList = backend.partyNames()
+        try { partyList = backend.partyNames() || [] } catch(e) { partyList = [] }
         load()
     }
 
@@ -50,7 +69,7 @@ Item {
         }
         backend.exportTableToPdf("Day Book", cols, data)
     }
-    
+
     function doExportCsv() {
         var cols = ["Bill", "Party", "Type", "Mode", "Amount"]
         var data = []
@@ -61,7 +80,7 @@ Item {
         backend.exportTableToExcel("Day Book", cols, data)
     }
 
-    // ── Edit Transaction Dialog ────────────────────────────────────────────
+    // Edit Transaction Dialog
     Dialog {
         id: editDialog
         modal: true
@@ -70,8 +89,11 @@ Item {
         width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
         height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
-        onOpened: console.log("[DAYBOOK] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
-        onClosed: console.log("[DAYBOOK] editDialog closed")
+        onOpened: editDateField.forceActiveFocus()
+        onClosed: {
+            page.editingRow = null
+            if (transactionTable) transactionTable.forceActiveFocus()
+        }
 
         property var originalValues: ({})
         property var targetRow: null
@@ -104,7 +126,7 @@ Item {
         }
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -118,7 +140,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 text: editDialog.title
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -131,7 +153,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s5 }
@@ -152,12 +174,12 @@ Item {
                     contentItem: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.accent, 0.45)
+                        color: Theme.alpha(Theme.palette.primary, 0.45)
                     }
                     background: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.glass, 0.2)
+                        color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2)
                     }
                 }
 
@@ -220,7 +242,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s4 }
@@ -247,7 +269,7 @@ Item {
                     onClicked: {
                         if (!editDialog.targetRow) return
                         var row = editDialog.targetRow
-                        
+
                         // Validate inputs
                         if (editPartyField.text.trim().length === 0) {
                             backend.toast("Party name cannot be empty", "error")
@@ -280,7 +302,7 @@ Item {
         }
     }
 
-    // ── Delete Confirmation Dialog ─────────────────────────────────────────
+    // Delete Confirmation Dialog
     Dialog {
         id: deleteDialog
         modal: true
@@ -289,13 +311,11 @@ Item {
         width: Math.min(440, page.width > 0 ? page.width * 0.85 : 420)
         height: Math.min(260, page.height > 0 ? page.height * 0.5 : 240)
         padding: 0
-        onOpened: console.log("[DAYBOOK] deleteDialog opened")
-        onClosed: console.log("[DAYBOOK] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -312,8 +332,8 @@ Item {
 
                 Text {
                     text: "\u26A0"
-                    color: "#e74c3c"
-                    font.pixelSize: 32
+                    color: Theme.danger
+                    font.pixelSize: Theme.fsHero
                     Layout.alignment: Qt.AlignTop
                 }
 
@@ -324,7 +344,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: "Are you sure you want to delete this transaction?"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
                         wrapMode: Text.WordWrap
@@ -333,7 +353,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: deleteDialog.infoText
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
@@ -347,7 +367,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             RowLayout {
@@ -426,6 +446,12 @@ Item {
             }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -435,6 +461,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No transactions for this date"
+                loading: page.isLoading
                 rows: page.rows
                 totals: page.totals
                 totalsLabel: "Day Total"
@@ -456,16 +483,13 @@ Item {
         }
     }
 
-    // ── Context menu for edit / delete actions ────────────────────────────
-    Rectangle {
+    // Context menu for edit / delete actions
+    Popup {
         id: contextMenu
-        visible: false
         width: 160
-        height: cmCol.implicitHeight + 8
-        radius: Theme.rMd
-        color: Theme.glassStrong
-        border.width: 1
-        border.color: Theme.glassBorder
+        padding: 4
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent | Popup.CloseOnPressOutside
+        modal: false
         z: 999
 
         property var targetRow: null
@@ -475,78 +499,92 @@ Item {
             var localPos = page.mapFromGlobal(globalX, globalY)
             x = Math.max(Theme.s4, Math.min(localPos.x, page.width  - width  - Theme.s4))
             y = Math.max(Theme.s4, Math.min(localPos.y, page.height - height - Theme.s4))
-            visible = true
-            forceActiveFocus()
+            open()
         }
 
-        ColumnLayout {
+        onOpened: mEditItem.forceActiveFocus()
+
+        background: Rectangle {
+            radius: Theme.rMd
+            color: Theme.palette.popover
+            border.width: 1
+            border.color: Theme.palette.border
+        }
+
+        contentItem: ColumnLayout {
             id: cmCol
-            anchors.fill: parent
-            anchors.margins: 4
             spacing: 2
 
             Rectangle {
+                id: mEditItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mEdit.hovered ? Theme.rowHover : "transparent"
+                color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Edit transaction"
+                Keys.onReturnPressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mDelItem.forceActiveFocus()
+                Keys.onUpPressed: mDelItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u270E"; color: Theme.accent; font.pixelSize: 14 }
-                    Text { text: "Edit"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: Theme.fsBody }
+                    Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
 
+                FocusRing { visible: parent.activeFocus }
                 HoverHandler { id: mEdit }
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openEditDialog(contextMenu.targetRow)
                     }
                 }
             }
 
             Rectangle {
+                id: mDelItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mDel.hovered ? Theme.rowHover : "transparent"
+                color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Delete transaction"
+                Keys.onReturnPressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mEditItem.forceActiveFocus()
+                Keys.onUpPressed: mEditItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u2716"; color: "#e74c3c"; font.pixelSize: 14 }
-                    Text { text: "Delete"; color: "#e74c3c"; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u2716"; color: Theme.danger; font.pixelSize: Theme.fsBody }
+                    Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
 
+                FocusRing { visible: parent.activeFocus }
                 HoverHandler { id: mDel }
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openDeleteDialog(contextMenu.targetRow)
                     }
                 }
             }
         }
-
-        TapHandler {
-            onTapped: contextMenu.visible = false
-        }
-
-        Keys.onEscapePressed: contextMenu.visible = false
-        focus: true
-    }
-
-    TapHandler {
-        enabled: contextMenu.visible
-        onTapped: contextMenu.visible = false
     }
 
     function openEditDialog(row) {

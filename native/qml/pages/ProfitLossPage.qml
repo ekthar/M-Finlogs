@@ -5,10 +5,37 @@ import MFinlogs
 Item {
     id: page
     property var data: ({})
+    property bool isLoading: false
+    property string errorMessage: ""
 
-    function load() { console.log("[PNL] load() called"); data = backend.profitAndLoss(); console.log("[PNL] data:", JSON.stringify(data)) }
-    Component.onCompleted: { console.log("[PNL] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[PNL] dataChanged"); page.load() } }
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
+    function load() { page.isLoading = true; backend.fetchProfitAndLoss() }
+    Component.onCompleted: { load() }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onProfitAndLossLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
+            if (!result || result.ok === false) return
+            page.data = result || ({})
+        }
+    }
 
     property real sales: Number(data.sales || 0)
     property real expenses: Number(data.expenses || 0)
@@ -33,6 +60,12 @@ Item {
         backend.exportTableToExcel("Profit & Loss", cols, data)
     }
 
+    LoadingOverlay {
+        anchors.fill: parent
+        active: page.isLoading
+        text: "Loading profit & loss..."
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -50,6 +83,12 @@ Item {
             Item { Layout.fillWidth: true }
             GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
             GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
+        }
+
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
         }
 
         GridLayout {
@@ -83,7 +122,7 @@ Item {
                     spacing: Theme.s3
                     Text {
                         text: "Sales vs Expenses"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
@@ -92,7 +131,7 @@ Item {
                         Layout.fillWidth: true
                         height: 18
                         radius: 9
-                        color: Theme.glass
+                        color: Theme.alpha(Theme.palette.fg, 0.04)
                         Rectangle {
                             height: parent.height
                             radius: 9
@@ -100,7 +139,7 @@ Item {
                                 ? page.sales / (page.sales + page.expenses) : 0)
                             gradient: Gradient {
                                 orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: Theme.grad0 }
+                                GradientStop { position: 0.0; color: Theme.palette.primary }
                                 GradientStop { position: 1.0; color: Theme.success }
                             }
                             Behavior on width { NumberAnimation { duration: Theme.durSlow; easing.type: Theme.easeOut } }
@@ -108,7 +147,7 @@ Item {
                     }
                     Text {
                         text: "Margin: " + (page.sales > 0 ? (page.net / page.sales * 100).toFixed(1) : "0.0") + "%"
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                     }

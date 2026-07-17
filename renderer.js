@@ -14,7 +14,7 @@ function ensureXlsxLoaded() {
     if (xlsxLoadPromise) return xlsxLoadPromise;
     xlsxLoadPromise = new Promise((resolve, reject) => {
         const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+        s.src = 'node_modules/xlsx/dist/xlsx.full.min.js';
         s.onload = () => {
             XLSX = window.XLSX;
             resolve();
@@ -498,7 +498,7 @@ function restoreEditContext() {
 
     if (viewId === 'dayBookView') {
         showView('dayBookView', { skipLoad: true });
-        const nav = document.querySelector('a[onclick*="showDayBook"]');
+        const nav = document.querySelector('.nav-item[onclick*="showDayBook"]');
         if (nav) activateNav(nav);
         refreshDayBookIfNeeded();
         const container = document.getElementById('dayBookTableContainer');
@@ -508,14 +508,14 @@ function restoreEditContext() {
 
     if (viewId === 'ledgerView') {
         showView('ledgerView', { skipLoad: true });
-        const nav = document.querySelector('a[onclick*="ledgerView"]');
+        const nav = document.querySelector('.nav-item[onclick*="ledgerView"]');
         if (nav) activateNav(nav);
         loadLedgerReport();
         return;
     }
 
     showView(viewId, { skipLoad: true });
-    const nav = document.querySelector(`a[onclick*="${viewId}"]`);
+    const nav = document.querySelector(`.nav-item[onclick*="${viewId}"]`);
     if (nav) activateNav(nav);
 }
 
@@ -1131,9 +1131,9 @@ async function loadLedgerReport() {
 
         rowsHtml += `
         <tr${rowClass ? ` class="${rowClass}"` : ''}>
-            <td>${formatDateShort(row.date)}</td>
-            <td>${row.bill_no || ''}</td>
-            <td>${particulars}</td>
+            <td>${escapeHtml(formatDateShort(row.date))}</td>
+            <td>${escapeHtml(row.bill_no || '')}</td>
+            <td>${escapeHtml(particulars)}</td>
             <td class="text-right">${debit}</td>
             <td class="text-right">${credit}</td>
             <td class="text-right">${balanceLabel}</td>
@@ -1168,7 +1168,7 @@ async function openEditModal(id) {
         
         // Switch to entry view
         showView('entryView', { skipLoad: true });
-        activateNav(document.querySelector('a[onclick*="entryView"]'));
+        activateNav(document.querySelector('.nav-item[onclick*="entryView"]'));
         
         // Pre-fill the form with transaction data
         document.getElementById('newDate').value = txn.date;
@@ -2637,17 +2637,18 @@ function renderPurchaseSupplier() {
     }
 
     let supplierTotal = 0;
+    let rowsHtml = '';
     sorted.forEach(row => {
         const amt = Number(row.total_amount || 0);
         supplierTotal += amt;
-        supplierBody.innerHTML += `
+        rowsHtml += `
             <tr>
-                <td>${row.party || ''}</td>
+                <td>${escapeHtml(row.party || '')}</td>
                 <td class="text-right">${formatMoney(amt)}</td>
             </tr>`;
     });
 
-    supplierBody.innerHTML += `
+    supplierBody.innerHTML = rowsHtml + `
         <tr style="font-weight:bold;">
             <td>Total</td>
             <td class="text-right">${formatMoney(supplierTotal)}</td>
@@ -4541,10 +4542,7 @@ async function showModeReport(mode) {
         return;
     }
 
-    tbody.innerHTML = "";
-    data.forEach(row => {
-        tbody.innerHTML += `<tr><td>${formatDateShort(row.date)}</td><td>${row.party}</td><td>${row.type}</td><td class="text-right">${formatMoney(row.amount)}</td></tr>`;
-    });
+    tbody.innerHTML = data.map(row => `<tr><td>${escapeHtml(formatDateShort(row.date))}</td><td>${escapeHtml(row.party || '')}</td><td>${escapeHtml(row.type || '')}</td><td class="text-right">${formatMoney(row.amount)}</td></tr>`).join('');
 }
 
 async function showExpenseReport() {
@@ -4802,13 +4800,12 @@ async function showTrialBalance() {
         return;
     }
 
-    tbody.innerHTML = "";
     let tD = 0, tC = 0;
-    data.forEach(row => {
+    const rowsHtml = data.map(row => {
         tD += row.debit; tC += row.credit;
-        tbody.innerHTML += `<tr><td>${row.account}</td><td>${formatMoney(row.debit)}</td><td>${formatMoney(row.credit)}</td></tr>`;
-    });
-    tbody.innerHTML += `<tr style="font-weight:bold"><td>TOTAL</td><td>${formatMoney(tD)}</td><td>${formatMoney(tC)}</td></tr>`;
+        return `<tr><td>${escapeHtml(row.account || '')}</td><td>${formatMoney(row.debit)}</td><td>${formatMoney(row.credit)}</td></tr>`;
+    }).join('');
+    tbody.innerHTML = rowsHtml + `<tr style="font-weight:bold"><td>TOTAL</td><td>${formatMoney(tD)}</td><td>${formatMoney(tC)}</td></tr>`;
 }
 
 async function showPnL() {
@@ -5200,21 +5197,21 @@ document.addEventListener('keydown', (e) => {
     if (e.altKey && e.key === 'n') {
         e.preventDefault();
         showView('entryView');
-        activateNav(document.querySelector('a[onclick*="entryView"]'));
+        activateNav(document.querySelector('.nav-item[onclick*="entryView"]'));
         document.getElementById('newDate').focus();
     }
     // Alt + L: Ledger
     if (e.altKey && e.key === 'l') {
         e.preventDefault();
         showView('ledgerView');
-        activateNav(document.querySelector('a[onclick*="ledgerView"]'));
+        activateNav(document.querySelector('.nav-item[onclick*="ledgerView"]'));
         document.getElementById('reportParty').focus();
     }
     // Alt + D: Dashboard
     if (e.altKey && e.key === 'd') {
         e.preventDefault();
         showDashboard();
-        activateNav(document.querySelector('a[onclick*="showDashboard"]'));
+        activateNav(document.querySelector('.nav-item[onclick*="showDashboard"]'));
     }
     // Ctrl + K: Focus Search (Transaction Search)
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {

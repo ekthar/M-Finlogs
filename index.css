@@ -1,8 +1,24 @@
-/* Fonts */
+/* Fonts are bundled so the desktop app works without an internet connection. */
+@font-face {
+    font-family: 'Inter Tight Local';
+    src: url('fonts/InterTight-Regular.ttf') format('truetype');
+    font-weight: 400 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Inter Tight Local';
+    src: url('fonts/InterTight-Bold.ttf') format('truetype');
+    font-weight: 700 900;
+    font-style: normal;
+    font-display: swap;
+}
+
 /* Keep typography consistent across all views */
 * {
     box-sizing: border-box;
-    font-family: 'Hanken Grotesk', 'Segoe UI', 'Tahoma', sans-serif !important;
+    font-family: 'Inter Tight Local', 'Segoe UI', 'Tahoma', sans-serif !important;
 }
 
 :root {
@@ -420,6 +436,16 @@ body::before {
     display: flex;
     align-items: center;
     gap: 12px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    font-size: 14px;
+}
+
+.nav-item:focus-visible {
+    outline: 3px solid rgba(var(--primary-rgb), 0.7);
+    outline-offset: 2px;
 }
 
 .nav-item:hover {
@@ -1385,7 +1411,7 @@ table tr {
 #dashboardView h3,
 #dashboardView p,
 #dashboardView .status-row span {
-    font-family: 'Hanken Grotesk', 'Segoe UI', 'Tahoma', sans-serif;
+    font-family: 'Inter Tight Local', 'Segoe UI', 'Tahoma', sans-serif;
     letter-spacing: 0.3px;
 }
 

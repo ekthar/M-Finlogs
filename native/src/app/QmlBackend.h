@@ -2,9 +2,13 @@
 
 #include "app/AppContext.h"
 
+#include <QAtomicInt>
+#include <QHash>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
+#include <QThreadPool>
 #include <QVariant>
 #include <QVariantList>
 #include <QVariantMap>
@@ -17,6 +21,14 @@ namespace mfinlogs::app {
 // reports, audit, ...) and converts QJson* payloads into QVariant structures
 // that QML can bind to directly. Every call that can throw is wrapped so the
 // UI receives a structured { ok, error, ... } result instead of crashing.
+//
+// Threading model:
+// - All fetchX() methods submit work to QThreadPool::globalInstance()
+// - Each request carries an immutable generation counter
+// - Stale results (generation mismatch) are silently discarded
+// - Results are delivered via Qt::QueuedConnection back to the GUI thread
+// - Page destruction safety: QPointer guards the receiver
+// - Loading state is tracked and exposed to QML via loadingStates property
 class QmlBackend final : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool authenticated READ authenticated NOTIFY authChanged)
@@ -25,9 +37,11 @@ class QmlBackend final : public QObject {
     Q_PROPERTY(bool isAdmin READ isAdmin NOTIFY authChanged)
     Q_PROPERTY(QString companyName READ companyName NOTIFY authChanged)
     Q_PROPERTY(bool setupRequired READ setupRequired NOTIFY setupChanged)
+    Q_PROPERTY(QVariantMap loadingStates READ loadingStates NOTIFY loadingStatesChanged)
 
 public:
     explicit QmlBackend(AppContext& context, QObject* parent = nullptr);
+    ~QmlBackend() override;
 
     bool authenticated() const { return authenticated_; }
     QString currentUser() const { return currentUser_; }
@@ -35,6 +49,7 @@ public:
     bool isAdmin() const { return currentRole_ == QStringLiteral("admin"); }
     QString companyName() const { return companyName_; }
     bool setupRequired() const;
+    QVariantMap loadingStates() const;
 
     // --- Auth & session ---------------------------------------------------
     Q_INVOKABLE QVariantMap login(const QString& username, const QString& password);
@@ -135,26 +150,73 @@ public:
     Q_INVOKABLE QString todayIso() const;
 
     // --- Asynchronous Reports Loading ------------------------------------
+    // Each fetchX() increments a per-type generation counter for stale
+    // request cancellation. If the user changes filters rapidly, only the
+    // most recent request's result is delivered.
     Q_INVOKABLE void fetchLedger(const QString& party, const QString& startIso, const QString& endIso);
     Q_INVOKABLE void fetchDayBook(const QString& dateIso);
     Q_INVOKABLE void fetchDashboard();
     Q_INVOKABLE void fetchDailySummary(const QString& startIso, const QString& endIso);
+    Q_INVOKABLE void fetchOutstanding();
+    Q_INVOKABLE void fetchTrialBalance();
+    Q_INVOKABLE void fetchProfitAndLoss();
+    Q_INVOKABLE void fetchPartyBalances();
+    Q_INVOKABLE void fetchAuditLogs();
+    Q_INVOKABLE void fetchInventoryReport(const QString& financialYear, int month);
+    Q_INVOKABLE void fetchTransactions(int page, int limit, int days);
+
+    // --- Async Export Operations ------------------------------------------
+    // Runs PDF/Excel generation in a background thread to avoid blocking GUI.
+    Q_INVOKABLE void fetchExport(const QString& format, const QString& title,
+                                 const QVariantList& columns, const QVariantList& rows);
+
+    // --- Async Backup & Restore -------------------------------------------
+    Q_INVOKABLE void fetchBackup(const QString& targetDir);
+    Q_INVOKABLE void fetchRestore(const QString& backupPath);
 
 signals:
     void authChanged();
     void setupChanged();
     void dataChanged();
     void toast(const QString& message, const QString& kind);
+    void loadingStatesChanged();
+
+    // --- Async report result signals --------------------------------------
     void ledgerLoaded(const QVariantMap& result);
     void dayBookLoaded(const QVariantList& result);
     void dashboardLoaded(const QVariantMap& result);
     void dailySummaryLoaded(const QVariantList& result);
+    void outstandingLoaded(const QVariantMap& result);
+    void trialBalanceLoaded(const QVariantList& result);
+    void profitAndLossLoaded(const QVariantMap& result);
+    void partyBalancesLoaded(const QVariantList& result);
+    void auditLogsLoaded(const QVariantList& result);
+    void inventoryReportLoaded(const QVariantMap& result);
+    void transactionsLoaded(const QVariantList& result);
+
+    // --- Async export/backup result signals -------------------------------
+    void exportComplete(const QVariantMap& result);
+    void backupComplete(const QVariantMap& result);
+    void restoreComplete(const QVariantMap& result);
+
+    // --- Timing diagnostics signal ----------------------------------------
+    void reportTimingComplete(const QString& reportName, const QVariantMap& timings);
 
 public slots:
-    void onLedgerTaskFinished(const QVariantMap& result);
-    void onDayBookTaskFinished(const QVariantList& result);
-    void onDashboardTaskFinished(const QVariantMap& result);
-    void onDailySummaryTaskFinished(const QVariantList& result);
+    void onLedgerTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onDayBookTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onDashboardTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onDailySummaryTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onOutstandingTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onTrialBalanceTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onProfitAndLossTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onPartyBalancesTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onAuditLogsTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onInventoryReportTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onTransactionsTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings);
+    void onExportTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onBackupTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
+    void onRestoreTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings);
 
 private:
     AppContext& context_;
@@ -168,6 +230,28 @@ private:
         domain::TransactionCreateRequest request;
     };
     UndoBuffer undoBuffer_;
+
+    // --- Request tracking for stale cancellation and duplicate prevention --
+    // Each TaskType has its own generation counter. When a new request is
+    // submitted, the counter increments. When the result arrives, it is
+    // discarded if the generation does not match the current value.
+    struct RequestTracker {
+        QAtomicInt generation{0};
+    };
+
+    // Map from task type enum int to its tracker.
+    // Accessed only from the GUI thread (fetchX and onXTaskFinished) so
+    // no mutex is needed for the map itself; the QAtomicInt inside handles
+    // the cross-thread read in DatabaseTask::run().
+    QHash<int, RequestTracker> requestTrackers_;
+
+    // Loading state per task type (true = in-flight request exists)
+    QHash<int, bool> loadingFlags_;
+
+    // Helpers
+    int nextGeneration(int taskType);
+    bool isStale(int taskType, int generation) const;
+    void setLoading(int taskType, bool loading);
 };
 
 } // namespace mfinlogs::app

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import QtQuick.Layouts
 import QtQuick.Controls.Basic
 import MFinlogs
@@ -8,30 +9,62 @@ Item {
 
     property var metrics: ({})
     property var trend: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Connections {
         target: backend
         function onDashboardLoaded(res) {
+            page.isLoading = false
             if (res && res.error) {
-                backend.toast(res.error, "error")
+                page.errorMessage = res.error
                 return
             }
+            page.errorMessage = ""
             metrics = res
             trend = backend.salesTrend(30)
         }
         function onDataChanged() {
-            console.log("[DASHBOARD] backend.dataChanged received")
             page.refresh()
         }
     }
 
     function refresh() {
+        page.isLoading = true
         backend.fetchDashboard()
     }
 
-    Component.onCompleted: {
-        console.log("[DASHBOARD] Component.onCompleted")
-        refresh()
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Dashboard request timed out. Check your database connection."
+            }
+        }
+    }
+
+    Component.onCompleted: refresh()
+
+    LoadingOverlay {
+        anchors.fill: parent
+        active: page.isLoading
+        text: "Loading dashboard..."
+    }
+
+    ErrorBanner {
+        id: dashError
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.leftMargin: Theme.s8
+        anchors.rightMargin: Theme.s8
+        anchors.topMargin: Theme.s5
+        message: page.errorMessage
+        z: Theme.zSticky
+        onRetry: page.refresh()
     }
 
     Flickable {
@@ -39,8 +72,9 @@ Item {
         anchors.leftMargin: Theme.s8
         anchors.rightMargin: Theme.s8
         anchors.topMargin: Theme.s5
+        anchors.bottomMargin: Theme.s6
         contentWidth: width
-        contentHeight: col.implicitHeight + Theme.s8
+        contentHeight: col.implicitHeight + Theme.s10
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
@@ -50,75 +84,91 @@ Item {
             contentItem: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.accent, 0.45)
+                color: Theme.alpha(Theme.palette.primary, 0.45)
             }
             background: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.glass, 0.2)
+                color: Theme.alpha(Theme.palette.surface, 0.2)
             }
         }
 
         ColumnLayout {
             id: col
             width: parent.width
-            spacing: Theme.s5
+            spacing: Theme.s7
 
-            RowLayout {
-                Layout.fillWidth: true
-                SectionHeader {
-                    title: "Overview"
-                    subtitle: "Your business at a glance"
-                }
-                Item { Layout.fillWidth: true }
-                PrimaryButton {
-                    text: "Closing Report"
-                    implicitWidth: 140
-                    onClicked: closingReport.show()
+            // ── Header row ────────────────────────────────────────────
+            StaggerEntrance {
+                index: 0
+                baseDelay: Theme.staggerCard
+                anchors.left: parent.left
+                anchors.right: parent.right
+                RowLayout {
+                    width: parent.width
+                    SectionHeader {
+                        title: "Dashboard"
+                        subtitle: "Your business at a glance"
+                    }
+                    Item { Layout.fillWidth: true }
+                    PrimaryButton {
+                        text: "Closing Report"
+                        implicitWidth: 140
+                        onClicked: closingReport.show()
+                    }
                 }
             }
 
-            // Metric cards
+            // ── Metric cards (inline stagger preserves GridLayout sizing) ──
             GridLayout {
                 Layout.fillWidth: true
-                columns: width > 1100 ? 5 : (width > 720 ? 3 : 2)
-                rowSpacing: Theme.s4
-                columnSpacing: Theme.s4
+                columns: width > 1200 ? 4 : (width > 700 ? 3 : 2)
+                rowSpacing: Theme.s5
+                columnSpacing: Theme.s5
 
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "Sales Today"; glyph: "\u25C8"; accent: Theme.success
+                    label: "Sales Today"
+                    glyph: "\u25C8"
+                    accent: Theme.palette.success
                     value: Number(page.metrics.sales_today || 0)
                 }
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "Sales This Month"; glyph: "\u25A4"; accent: Theme.accent
+                    label: "Sales This Month"
+                    glyph: "\u25A4"
+                    accent: Theme.palette.primary
                     value: Number(page.metrics.sales_month || 0)
                 }
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "Cash Balance"; glyph: "\u25C9"; accent: Theme.accent3
+                    label: "Cash Balance"
+                    glyph: "\u25C9"
+                    accent: Theme.palette.info
                     value: Number(page.metrics.cash_balance || 0)
                 }
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "Bank Balance"; glyph: "\u2637"; accent: Theme.accent2
+                    label: "Bank Balance"
+                    glyph: "\u2637"
+                    accent: Theme.palette.info
                     value: Number(page.metrics.bank_balance || 0)
                 }
                 MetricCard {
                     Layout.fillWidth: true
-                    label: "Receivables"; glyph: "\u26A0"; accent: Theme.danger
+                    label: "Receivables"
+                    glyph: "\u26A0"
+                    accent: Theme.palette.danger
                     value: Number(page.metrics.receivables || 0)
                 }
             }
 
-            // Charts row
+            // ── Charts row ────────────────────────────────────────────
             RowLayout {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 300
-                spacing: Theme.s4
+                spacing: Theme.s5
 
-                // Sales trend
                 GlassPanel {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 2
@@ -127,40 +177,39 @@ Item {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Theme.s5
-                        spacing: Theme.s3
+                        anchors.margins: Theme.s6
+                        spacing: Theme.s4
                         RowLayout {
                             Layout.fillWidth: true
                             ColumnLayout {
                                 spacing: 2
                                 Text {
                                     text: "Sales Trend"
-                                    color: Theme.text
+                                    color: Theme.palette.fg
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fsSection
-                                    font.weight: Font.Bold
+                                    font.weight: Theme.wSemibold
                                 }
                                 Text {
                                     text: "Last 30 days"
-                                    color: Theme.textDim
+                                    color: Theme.palette.fgMuted
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fsTiny
+                                    font.pixelSize: Theme.fsCaption
                                 }
                             }
                             Item { Layout.fillWidth: true }
-                            StatusPill { text: "Live"; tint: Theme.success }
+                            StatusPill { text: "Live"; tint: Theme.palette.success }
                         }
                         Sparkline {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             points: page.trend
-                            line: Theme.accent
-                            fill: Theme.alpha(Theme.accent, 0.18)
+                            line: Theme.palette.primary
+                            fill: Theme.alpha(Theme.palette.primary, 0.14)
                         }
                     }
                 }
 
-                // Fund split
                 GlassPanel {
                     Layout.fillWidth: true
                     Layout.preferredWidth: 1
@@ -169,17 +218,16 @@ Item {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: Theme.s5
+                        anchors.margins: Theme.s6
                         spacing: Theme.s4
                         Text {
                             text: "Fund Availability"
-                            color: Theme.text
+                            color: Theme.palette.fg
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsSection
-                            font.weight: Font.Bold
+                            font.weight: Theme.wSemibold
                         }
 
-                        // Donut-ish ring drawn via Canvas
                         Item {
                             Layout.alignment: Qt.AlignHCenter
                             Layout.fillHeight: true
@@ -189,31 +237,52 @@ Item {
                             property real total: Math.max(1, cash + bank)
                             id: donutWrap
 
-                            Canvas {
-                                id: donut
+                            Shape {
+                                id: donutShape
                                 anchors.fill: parent
-                                onPaint: {
-                                    var ctx = getContext("2d")
-                                    ctx.reset()
-                                    var cx = width / 2, cy = height / 2
-                                    var r = Math.min(width, height) / 2 - 8
-                                    var cashFrac = donutWrap.cash / donutWrap.total
-                                    ctx.lineWidth = 16
-                                    ctx.lineCap = "round"
-                                    // Bank (background ring)
-                                    ctx.beginPath()
-                                    ctx.strokeStyle = Theme.accent2
-                                    ctx.arc(cx, cy, r, -Math.PI/2 + cashFrac*2*Math.PI, -Math.PI/2 + 2*Math.PI)
-                                    ctx.stroke()
-                                    // Cash
-                                    ctx.beginPath()
-                                    ctx.strokeStyle = Theme.accent3
-                                    ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + cashFrac*2*Math.PI)
-                                    ctx.stroke()
+                                antialiasing: true
+
+                                property real cx: width / 2
+                                property real cy: height / 2
+                                property real r: Math.min(width, height) / 2 - 8
+                                property real cashFrac: donutWrap.cash / donutWrap.total
+                                property real cashStart: -Math.PI / 2
+                                property real cashEnd: cashStart + cashFrac * 2 * Math.PI
+                                property real bankEnd: -Math.PI / 2 + 2 * Math.PI
+
+                                ShapePath {
+                                    strokeWidth: 16
+                                    strokeColor: Theme.palette.info
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: donutShape.cx + donutShape.r * Math.cos(donutShape.cashStart)
+                                    startY: donutShape.cy + donutShape.r * Math.sin(donutShape.cashStart)
+                                    PathArc {
+                                        x: donutShape.cx + donutShape.r * Math.cos(donutShape.cashEnd)
+                                        y: donutShape.cy + donutShape.r * Math.sin(donutShape.cashEnd)
+                                        radiusX: donutShape.r
+                                        radiusY: donutShape.r
+                                        useLargeArc: (donutShape.cashEnd - donutShape.cashStart) > Math.PI
+                                    }
+                                }
+                                ShapePath {
+                                    strokeWidth: 16
+                                    strokeColor: Theme.palette.primary
+                                    fillColor: "transparent"
+                                    capStyle: ShapePath.RoundCap
+                                    startX: donutShape.cx + donutShape.r * Math.cos(donutShape.cashEnd)
+                                    startY: donutShape.cy + donutShape.r * Math.sin(donutShape.cashEnd)
+                                    PathArc {
+                                        x: donutShape.cx + donutShape.r * Math.cos(donutShape.bankEnd)
+                                        y: donutShape.cy + donutShape.r * Math.sin(donutShape.bankEnd)
+                                        radiusX: donutShape.r
+                                        radiusY: donutShape.r
+                                        useLargeArc: (donutShape.bankEnd - donutShape.cashEnd) > Math.PI
+                                    }
                                 }
                                 Connections {
                                     target: page
-                                    function onMetricsChanged() { donut.requestPaint() }
+                                    function onMetricsChanged() { /* shapes re-evaluate via bindings */ }
                                 }
                             }
                             Column {
@@ -222,17 +291,17 @@ Item {
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: "Total"
-                                    color: Theme.textDim
+                                    color: Theme.palette.fgMuted
                                     font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fsTiny
+                                    font.pixelSize: Theme.fsCaption
                                 }
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: backend.formatMoney(donutWrap.total === 1 ? 0 : donutWrap.total)
-                                    color: Theme.text
+                                    color: Theme.palette.fg
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fsBody
-                                    font.weight: Font.Bold
+                                    font.pixelSize: Theme.fsHero
+                                    font.weight: Theme.wBold
                                 }
                             }
                         }
@@ -242,13 +311,13 @@ Item {
                             spacing: Theme.s4
                             RowLayout {
                                 spacing: 6
-                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.accent3 }
-                                Text { text: "Cash"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.palette.info }
+                                Text { text: "Cash"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsCaption }
                             }
                             RowLayout {
                                 spacing: 6
-                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.accent2 }
-                                Text { text: "Bank"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny }
+                                Rectangle { width: 10; height: 10; radius: 5; color: Theme.palette.primary }
+                                Text { text: "Bank"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsCaption }
                             }
                             Item { Layout.fillWidth: true }
                         }
@@ -258,7 +327,6 @@ Item {
         }
     }
 
-    // Closing Report Overlay
     ClosingReport {
         id: closingReport
     }

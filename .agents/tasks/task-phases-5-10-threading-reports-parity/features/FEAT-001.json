@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Phase 5 - Complete threading infrastructure: Add request cancellation, duplicate prevention, timing instrumentation, and proper per-thread database connections to the async report system. The existing DatabaseTask QRunnable already moves work off the GUI thread, but lacks cancellation tokens, duplicate request guards, and timing metrics.",
+  "status": "completed",
+  "steps": [
+    "1. In native/src/app/QmlBackend.h, add a private ReportRequestTracker class (or struct) that tracks: (a) a QAtomicInt generation counter per task type, (b) a QElapsedTimer for timing instrumentation, (c) a bool flag indicating if a request of that type is already in-flight.",
+    "2. In the DatabaseTask class in native/src/app/QmlBackend.cpp, add a generation parameter. Before posting results via QMetaObject::invokeMethod, check if the generation matches the current tracker value - if not, discard the stale result silently.",
+    "3. In each fetchX() method in QmlBackend.cpp, increment the generation counter for that task type before submitting the task. If a request is already in-flight for the same type with different params, the old one becomes stale automatically via generation mismatch.",
+    "4. Add timing instrumentation to DatabaseTask::run(). Record: request_start (set in fetchX), db_query_start, db_query_end, transform_start, transform_end. Pass timing data back alongside the result via a QVariantMap 'timing' field.",
+    "5. In each onXTaskFinished slot, extract the timing data and emit it via a new signal reportTimingComplete(const QString& reportName, const QVariantMap& timings) for diagnostics.",
+    "6. Verify that SqliteBusinessServices creates a fresh SqliteDb (with QUuid connection name) per method call - this is already correct for thread safety. For SqlBusinessServices (ODBC), verify ConnectionPool::acquire() uses per-thread connection names (it already includes QThread::currentThreadId in the cache key).",
+    "7. Add a fetchExport() async method for large PDF/Excel generation that runs exportTableToPdf/exportTableToExcel work in a background thread instead of blocking the GUI thread. The result should be a file path delivered via a new exportComplete signal.",
+    "8. Add fetchBackup() and fetchRestore() async wrappers around backupDatabase and restoreDatabase to prevent GUI blocking during potentially long I/O operations.",
+    "9. Ensure page destruction safety: in DatabaseTask::run(), after QMetaObject::invokeMethod, if invocation fails (receiver destroyed), simply discard the result. The QPointer pattern or checking the receiver with QMetaObject::invokeMethod return value handles this.",
+    "10. Add loading state tracking: a Q_PROPERTY(QVariantMap loadingStates READ loadingStates NOTIFY loadingStatesChanged) that QML can bind to, tracking which report types are currently loading."
+  ],
+  "acceptance_criteria": [
+    "Every fetchX() method increments a generation counter and passes it to DatabaseTask",
+    "Stale results (generation mismatch) are silently discarded in the onXTaskFinished slots",
+    "No duplicate concurrent requests of the same type are submitted (second call cancels the first via generation)",
+    "DatabaseTask includes timing data (request_start, db_start, db_end, transform_start, transform_end) in the result",
+    "A reportTimingComplete signal exists and is emitted with timing data for every completed report",
+    "Export operations (PDF/Excel) can run asynchronously via fetchExport()",
+    "Backup/restore operations can run asynchronously",
+    "QML pages can bind to loadingStates to show loading indicators",
+    "Code compiles with no warnings related to threading (verified via CI)",
+    "No QSqlDatabase is shared across threads - each DatabaseTask uses services that create their own connections"
+  ],
+  "verification": [
+    "Run qmllint on all QML files to confirm no QML errors",
+    "Validate CMakeLists.txt includes any new source files",
+    "grep for QThreadPool::globalInstance()->start to confirm all async methods use the pattern",
+    "grep to confirm generation_ tracking exists in all fetchX methods",
+    "CI Windows build passes"
+  ],
+  "blocked_reason": null,
+  "findings": "Implementation complete. All 14 async operations (10 original reports + transactions + export + backup + restore) have generation tracking, timing instrumentation, and QPointer safety. The DatabaseTask enum was extended from 10 to 14 members. Slot signatures changed to include (int generation, QVariantMap/QVariantList result, QVariantMap timings) but signal signatures for QML bindings remain unchanged (backward compatible). The loadingStates property is a QVariantMap with 14 bool keys. Linux sandbox cannot run qmllint or compile - CI on Windows validates compilation."
+}

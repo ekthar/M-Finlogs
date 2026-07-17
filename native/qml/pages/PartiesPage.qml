@@ -7,9 +7,9 @@ Item {
     id: page
     property var rows: []
 
-    function load() { console.log("[PARTIES] load() called"); rows = backend.parties(); console.log("[PARTIES] rows:", rows ? rows.length : "null") }
-    Component.onCompleted: { console.log("[PARTIES] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[PARTIES] dataChanged"); page.load() } }
+    function load() { rows = backend.parties() }
+    Component.onCompleted: { load() }
+    Connections { target: backend; function onDataChanged() { page.load() } }
 
     Flickable {
         anchors.fill: parent
@@ -27,12 +27,12 @@ Item {
             contentItem: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.accent, 0.45)
+                color: Theme.alpha(Theme.palette.primary, 0.45)
             }
             background: Rectangle {
                 implicitWidth: 8
                 radius: 4
-                color: Theme.alpha(Theme.glass, 0.2)
+                color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2)
             }
         }
 
@@ -61,7 +61,7 @@ Item {
 
                     Text {
                         text: "Add New Party"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
@@ -123,14 +123,14 @@ Item {
 
                     Text {
                         text: "Rename Party (Admin)"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
                     }
                     Text {
                         text: "This will rename the party across all historical transactions."
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsTiny
                     }
@@ -182,7 +182,7 @@ Item {
                     spacing: Theme.s3
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "Party List"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                        Text { text: "Party List"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
                         Item { Layout.fillWidth: true }
                         GhostButton { text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
                         GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }

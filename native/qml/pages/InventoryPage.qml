@@ -7,7 +7,7 @@ import MFinlogs
 Item {
     id: page
 
-    // ── State ──────────────────────────────────────────────────────────────
+    // State
     property var rows: []
     property var stockRows: []
     property var fyList: []
@@ -18,10 +18,19 @@ Item {
     property string purchaseQty: ""
     property int purchaseRowIdx: -1
     property bool purchaseDialogOpen: false
+    property bool isLoading: false
+    property string errorMessage: ""
 
     readonly property var monthNames: ["January","February","March","April","May",
         "June","July","August","September","October","November","December"]
     readonly property int today: new Date().getDate()
+    property int cachedDaysInMonth: 28
+
+    // Cached metrics (recomputed in recalcMetrics to avoid O(n) function calls in bindings)
+    property real cachedTotalQty: 0
+    property real cachedPurchaseToday: 0
+    property real cachedAvgMovement: 0
+    property int cachedReorderCount: 0
 
     // Layout constants for the virtualized grid
     readonly property int rowH: 34
@@ -32,7 +41,7 @@ Item {
     readonly property int cellW: 62
     readonly property int frozenW: nameW + costW + minW
 
-    // ── Computed helpers ───────────────────────────────────────────────────
+    // Computed helpers
     function daysInMonth() {
         var y = parseInt(selectedFy.split("-")[0]) || new Date().getFullYear()
         return new Date(y, selectedMonth, 0).getDate()
@@ -45,7 +54,7 @@ Item {
     function colsPerDay() { return (showQty() ? 1 : 0) + (showPurchase() ? 1 : 0) }
     function scrollWidth() { return daysInMonth() * colsPerDay() * cellW }
 
-    // ── Metrics ───────────────────────────────────────────────────────────
+    // Metrics
     function totalQuantity() {
         var t = 0
         for (var i = 0; i < rows.length; i++) t += Number(rows[i][qtyKey(today)]) || 0
@@ -77,21 +86,68 @@ Item {
         return c
     }
 
-    // ── Data operations ───────────────────────────────────────────────────
+    function recalcMetrics() {
+        var tQty = 0, tPur = 0, movTotal = 0, movCount = 0, reorder = 0
+        var dm = cachedDaysInMonth
+        var dToday = today
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i]
+            tQty += Number(row[qtyKey(dToday)]) || 0
+            tPur += Number(row[purKey(dToday)]) || 0
+            var qty = Number(row[qtyKey(dToday)]) || 0
+            var min = Number(row.min_stock) || 0
+            if (min > 0 && qty <= min) reorder++
+            for (var d = 1; d <= dm; d++) {
+                var v = Number(row[purKey(d)]) || 0
+                movTotal += v
+                if (v > 0) movCount++
+            }
+        }
+        cachedTotalQty = tQty
+        cachedPurchaseToday = tPur
+        cachedReorderCount = reorder
+        cachedAvgMovement = movCount > 0 ? Math.round(movTotal / movCount) : 0
+    }
+
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
+    // Data operations
     Component.onCompleted: {
-        console.log("[INVENTORY] Component.onCompleted")
         fyList = backend.financialYears()
-        console.log("[INVENTORY] fyList:", fyList ? fyList.length : "null")
         if (fyList.length > 0) selectedFy = String(fyList[0])
         load()
     }
-    Connections { target: backend; function onDataChanged() { console.log("[INVENTORY] dataChanged"); page.load() } }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onInventoryReportLoaded(result) {
+            page.isLoading = false
+            if (result && result.ok === false) {
+                page.errorMessage = result.error || "Failed to load inventory"
+                return
+            }
+            page.errorMessage = ""
+            page.rows = result.rows || []
+            page.stockRows = result.stockRows || []
+            page.recalcMetrics()
+        }
+    }
 
     function load() {
-        console.log("[INVENTORY] load() called fy:", selectedFy, "month:", selectedMonth)
         if (!selectedFy) return
-        rows = backend.inventorySnapshot(selectedFy, selectedMonth)
-        stockRows = backend.stockValue(selectedFy, selectedMonth)
+        cachedDaysInMonth = daysInMonth()
+        page.isLoading = true
+        backend.fetchInventoryReport(selectedFy, selectedMonth)
     }
 
     // Mutate a single field of a single row WITHOUT replacing the whole array,
@@ -115,13 +171,15 @@ Item {
     function addProduct(name) {
         if (!name || name.trim().length === 0) return
         var tmp = rows.slice(); tmp.push(blankRow(name.trim())); rows = tmp
+        recalcMetrics()
     }
-    function addGapRow() { var tmp = rows.slice(); tmp.push(blankRow("")); rows = tmp }
+    function addGapRow() { var tmp = rows.slice(); tmp.push(blankRow("")); rows = tmp; recalcMetrics() }
     function cleanEmptyRows() {
         var tmp = []
         for (var i = 0; i < rows.length; i++)
             if (rows[i].name && rows[i].name.trim().length > 0) tmp.push(rows[i])
         rows = tmp
+        recalcMetrics()
     }
     function recordPurchase() {
         if (purchaseRowIdx < 0 || purchaseRowIdx >= rows.length) return
@@ -131,6 +189,7 @@ Item {
         tmp[purchaseRowIdx][purKey(purchaseDay)] = (Number(tmp[purchaseRowIdx][purKey(purchaseDay)]) || 0) + qty
         tmp[purchaseRowIdx][qtyKey(purchaseDay)] = (Number(tmp[purchaseRowIdx][qtyKey(purchaseDay)]) || 0) + qty
         rows = tmp
+        recalcMetrics()
         purchaseDialogOpen = false
         purchaseQty = ""
     }
@@ -152,7 +211,7 @@ Item {
         return out
     }
 
-    // ── UI Layout ─────────────────────────────────────────────────────────
+    // UI Layout
     ColumnLayout {
         anchors.fill: parent
         anchors.leftMargin: Theme.s8
@@ -163,10 +222,16 @@ Item {
 
         SectionHeader {
             title: "Inventory"
-            subtitle: "Daily stock quantities and purchase tracking \u2014 " + monthNames[selectedMonth - 1]
+            subtitle: "Daily stock quantities and purchase tracking - " + monthNames[selectedMonth - 1]
         }
 
-        // ── Toolbar ──────────────────────────────────────────────────────
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
+        // Toolbar
         GlassPanel {
             Layout.fillWidth: true
             implicitHeight: toolbarCol.implicitHeight + Theme.s8
@@ -225,11 +290,11 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s3
-                    GhostButton { text: "Record Purchase"; tint: Theme.accent2; onClicked: page.purchaseDialogOpen = true }
+                    GhostButton { text: "Record Purchase"; tint: Theme.palette.primary; onClicked: page.purchaseDialogOpen = true }
                     GhostButton { text: "Add Gap"; onClicked: page.addGapRow() }
                     GhostButton { text: "Clean Empty"; tint: Theme.warning; onClicked: page.cleanEmptyRows() }
                     Item { Layout.fillWidth: true }
-                    GhostButton { text: "Refresh"; tint: Theme.accent3; onClicked: page.load() }
+                    GhostButton { text: "Refresh"; tint: Theme.palette.info; onClicked: page.load() }
                     PrimaryButton { text: "Save"; onClicked: page.saveAll() }
                     GhostButton { text: "Excel"; tint: Theme.success; onClicked: page.exportExcel() }
                     GhostButton { text: "PDF"; tint: Theme.danger; onClicked: page.exportPdf() }
@@ -237,14 +302,14 @@ Item {
             }
         }
 
-        // ── Record Purchase Dialog (inline) ──────────────────────────────
+        // Record Purchase Dialog (inline)
         GlassPanel {
             Layout.fillWidth: true
             implicitHeight: purchaseRow.implicitHeight + Theme.s8
             radius: Theme.rLg
             visible: page.purchaseDialogOpen
-            fillColor: Theme.alpha(Theme.accent2, 0.08)
-            borderColor: Theme.alpha(Theme.accent2, 0.3)
+            fillColor: Theme.alpha(Theme.palette.primary, 0.08)
+            borderColor: Theme.alpha(Theme.palette.primary, 0.3)
 
             RowLayout {
                 id: purchaseRow
@@ -255,7 +320,7 @@ Item {
                 spacing: Theme.s3
                 Text {
                     text: "\u26A1 Record Purchase"
-                    color: Theme.accent2
+                    color: Theme.palette.primary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsSection
                     font.weight: Font.Bold
@@ -275,7 +340,7 @@ Item {
                     id: purchaseDayCombo
                     Layout.preferredWidth: 100
                     label: "Day"
-                    options: { var days = []; for (var d = 1; d <= page.daysInMonth(); d++) days.push(String(d)); return days }
+                    options: { var days = []; for (var d = 1; d <= page.cachedDaysInMonth; d++) days.push(String(d)); return days }
                     currentIndex: page.purchaseDay - 1
                     onCurrentIndexChanged: page.purchaseDay = currentIndex + 1
                 }
@@ -295,17 +360,17 @@ Item {
             }
         }
 
-        // ── Metrics Panel ────────────────────────────────────────────────
+        // Metrics Panel
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.s4
-            MetricCard { Layout.fillWidth: true; label: "TOTAL QUANTITY"; value: page.totalQuantity(); prefix: ""; accent: Theme.accent; glyph: "\u25A3" }
-            MetricCard { Layout.fillWidth: true; label: "PURCHASE TODAY"; value: page.purchaseToday(); prefix: ""; accent: Theme.accent2; glyph: "\u25B2" }
-            MetricCard { Layout.fillWidth: true; label: "AVG DAILY MOVEMENT"; value: page.avgDailyMovement(); prefix: ""; accent: Theme.accent3; glyph: "\u25C8" }
-            MetricCard { Layout.fillWidth: true; label: "REORDER PRODUCTS"; value: page.reorderCount(); prefix: ""; accent: Theme.danger; glyph: "\u26A0" }
+            MetricCard { Layout.fillWidth: true; label: "TOTAL QUANTITY"; value: page.cachedTotalQty; prefix: ""; accent: Theme.palette.primary; glyph: "\u25A3" }
+            MetricCard { Layout.fillWidth: true; label: "PURCHASE TODAY"; value: page.cachedPurchaseToday; prefix: ""; accent: Theme.palette.primary; glyph: "\u25B2" }
+            MetricCard { Layout.fillWidth: true; label: "AVG DAILY MOVEMENT"; value: page.cachedAvgMovement; prefix: ""; accent: Theme.palette.info; glyph: "\u25C8" }
+            MetricCard { Layout.fillWidth: true; label: "REORDER PRODUCTS"; value: page.cachedReorderCount; prefix: ""; accent: Theme.danger; glyph: "\u26A0" }
         }
 
-        // ── Editable Grid (virtualized via ListView) ─────────────────────
+        // Editable Grid (virtualized via ListView)
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -320,14 +385,14 @@ Item {
                     Layout.fillWidth: true
                     Text {
                         text: "Inventory Grid"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
                     }
                     Item { Layout.fillWidth: true }
-                    StatusPill { text: page.rows.length + " products"; tint: Theme.accent }
-                    StatusPill { text: page.daysInMonth() + " days"; tint: Theme.accent3 }
+                    StatusPill { text: page.rows.length + " products"; tint: Theme.palette.primary }
+                    StatusPill { text: page.daysInMonth() + " days"; tint: Theme.palette.info }
                 }
 
                 Item {
@@ -342,7 +407,7 @@ Item {
                         anchors.centerIn: parent
                         visible: page.rows.length === 0
                         text: "No inventory items \u2014 add products above"
-                        color: Theme.textFaint
+                        color: Theme.palette.fgSubtle
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
                     }
@@ -364,8 +429,8 @@ Item {
                             parent.hScroll = position * page.scrollWidth()
                             if (parent.hScroll > maxOff) parent.hScroll = maxOff
                         }
-                        contentItem: Rectangle { radius: 4; color: Theme.alpha(Theme.accent, 0.5) }
-                        background: Rectangle { radius: 4; color: Theme.alpha(Theme.glass, 0.3) }
+                        contentItem: Rectangle { radius: 4; color: Theme.alpha(Theme.palette.primary, 0.5) }
+                        background: Rectangle { radius: 4; color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.3) }
                     }
 
                     id: gridScope
@@ -376,7 +441,7 @@ Item {
                         spacing: 0
                         visible: page.rows.length > 0
 
-                        // ---- Header row ----
+                        // Header row
                         Item {
                             Layout.fillWidth: true
                             Layout.preferredHeight: page.headerH
@@ -386,18 +451,18 @@ Item {
                                 // frozen labels
                                 Rectangle {
                                     width: page.nameW; height: page.headerH
-                                    color: Theme.glassStrong; border.width: 1; border.color: Theme.glassBorder
-                                    Text { anchors.centerIn: parent; text: "Product"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
+                                    color: Theme.alpha(Theme.palette.fg, 0.06); border.width: 1; border.color: Theme.palette.border
+                                    Text { anchors.centerIn: parent; text: "Product"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
                                 }
                                 Rectangle {
                                     width: page.costW; height: page.headerH
-                                    color: Theme.glassStrong; border.width: 1; border.color: Theme.glassBorder
-                                    Text { anchors.centerIn: parent; text: "Cost"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
+                                    color: Theme.alpha(Theme.palette.fg, 0.06); border.width: 1; border.color: Theme.palette.border
+                                    Text { anchors.centerIn: parent; text: "Cost"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
                                 }
                                 Rectangle {
                                     width: page.minW; height: page.headerH
-                                    color: Theme.glassStrong; border.width: 1; border.color: Theme.glassBorder
-                                    Text { anchors.centerIn: parent; text: "Min"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
+                                    color: Theme.alpha(Theme.palette.fg, 0.06); border.width: 1; border.color: Theme.palette.border
+                                    Text { anchors.centerIn: parent; text: "Min"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
                                 }
                             }
 
@@ -411,26 +476,26 @@ Item {
                                     x: -gridScope.hScroll
                                     height: page.headerH
                                     Repeater {
-                                        model: page.daysInMonth()
+                                        model: page.cachedDaysInMonth
                                         Row {
                                             height: page.headerH
                                             property int dayNum: index + 1
                                             Rectangle {
                                                 visible: page.showQty()
                                                 width: page.cellW; height: page.headerH
-                                                color: dayNum === page.today ? Theme.alpha(Theme.accent, 0.15) : Theme.glassStrong
-                                                border.width: 1; border.color: Theme.glassBorder
+                                                color: dayNum === page.today ? Theme.alpha(Theme.palette.primary, 0.15) : Theme.alpha(Theme.palette.fg, 0.06)
+                                                border.width: 1; border.color: Theme.palette.border
                                                 Text { anchors.centerIn: parent; text: "Q" + dayNum
-                                                    color: dayNum === page.today ? Theme.accent : Theme.textDim
+                                                    color: dayNum === page.today ? Theme.palette.primary : Theme.palette.fgMuted
                                                     font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
                                             }
                                             Rectangle {
                                                 visible: page.showPurchase()
                                                 width: page.cellW; height: page.headerH
-                                                color: dayNum === page.today ? Theme.alpha(Theme.accent2, 0.15) : Theme.glassStrong
-                                                border.width: 1; border.color: Theme.glassBorder
+                                                color: dayNum === page.today ? Theme.alpha(Theme.palette.primary, 0.15) : Theme.alpha(Theme.palette.fg, 0.06)
+                                                border.width: 1; border.color: Theme.palette.border
                                                 Text { anchors.centerIn: parent; text: "P" + dayNum
-                                                    color: dayNum === page.today ? Theme.accent2 : Theme.textFaint
+                                                    color: dayNum === page.today ? Theme.palette.primary : Theme.palette.fgSubtle
                                                     font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold }
                                             }
                                         }
@@ -439,7 +504,7 @@ Item {
                             }
                         }
 
-                        // ---- Virtualized body ----
+                        // Virtualized body
                         ListView {
                             id: bodyList
                             Layout.fillWidth: true
@@ -451,7 +516,7 @@ Item {
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
                                 width: 8
-                                contentItem: Rectangle { radius: 4; color: Theme.alpha(Theme.accent, 0.5) }
+                                contentItem: Rectangle { radius: 4; color: Theme.alpha(Theme.palette.primary, 0.5) }
                             }
 
                             delegate: Item {
@@ -472,12 +537,12 @@ Item {
                                     height: page.rowH
                                     Rectangle {
                                         width: page.nameW; height: page.rowH
-                                        color: rowDelegate.belowMin ? Theme.alpha(Theme.danger, 0.10) : (rowIdx % 2 === 0 ? Theme.alpha(Theme.glass, 0.3) : "transparent")
-                                        border.width: 1; border.color: Theme.alpha(Theme.glassBorder, 0.5)
+                                        color: rowDelegate.belowMin ? Theme.alpha(Theme.danger, 0.10) : (rowIdx % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.3) : "transparent")
+                                        border.width: 1; border.color: Theme.alpha(Theme.palette.border, 0.5)
                                         TextField {
                                             anchors.fill: parent; anchors.margins: 2
                                             text: rowData.name || ""
-                                            color: rowDelegate.belowMin ? Theme.danger : Theme.text
+                                            color: rowDelegate.belowMin ? Theme.danger : Theme.palette.fg
                                             font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny
                                             background: Item {}
                                             verticalAlignment: Text.AlignVCenter
@@ -488,12 +553,12 @@ Item {
                                     }
                                     Rectangle {
                                         width: page.costW; height: page.rowH
-                                        color: rowIdx % 2 === 0 ? Theme.alpha(Theme.glass, 0.3) : "transparent"
-                                        border.width: 1; border.color: Theme.alpha(Theme.glassBorder, 0.5)
+                                        color: rowIdx % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.3) : "transparent"
+                                        border.width: 1; border.color: Theme.alpha(Theme.palette.border, 0.5)
                                         TextField {
                                             anchors.fill: parent; anchors.margins: 2
                                             text: String(rowData.cost || 0)
-                                            color: Theme.text
+                                            color: Theme.palette.fg
                                             font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny
                                             background: Item {}
                                             horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
@@ -504,12 +569,12 @@ Item {
                                     }
                                     Rectangle {
                                         width: page.minW; height: page.rowH
-                                        color: rowIdx % 2 === 0 ? Theme.alpha(Theme.glass, 0.3) : "transparent"
-                                        border.width: 1; border.color: Theme.alpha(Theme.glassBorder, 0.5)
+                                        color: rowIdx % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.3) : "transparent"
+                                        border.width: 1; border.color: Theme.alpha(Theme.palette.border, 0.5)
                                         TextField {
                                             anchors.fill: parent; anchors.margins: 2
                                             text: String(rowData.min_stock || 0)
-                                            color: Theme.textDim
+                                            color: Theme.palette.fgMuted
                                             font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny
                                             background: Item {}
                                             horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
@@ -530,16 +595,16 @@ Item {
                                         x: -gridScope.hScroll
                                         height: page.rowH
                                         Repeater {
-                                            model: page.daysInMonth()
+                                            model: page.cachedDaysInMonth
                                             Row {
                                                 height: page.rowH
                                                 property int dayNum: index + 1
                                                 Rectangle {
                                                     visible: page.showQty()
                                                     width: page.cellW; height: page.rowH
-                                                    color: dayNum === page.today ? Theme.alpha(Theme.accent, 0.08)
-                                                         : (rowDelegate.rowIdx % 2 === 0 ? Theme.alpha(Theme.glass, 0.2) : "transparent")
-                                                    border.width: 1; border.color: Theme.alpha(Theme.glassBorder, 0.4)
+                                                    color: dayNum === page.today ? Theme.alpha(Theme.palette.primary, 0.08)
+                                                         : (rowDelegate.rowIdx % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2) : "transparent")
+                                                    border.width: 1; border.color: Theme.alpha(Theme.palette.border, 0.4)
                                                     TextField {
                                                         anchors.fill: parent; anchors.margins: 1
                                                         text: String(rowDelegate.rowData[page.qtyKey(dayNum)] || 0)
@@ -547,7 +612,7 @@ Item {
                                                             var v = parseInt(text) || 0
                                                             var min = Number(rowDelegate.rowData.min_stock) || 0
                                                             if (min > 0 && v <= min) return Theme.danger
-                                                            return v > 0 ? Theme.text : Theme.textFaint
+                                                            return v > 0 ? Theme.palette.fg : Theme.palette.fgSubtle
                                                         }
                                                         font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny
                                                         background: Item {}
@@ -559,13 +624,13 @@ Item {
                                                 Rectangle {
                                                     visible: page.showPurchase()
                                                     width: page.cellW; height: page.rowH
-                                                    color: dayNum === page.today ? Theme.alpha(Theme.accent2, 0.08)
-                                                         : (rowDelegate.rowIdx % 2 === 0 ? Theme.alpha(Theme.glass, 0.15) : "transparent")
-                                                    border.width: 1; border.color: Theme.alpha(Theme.glassBorder, 0.4)
+                                                    color: dayNum === page.today ? Theme.alpha(Theme.palette.primary, 0.08)
+                                                         : (rowDelegate.rowIdx % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.15) : "transparent")
+                                                    border.width: 1; border.color: Theme.alpha(Theme.palette.border, 0.4)
                                                     TextField {
                                                         anchors.fill: parent; anchors.margins: 1
                                                         text: String(rowDelegate.rowData[page.purKey(dayNum)] || 0)
-                                                        color: (parseInt(text) || 0) > 0 ? Theme.accent2 : Theme.textFaint
+                                                        color: (parseInt(text) || 0) > 0 ? Theme.palette.primary : Theme.palette.fgSubtle
                                                         font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny
                                                         background: Item {}
                                                         horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
@@ -584,7 +649,7 @@ Item {
             }
         }
 
-        // ── Stock Value Summary ──────────────────────────────────────────
+        // Stock Value Summary
         GlassPanel {
             Layout.fillWidth: true
             Layout.preferredHeight: 200
@@ -595,17 +660,17 @@ Item {
                 spacing: Theme.s3
                 RowLayout {
                     Layout.fillWidth: true
-                    Text { text: "Stock Value Summary"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
+                    Text { text: "Stock Value Summary"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSection; font.weight: Font.Bold }
                     Item { Layout.fillWidth: true }
                     StatusPill { text: page.stockRows.length + " entries"; tint: Theme.success }
                 }
                 Rectangle {
-                    Layout.fillWidth: true; height: 30; radius: Theme.rSm; color: Theme.glassStrong
+                    Layout.fillWidth: true; height: 30; radius: Theme.rSm; color: Theme.alpha(Theme.palette.fg, 0.06)
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: Theme.s4; anchors.rightMargin: Theme.s4
-                        Text { Layout.preferredWidth: 80; text: "Day"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
-                        Text { Layout.fillWidth: true; text: "Total Qty"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight }
-                        Text { Layout.fillWidth: true; text: "Stock Value"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight }
+                        Text { Layout.preferredWidth: 80; text: "Day"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
+                        Text { Layout.fillWidth: true; text: "Total Qty"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight }
+                        Text { Layout.fillWidth: true; text: "Stock Value"; color: Theme.palette.fgMuted; font.family: Theme.fontFamily; font.pixelSize: Theme.fsTiny; font.weight: Font.Bold; horizontalAlignment: Text.AlignRight }
                     }
                 }
                 ListView {
@@ -618,12 +683,12 @@ Item {
                     delegate: Rectangle {
                         width: ListView.view.width
                         height: 28
-                        color: index % 2 === 0 ? Theme.alpha(Theme.glass, 0.3) : "transparent"
+                        color: index % 2 === 0 ? Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.3) : "transparent"
                         radius: 4
                         RowLayout {
                             anchors.fill: parent; anchors.leftMargin: Theme.s4; anchors.rightMargin: Theme.s4
-                            Text { Layout.preferredWidth: 80; text: String(page.stockRows[index].day || ""); color: Theme.text; font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; horizontalAlignment: Text.AlignHCenter }
-                            Text { Layout.fillWidth: true; text: String(page.stockRows[index].quantity || 0); color: Theme.text; font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; horizontalAlignment: Text.AlignRight }
+                            Text { Layout.preferredWidth: 80; text: String(page.stockRows[index].day || ""); color: Theme.palette.fg; font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; horizontalAlignment: Text.AlignHCenter }
+                            Text { Layout.fillWidth: true; text: String(page.stockRows[index].quantity || 0); color: Theme.palette.fg; font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; horizontalAlignment: Text.AlignRight }
                             Text { Layout.fillWidth: true; text: "\u20B9 " + backend.formatMoney(page.stockRows[index].stock_value || 0); color: Theme.success; font.family: Theme.monoFamily; font.pixelSize: Theme.fsTiny; horizontalAlignment: Text.AlignRight }
                         }
                     }

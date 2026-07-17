@@ -13,13 +13,13 @@ Item {
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: "\u2728"
-            font.pixelSize: 40
-            color: Theme.accent
+            font.pixelSize: Theme.s10
+            color: Theme.palette.primary
         }
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: page.heading
-            color: Theme.text
+            color: Theme.palette.fg
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsSection
             font.weight: Font.Bold
@@ -27,7 +27,7 @@ Item {
         Text {
             Layout.alignment: Qt.AlignHCenter
             text: page.note
-            color: Theme.textDim
+            color: Theme.palette.fgMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsSmall
         }

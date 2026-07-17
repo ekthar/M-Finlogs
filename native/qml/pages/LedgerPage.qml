@@ -11,11 +11,23 @@ Item {
     property var partyList: []
     property var totals: ({})
     property var editingRow: null
+    property bool isLoading: false
+    property string errorMessage: ""
+
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
 
     Component.onCompleted: {
-        console.log("[LEDGER] Component.onCompleted")
-        partyList = backend.partyNames()
-        console.log("[LEDGER] partyList:", partyList ? partyList.length : "null")
+        try { partyList = backend.partyNames() || [] } catch(e) { partyList = [] }
     }
 
     // Debit types: Sale, Expense, Purchase
@@ -59,10 +71,12 @@ Item {
     Connections {
         target: backend
         function onLedgerLoaded(res) {
+            page.isLoading = false
             if (res && res.error) {
-                backend.toast(res.error, "error")
+                page.errorMessage = res.error
                 return
             }
+            page.errorMessage = ""
             openingBalance = Number(res.opening_balance || 0)
             rawRows = res.data || []
             rows = transformRows(rawRows)
@@ -74,6 +88,7 @@ Item {
             backend.toast("Choose a party first", "error")
             return
         }
+        page.isLoading = true
         backend.fetchLedger(partyField.text, dateRange.fromIso, dateRange.toIso)
     }
 
@@ -86,8 +101,11 @@ Item {
         width: Math.min(520, page.width > 0 ? page.width * 0.9 : 480)
         height: Math.min(600, page.height > 0 ? page.height * 0.92 : 560)
         padding: 0
-        onOpened: console.log("[LEDGER] editDialog opened, targetRow:", targetRow ? targetRow.id : "null")
-        onClosed: console.log("[LEDGER] editDialog closed")
+        onOpened: editDateField.forceActiveFocus()
+        onClosed: {
+            page.editingRow = null
+            if (transactionTable) transactionTable.forceActiveFocus()
+        }
 
         property var originalValues: ({})
         property var targetRow: null
@@ -120,7 +138,7 @@ Item {
         }
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -134,7 +152,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 text: editDialog.title
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSection
                 font.weight: Font.Bold
@@ -147,7 +165,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s5 }
@@ -168,12 +186,12 @@ Item {
                     contentItem: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.accent, 0.45)
+                        color: Theme.alpha(Theme.palette.primary, 0.45)
                     }
                     background: Rectangle {
                         implicitWidth: 8
                         radius: 4
-                        color: Theme.alpha(Theme.glass, 0.2)
+                        color: Theme.alpha(Theme.alpha(Theme.palette.fg, 0.04), 0.2)
                     }
                 }
 
@@ -236,7 +254,7 @@ Item {
                 Layout.leftMargin: Theme.s5
                 Layout.rightMargin: Theme.s5
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             Item { Layout.preferredHeight: Theme.s4 }
@@ -263,7 +281,7 @@ Item {
                     onClicked: {
                         if (!editDialog.targetRow) return
                         var row = editDialog.targetRow
-                        
+
                         // Validate inputs
                         if (editPartyField.text.trim().length === 0) {
                             backend.toast("Party name cannot be empty", "error")
@@ -305,13 +323,11 @@ Item {
         width: Math.min(440, page.width > 0 ? page.width * 0.85 : 420)
         height: Math.min(260, page.height > 0 ? page.height * 0.5 : 240)
         padding: 0
-        onOpened: console.log("[LEDGER] deleteDialog opened")
-        onClosed: console.log("[LEDGER] deleteDialog closed")
 
         property string infoText: "Transaction details will be permanently removed."
 
         background: GlassPanel {
-            fillColor: Theme.bg2
+            fillColor: Theme.palette.bgMuted
             radius: Theme.rLg
         }
 
@@ -328,8 +344,8 @@ Item {
 
                 Text {
                     text: "\u26A0"
-                    color: "#e74c3c"
-                    font.pixelSize: 32
+                    color: Theme.danger
+                    font.pixelSize: Theme.fsHero
                     Layout.alignment: Qt.AlignTop
                 }
 
@@ -340,7 +356,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: "Are you sure you want to delete this transaction?"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsBody
                         wrapMode: Text.WordWrap
@@ -349,7 +365,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: deleteDialog.infoText
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap
@@ -363,7 +379,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
 
             RowLayout {
@@ -441,8 +457,15 @@ Item {
                     onRangeChanged: Qt.callLater(page.load)
                 }
                 PrimaryButton { Layout.alignment: Qt.AlignBottom; Layout.preferredWidth: 120; text: "Show"; onClicked: page.load() }
-                GhostButton { Layout.alignment: Qt.AlignBottom; text: "Export"; onClicked: {} }
+                GhostButton { Layout.alignment: Qt.AlignBottom; text: "PDF"; tint: Theme.danger; implicitWidth: 80; onClicked: page.doExportPdf() }
+                GhostButton { Layout.alignment: Qt.AlignBottom; text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
             }
+        }
+
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
         }
 
         GlassPanel {
@@ -457,7 +480,7 @@ Item {
                     Layout.fillWidth: true
                     Text {
                         text: "Statement"
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSection
                         font.weight: Font.Bold
@@ -465,7 +488,7 @@ Item {
                     Item { Layout.fillWidth: true }
                     Text {
                         text: "Opening Balance: " + backend.formatMoney(page.openingBalance) + (page.openingBalance >= 0 ? " Dr" : " Cr")
-                        color: Theme.textDim
+                        color: Theme.palette.fgMuted
                         font.family: Theme.monoFamily
                         font.pixelSize: Theme.fsSmall
                     }
@@ -475,6 +498,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     emptyText: "Select a party and press Show"
+                    loading: page.isLoading
                     rows: page.rows
                     totals: page.totals
                     totalsLabel: "Total"
@@ -500,15 +524,12 @@ Item {
     }
 
     // ── Context menu for edit / delete actions ────────────────────────────
-    Rectangle {
+    Popup {
         id: contextMenu
-        visible: false
         width: 160
-        height: cmCol.implicitHeight + 8
-        radius: Theme.rMd
-        color: Theme.glassStrong
-        border.width: 1
-        border.color: Theme.glassBorder
+        padding: 4
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent | Popup.CloseOnPressOutside
+        modal: false
         z: 999
 
         property var targetRow: null
@@ -518,78 +539,94 @@ Item {
             var localPos = page.mapFromGlobal(globalX, globalY)
             x = Math.max(Theme.s4, Math.min(localPos.x, page.width  - width  - Theme.s4))
             y = Math.max(Theme.s4, Math.min(localPos.y, page.height - height - Theme.s4))
-            visible = true
-            forceActiveFocus()
+            open()
         }
 
-        ColumnLayout {
+        onOpened: mEditItem.forceActiveFocus()
+
+        background: Rectangle {
+            radius: Theme.rMd
+            color: Theme.palette.popover
+            border.width: 1
+            border.color: Theme.palette.border
+        }
+
+        contentItem: ColumnLayout {
             id: cmCol
-            anchors.fill: parent
-            anchors.margins: 4
             spacing: 2
 
             Rectangle {
+                id: mEditItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mEdit.hovered ? Theme.rowHover : "transparent"
+                color: mEdit.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Edit transaction"
+                Keys.onReturnPressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openEditDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mDelItem.forceActiveFocus()
+                Keys.onUpPressed: mDelItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u270E"; color: Theme.accent; font.pixelSize: 14 }
-                    Text { text: "Edit"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u270E"; color: Theme.palette.primary; font.pixelSize: Theme.fsBody }
+                    Text { text: "Edit"; color: Theme.palette.fg; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mEdit }
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openEditDialog(contextMenu.targetRow)
                     }
                 }
             }
 
             Rectangle {
+                id: mDelItem
                 Layout.fillWidth: true
                 height: 36
                 radius: Theme.rSm
-                color: mDel.hovered ? Theme.rowHover : "transparent"
+                color: mDel.hovered ? Theme.alpha(Theme.palette.fg, 0.05) : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Delete transaction"
+                Keys.onReturnPressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onSpacePressed: { contextMenu.close(); page.openDeleteDialog(contextMenu.targetRow) }
+                Keys.onDownPressed: mEditItem.forceActiveFocus()
+                Keys.onUpPressed: mEditItem.forceActiveFocus()
+                Keys.onEscapePressed: contextMenu.close()
 
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.s3
                     spacing: Theme.s2
-                    Text { text: "\u2716"; color: "#e74c3c"; font.pixelSize: 14 }
-                    Text { text: "Delete"; color: "#e74c3c"; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
+                    Text { text: "\u2716"; color: Theme.danger; font.pixelSize: Theme.fsBody }
+                    Text { text: "Delete"; color: Theme.danger; font.family: Theme.fontFamily; font.pixelSize: Theme.fsSmall }
                     Item { Layout.fillWidth: true }
                 }
+
+                FocusRing { visible: parent.activeFocus }
 
                 HoverHandler { id: mDel }
 
                 TapHandler {
                     onTapped: {
-                        contextMenu.visible = false
+                        contextMenu.close()
                         page.openDeleteDialog(contextMenu.targetRow)
                     }
                 }
             }
         }
-
-        TapHandler {
-            onTapped: contextMenu.visible = false
-        }
-
-        Keys.onEscapePressed: contextMenu.visible = false
-        focus: true
-    }
-
-    TapHandler {
-        enabled: contextMenu.visible
-        onTapped: contextMenu.visible = false
     }
 
     function openEditDialog(row) {
@@ -604,5 +641,25 @@ Item {
         editingRow = row
         deleteDialog.infoText = "Transaction #" + row.id + " (" + row.party + ", \u20B9" + Number(row.amount).toFixed(2) + ")"
         deleteDialog.open()
+    }
+
+    function doExportPdf() {
+        var cols = ["Date", "Bill", "Type", "Mode", "Debit (Dr)", "Credit (Cr)", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.bill_no || ""), String(r.type || ""), String(r.mode || ""), r.debit ? String(r.debit) : "", r.credit ? String(r.credit) : "", String(r.balance_label || "")])
+        }
+        backend.exportTableToPdf("Party Ledger - " + partyField.text, cols, data)
+    }
+
+    function doExportCsv() {
+        var cols = ["Date", "Bill", "Type", "Mode", "Debit (Dr)", "Credit (Cr)", "Balance"]
+        var data = []
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i]
+            data.push([String(r.date || ""), String(r.bill_no || ""), String(r.type || ""), String(r.mode || ""), r.debit ? String(r.debit) : "", r.credit ? String(r.credit) : "", String(r.balance_label || "")])
+        }
+        backend.exportTableToExcel("Party Ledger - " + partyField.text, cols, data)
     }
 }

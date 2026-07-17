@@ -14,6 +14,9 @@ Rectangle {
     border.width: 1
     border.color: Theme.alpha(tint, 0.4)
 
+    Accessible.role: Accessible.StaticText
+    Accessible.name: root.text
+
     Row {
         id: row
         anchors.centerIn: parent

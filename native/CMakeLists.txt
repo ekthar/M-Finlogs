@@ -21,11 +21,12 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Charts
     PrintSupport
     HttpServer
-    Svg
     Qml
     Quick
     QuickControls2
 )
+
+find_package(Qt6 6.5 QUIET COMPONENTS Svg)
 
 qt_standard_project_setup()
 
@@ -74,6 +75,7 @@ set(MFINLOGS_NATIVE_SOURCES
     src/domain/ServiceRegistry.h
     src/domain/ServiceRegistry.cpp
     src/domain/Types.h
+    src/domain/BalanceCalculator.h
 )
 
 # Windows: embed the application icon into the .exe (shows in taskbar + Explorer)
@@ -138,6 +140,23 @@ qt_add_qml_module(mfinlogs-native
         qml/DateRangePicker.qml
         qml/GlobalSearch.qml
         qml/ShortcutOverlay.qml
+        qml/StaggerEntrance.qml
+        qml/Button.qml
+        qml/Checkbox.qml
+        qml/LoadingOverlay.qml
+        qml/ErrorBanner.qml
+        qml/FocusRing.qml
+        qml/IconButton.qml
+        qml/Switch.qml
+        qml/TBody.qml
+        qml/TCaption.qml
+        qml/TDisplay.qml
+        qml/THeading.qml
+        qml/TMono.qml
+        qml/TOverline.qml
+        qml/TSmall.qml
+        qml/TTitle.qml
+        qml/TTiny.qml
 )
 
 # Compile the Qt resource (icons) explicitly into the target
@@ -183,21 +202,39 @@ target_link_libraries(mfinlogs-native PRIVATE
     Qt6::Charts
     Qt6::PrintSupport
     Qt6::HttpServer
-    Qt6::Svg
     Qt6::Qml
     Qt6::Quick
     Qt6::QuickControls2
     argon2
 )
 
+if(Qt6Svg_FOUND)
+    target_link_libraries(mfinlogs-native PRIVATE Qt6::Svg)
+    target_compile_definitions(mfinlogs-native PRIVATE HAS_QT_SVG)
+endif()
+
 if(WIN32)
     target_compile_definitions(mfinlogs-native PRIVATE
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+    # dbghelp.lib provides SymInitialize/StackWalk64/SymFromAddr, and
+    # psapi.lib provides GetModuleInformation - both used by the SEH crash
+    # handler in QmlApplication.cpp to symbolize stack traces and identify
+    # which module (exe vs. Qt DLL) crashed during startup.
+    target_link_libraries(mfinlogs-native PRIVATE dbghelp psapi)
 endif()
 
 install(TARGETS mfinlogs-native
     BUNDLE DESTINATION .
     RUNTIME DESTINATION .
 )
+
+# --- Test targets (QtTest) ------------------------------------------------
+# Tests are gated behind BUILD_TESTING (defaults ON). Disable with:
+#   cmake -DBUILD_TESTING=OFF ...
+option(BUILD_TESTING "Build the test suite" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

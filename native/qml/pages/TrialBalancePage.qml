@@ -5,11 +5,22 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
-
     property var totals: ({})
+    property bool isLoading: false
+    property string errorMessage: ""
 
     function load() {
-        rows = backend.trialBalance()
+        page.isLoading = true
+        backend.fetchTrialBalance()
+    }
+    function applyRows(result) {
+        page.isLoading = false
+        if (result && result.error) {
+            page.errorMessage = result.error
+            return
+        }
+        page.errorMessage = ""
+        rows = result || []
         var d = 0, c = 0
         for (var i = 0; i < rows.length; i++) {
             d += Number(rows[i].debit || 0)
@@ -17,8 +28,24 @@ Item {
         }
         totals = { debit: d, credit: c }
     }
-    Component.onCompleted: { console.log("[TRIALBAL] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[TRIALBAL] dataChanged"); page.load() } }
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
+    Component.onCompleted: { load() }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onTrialBalanceLoaded(result) { page.applyRows(result) }
+    }
 
     function doExportPdf() {
         var cols = ["Account/Party", "Debit", "Credit"]
@@ -58,6 +85,12 @@ Item {
             GhostButton { text: "CSV"; tint: Theme.success; implicitWidth: 80; onClicked: page.doExportCsv() }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -66,6 +99,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No account data"
+                loading: page.isLoading
                 rows: page.rows
                 totals: page.totals
                 totalsLabel: "Total"

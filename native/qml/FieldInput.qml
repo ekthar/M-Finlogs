@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MFinlogs
 
-// Labeled, glassy text field with an animated focus glow and optional
-// numeric / completion behavior.
 Item {
     id: root
     property alias text: field.text
@@ -16,7 +14,6 @@ Item {
     property bool showCompletions: true
     signal accepted()
 
-    // Build suggestion list from completions; optionally force-open
     function rebuildSuggestions(txt, forceOpen) {
         if (!showCompletions || completions.length === 0) {
             suggest.visible = false
@@ -53,10 +50,10 @@ Item {
         Text {
             visible: root.label.length > 0
             text: root.label
-            color: Theme.textDim
+            color: Theme.palette.fgMuted
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fsSmall
-            font.weight: Font.DemiBold
+            font.weight: Theme.wSemibold
         }
 
         Rectangle {
@@ -64,9 +61,9 @@ Item {
             width: parent.width
             height: 44
             radius: Theme.rMd
-            color: field.activeFocus ? Theme.alpha(Theme.accent, 0.10) : Theme.glass
-            border.width: field.activeFocus ? 1.5 : 1
-            border.color: field.activeFocus ? Theme.accent : Theme.glassBorder
+            color: field.activeFocus ? Theme.alpha(Theme.palette.primary, 0.10) : "transparent"
+            border.width: field.activeFocus ? 1.5 : Theme.bwDefault
+            border.color: field.activeFocus ? Theme.palette.primary : Theme.palette.border
             Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
             Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
@@ -76,17 +73,17 @@ Item {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 verticalAlignment: TextInput.AlignVCenter
-                color: Theme.text
-                placeholderTextColor: Theme.textFaint
+                color: Theme.palette.fg
+                placeholderTextColor: Theme.palette.fgSubtle
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsBody
-                selectionColor: Theme.alpha(Theme.accent, 0.45)
-                selectedTextColor: Theme.text
+                selectionColor: Theme.alpha(Theme.palette.primary, 0.45)
+                selectedTextColor: Theme.palette.fg
                 background: Item {}
                 activeFocusOnTab: true
+                Accessible.role: Accessible.EditableText
                 inputMethodHints: root.numeric ? Qt.ImhFormattedNumbersOnly : Qt.ImhNone
 
-                // Enter: if a suggestion is highlighted, accept it; else fire accepted()
                 onAccepted: {
                     if (suggest.visible && suggestList.currentIndex >= 0) {
                         root.acceptSuggestion(suggestList.currentIndex)
@@ -96,7 +93,6 @@ Item {
                     }
                 }
 
-                // Down arrow: open/move down in suggestion list
                 Keys.onDownPressed: function(event) {
                     if (suggest.visible && suggestModel.count > 0) {
                         suggestList.currentIndex = Math.min(suggestList.currentIndex + 1, suggestModel.count - 1)
@@ -123,7 +119,6 @@ Item {
         }
     }
 
-    // Completion popup
     Popup {
         id: suggest
         y: root.height + 4
@@ -132,13 +127,11 @@ Item {
         visible: false
         focus: false
         closePolicy: Popup.CloseOnPressOutside
-        onOpened: console.log("[FIELDINPUT] suggestion popup opened for:", label)
-        onClosed: console.log("[FIELDINPUT] suggestion popup closed for:", label)
         background: Rectangle {
             radius: Theme.rMd
-            color: Theme.bg2
+            color: Theme.palette.bg
             border.width: 1
-            border.color: Theme.glassBorder
+            border.color: Theme.palette.border
         }
         contentItem: ListView {
             id: suggestList
@@ -151,18 +144,18 @@ Item {
                 height: 32
                 radius: Theme.rSm
                 color: (hover.hovered || suggestList.currentIndex === index)
-                       ? Theme.glassStrong : "transparent"
+                       ? Theme.alpha(Theme.palette.fg, 0.08) : "transparent"
                 border.width: suggestList.currentIndex === index ? 1 : 0
-                border.color: Theme.alpha(Theme.accent, 0.5)
+                border.color: Theme.alpha(Theme.palette.primary, 0.5)
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
                     anchors.leftMargin: 10
                     text: name
-                    color: suggestList.currentIndex === index ? Theme.text : Theme.textDim
+                    color: suggestList.currentIndex === index ? Theme.palette.fg : Theme.palette.fgMuted
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsSmall
-                    font.weight: suggestList.currentIndex === index ? Font.DemiBold : Font.Normal
+                    font.weight: suggestList.currentIndex === index ? Theme.wSemibold : Font.Normal
                 }
                 HoverHandler { id: hover }
                 TapHandler {

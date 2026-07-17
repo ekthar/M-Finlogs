@@ -13,6 +13,15 @@ Item {
     property string totalsLabel: "Total"
     property bool checkable: false
     property var checkedRows: []
+    property var checkedMap: ({})
+
+    Accessible.role: Accessible.Table
+    Accessible.name: root.emptyText
+    onCheckedRowsChanged: {
+        var m = {}
+        for (var i = 0; i < checkedRows.length; i++) m[checkedRows[i]] = true
+        checkedMap = m
+    }
     signal rowActivated(var row)
     signal checkChanged(var checked, var row)
     signal inlineEdit(var row, var columnKey, var newValue)
@@ -67,7 +76,7 @@ Item {
             copy.push(rowId)
         }
         checkedRows = copy
-        checkChanged(idx < 0, rowId)  // idx<0 means it was just added → checked=true
+        checkChanged(idx < 0, rowId)
     }
 
     function selectAll() {
@@ -92,18 +101,16 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        // ---------- Header ----------
         Rectangle {
             id: header
             width: parent.width
             height: 44
-            color: Theme.glassStrong
+            color: Theme.alpha(Theme.palette.fg, 0.04)
 
             Row {
                 anchors.fill: parent
                 anchors.leftMargin: root.hPad
                 anchors.rightMargin: root.hPad
-                // Check-all column (if checkable)
                 Item {
                     visible: root.checkable
                     width: root.checkColWidth
@@ -113,11 +120,11 @@ Item {
                         width: 18; height: 18; radius: 4
                         color: "transparent"
                         border.width: 2
-                        border.color: Theme.textFaint
+                        border.color: Theme.palette.fgSubtle
                         Text {
                             anchors.centerIn: parent
                             text: "\u2713"
-                            color: Theme.accent
+                            color: Theme.palette.primary
                             font.pixelSize: 12
                             font.weight: Font.Bold
                             visible: checkedRows.length > 0 && checkedRows.length === rows.length
@@ -139,7 +146,7 @@ Item {
                             height: parent.height * 0.5
                             anchors.left: parent.left
                             anchors.verticalCenter: parent.verticalCenter
-                            color: Theme.glassBorderSoft
+                            color: Theme.palette.borderSubtle
                         }
                         Text {
                             anchors.fill: parent
@@ -148,7 +155,7 @@ Item {
                             verticalAlignment: Text.AlignVCenter
                             horizontalAlignment: root.alignFor(modelData)
                             text: modelData.title
-                            color: Theme.textDim
+                            color: Theme.palette.fgMuted
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fsTiny
                             font.weight: Font.Bold
@@ -163,11 +170,10 @@ Item {
                 anchors.bottom: parent.bottom
                 width: parent.width
                 height: 1
-                color: Theme.glassBorder
+                color: Theme.palette.border
             }
         }
 
-        // ---------- Body ----------
         ListView {
             id: list
             width: parent.width
@@ -183,16 +189,17 @@ Item {
                 contentItem: Rectangle {
                     implicitWidth: 8
                     radius: 4
-                    color: Theme.alpha(Theme.accent, 0.45)
+                    color: Theme.alpha(Theme.palette.primary, 0.45)
                 }
                 background: Rectangle {
                     implicitWidth: 8
                     radius: 4
-                    color: Theme.alpha(Theme.glass, 0.2)
+                    color: Theme.alpha(Theme.palette.surface, 0.3)
                 }
             }
 
             focus: true
+            activeFocusOnTab: true
             keyNavigationEnabled: true
             keyNavigationWraps: false
             highlightMoveDuration: Theme.durFast
@@ -207,12 +214,12 @@ Item {
                 height: 46
                 property var rowData: root.loading ? null : modelData
                 property bool isCurrent: list.currentIndex === index
+                property bool rowChecked: root.checkedMap[rowData ? rowData.id : ""] === true
 
-                // Skeleton shimmer
                 Rectangle {
                     anchors.fill: parent
                     visible: root.loading
-                    color: Theme.bg2
+                    color: Theme.palette.bgMuted
                     Row {
                         anchors.fill: parent
                         anchors.leftMargin: root.hPad
@@ -225,7 +232,7 @@ Item {
                                 height: 14
                                 y: 16
                                 radius: 4
-                                color: Theme.alpha(Theme.textFaint, 0.1)
+                                color: Theme.alpha(Theme.palette.fgSubtle, 0.1)
                                 SequentialAnimation on opacity {
                                     loops: Animation.Infinite
                                     PropertyAnimation { from: 0.3; to: 0.7; duration: 1000; easing.type: Easing.InOutSine }
@@ -237,9 +244,9 @@ Item {
                 }
 
                 color: root.loading ? "transparent"
-                     : isCurrent ? Theme.alpha(Theme.accent, 0.14)
-                     : rowHover.hovered ? Theme.rowHover
-                     : (index % 2 === 0 ? "transparent" : Theme.rowAlt)
+                     : isCurrent ? Theme.alpha(Theme.palette.primary, 0.14)
+                     : rowHover.hovered ? Theme.alpha(Theme.palette.fg, 0.05)
+                     : (index % 2 === 0 ? "transparent" : Theme.alpha(Theme.palette.fg, 0.02))
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
 
                 Rectangle {
@@ -247,7 +254,7 @@ Item {
                     width: parent.width
                     height: 1
                     visible: !root.loading
-                    color: Theme.glassBorderSoft
+                    color: Theme.palette.borderSubtle
                 }
 
                 Row {
@@ -256,7 +263,6 @@ Item {
                     anchors.rightMargin: root.hPad
                     visible: !root.loading
 
-                    // Checkbox column
                     Item {
                         visible: root.checkable
                         width: root.checkColWidth
@@ -264,16 +270,16 @@ Item {
                         Rectangle {
                             anchors.centerIn: parent
                             width: 18; height: 18; radius: 4
-                            color: isChecked(rowData.id) ? Theme.accent : "transparent"
+                            color: rowChecked ? Theme.palette.primary : "transparent"
                             border.width: 2
-                            border.color: isChecked(rowData.id) ? Theme.accent : Theme.textFaint
+                            border.color: rowChecked ? Theme.palette.primary : Theme.palette.fgSubtle
                             Text {
                                 anchors.centerIn: parent
                                 text: "\u2713"
-                                color: Theme.accentInk
+                                color: Theme.palette.primaryFg
                                 font.pixelSize: 12
                                 font.weight: Font.Bold
-                                visible: isChecked(rowData.id)
+                                visible: rowChecked
                             }
                             TapHandler {
                                 onTapped: toggleCheck(rowData.id)
@@ -296,7 +302,7 @@ Item {
                                 width: 1
                                 height: parent.height
                                 anchors.left: parent.left
-                                color: Theme.gridLine
+                                color: Theme.palette.borderSubtle
                             }
 
                             Rectangle {
@@ -319,7 +325,6 @@ Item {
                                 }
                             }
 
-                            // Inline editor (for editable columns)
                             TextField {
                                 id: inlineEditor
                                 anchors.fill: parent
@@ -328,15 +333,15 @@ Item {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: cell.editing && cell.col.editable
                                 height: 30
-                                color: Theme.text
+                                color: Theme.palette.fg
                                 font.family: cell.col.money ? Theme.monoFamily : Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall
                                 font.weight: cell.col.money ? Font.DemiBold : Font.Normal
                                 background: Rectangle {
                                     radius: Theme.rSm
-                                    color: Theme.bg2
+                                    color: Theme.palette.bgMuted
                                     border.width: 2
-                                    border.color: Theme.accent
+                                    border.color: Theme.palette.primary
                                 }
                                 onAccepted: {
                                     root.inlineEdit(rowItem.rowData, cell.col.key, text)
@@ -355,7 +360,7 @@ Item {
                                 verticalAlignment: Text.AlignVCenter
                                 horizontalAlignment: root.alignFor(cell.col)
                                 text: cell.value
-                                color: cell.col.money ? Theme.text : Theme.textDim
+                                color: cell.col.money ? Theme.palette.fg : Theme.palette.fgMuted
                                 font.family: cell.col.money ? Theme.monoFamily : Theme.fontFamily
                                 font.pixelSize: Theme.fsSmall
                                 font.weight: cell.col.money ? Font.DemiBold : Font.Normal
@@ -380,27 +385,30 @@ Item {
                 }
             }
 
-            // Empty state (when not loading)
             Column {
                 anchors.centerIn: parent
                 visible: (!root.loading) && (!root.rows || root.rows.length === 0)
-                spacing: 10
+                spacing: Theme.s3
+
+                Accessible.role: Accessible.StaticText
+                Accessible.name: root.emptyText
+
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "\u25CB"
-                    color: Theme.textFaint
-                    font.pixelSize: 34
+                    color: Theme.palette.fgSubtle
+                    font.pixelSize: 40
+                    opacity: 0.6
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: root.emptyText
-                    color: Theme.textFaint
+                    color: Theme.palette.fgMuted
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fsSmall
+                    font.pixelSize: Theme.fsBody
                 }
             }
 
-            // Loading skeleton
             Column {
                 anchors.centerIn: parent
                 visible: root.loading
@@ -408,31 +416,30 @@ Item {
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "\u23F3"
-                    color: Theme.textFaint
+                    color: Theme.palette.fgSubtle
                     font.pixelSize: 24
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
                     text: "Loading..."
-                    color: Theme.textFaint
+                    color: Theme.palette.fgSubtle
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsSmall
                 }
             }
         }
 
-        // ---------- Totals footer (optional) ----------
         Rectangle {
             visible: root.hasTotals && !root.loading
             width: parent.width
             height: 46
-            color: Theme.glassStrong
+            color: Theme.alpha(Theme.palette.fg, 0.04)
 
             Rectangle {
                 anchors.top: parent.top
                 width: parent.width
                 height: 2
-                color: Theme.alpha(Theme.accent, 0.5)
+                color: Theme.alpha(Theme.palette.primary, 0.5)
             }
 
             Row {
@@ -460,7 +467,7 @@ Item {
                             horizontalAlignment: isFirst && !hasVal ? Text.AlignLeft : root.alignFor(col)
                             text: hasVal ? root.fmt(col, root.totals[col.key])
                                          : (isFirst ? root.totalsLabel : "")
-                            color: Theme.text
+                            color: Theme.palette.fg
                             font.family: col.money || hasVal ? Theme.monoFamily : Theme.fontFamily
                             font.pixelSize: Theme.fsSmall
                             font.weight: Font.Bold

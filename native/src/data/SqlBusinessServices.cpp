@@ -2,6 +2,7 @@
 
 #include "data/SchemaInitializer.h"
 #include "data/SqlDatabase.h"
+#include "domain/BalanceCalculator.h"
 #include "domain/DomainErrors.h"
 
 #include "data/PasswordVerifier.h"
@@ -978,6 +979,11 @@ public:
         QJsonObject result;
         QJsonArray rows;
         result.insert(QStringLiteral("opening_balance"), 0.0);
+        result.insert(QStringLiteral("period_debit"), 0.0);
+        result.insert(QStringLiteral("period_credit"), 0.0);
+        result.insert(QStringLiteral("closing_balance"), 0.0);
+        result.insert(QStringLiteral("transaction_count"), 0);
+        result.insert(QStringLiteral("last_transaction_date"), QString());
         result.insert(QStringLiteral("period_start"), range.start.toString(Qt::ISODate));
         result.insert(QStringLiteral("period_end"), range.end.toString(Qt::ISODate));
         result.insert(QStringLiteral("financial_year"), selectedFinancialYear(database.handle()));
@@ -987,6 +993,9 @@ public:
         }
 
         const int partyId = partyQuery.value(0).toInt();
+
+        // Opening balance: ALL historical transactions before range.start
+        // This is cumulative across all time, not just the current FY.
         double openingBalance = 0.0;
         if (range.start.isValid()) {
             QSqlQuery openingQuery(database.handle());
@@ -1013,20 +1022,36 @@ public:
         executePrepared(query, QStringLiteral("Read ledger rows"));
 
         double balance = openingBalance;
+        double periodDebit = 0.0;
+        double periodCredit = 0.0;
+        int transactionCount = 0;
+        QDate lastTxnDate;
+
         while (query.next()) {
-            const QString type = query.value(3).toString().trimmed().toUpper();
+            const QString rawType = query.value(3).toString();
+            const QString normalizedType = domain::normalizeTransactionType(rawType);
             const double amount = query.value(5).toDouble();
-            if (type == QStringLiteral("SALE")) {
-                balance += amount;
-            } else if (type == QStringLiteral("RECEIPT") || type == QStringLiteral("RECIEPT") || type == QStringLiteral("SALE RETURN") || type == QStringLiteral("SALES RETURN") || type == QStringLiteral("RETURN")) {
-                balance -= amount;
+
+            // Use canonical balance delta - only Sale, Receipt, SaleReturn affect balance
+            const double delta = domain::balanceDelta(normalizedType, amount);
+            balance += delta;
+
+            if (domain::isDebitType(normalizedType)) {
+                periodDebit += amount;
+            } else if (domain::isCreditType(normalizedType)) {
+                periodCredit += amount;
+            }
+            transactionCount++;
+            const QDate txnDate = query.value(1).toDate();
+            if (txnDate.isValid()) {
+                lastTxnDate = txnDate;
             }
 
             QJsonObject item;
             item.insert(QStringLiteral("id"), query.value(0).toInt());
             item.insert(QStringLiteral("date"), query.value(1).toDate().toString(Qt::ISODate));
             item.insert(QStringLiteral("bill_no"), query.value(2).toString());
-            item.insert(QStringLiteral("type"), query.value(3).toString());
+            item.insert(QStringLiteral("type"), rawType);
             item.insert(QStringLiteral("mode"), query.value(4).toString());
             item.insert(QStringLiteral("amount"), amount);
             item.insert(QStringLiteral("balance"), balance);
@@ -1035,6 +1060,12 @@ public:
         }
 
         result.insert(QStringLiteral("opening_balance"), openingBalance);
+        result.insert(QStringLiteral("period_debit"), periodDebit);
+        result.insert(QStringLiteral("period_credit"), periodCredit);
+        result.insert(QStringLiteral("closing_balance"), balance);
+        result.insert(QStringLiteral("transaction_count"), transactionCount);
+        result.insert(QStringLiteral("last_transaction_date"),
+            lastTxnDate.isValid() ? lastTxnDate.toString(Qt::ISODate) : QString());
         result.insert(QStringLiteral("data"), rows);
         return result;
     }
@@ -1150,19 +1181,20 @@ public:
         }
         SchemaInitializer(database.handle()).initialize(QStringLiteral("default"));
 
-        const QPair<QDate, QDate> bounds = financialYearBounds(selectedFinancialYear(database.handle()));
         QSqlQuery query(database.handle());
+        // Use canonical balance calculation: Sale = debit, Receipt/SaleReturn = credit
+        // Lifetime balance (no date filter) = full historical closing balance
         query.prepare(QStringLiteral(
             "SELECT p.name, p.type, "
             "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.amount ELSE 0 END), "
             "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END), "
             "MAX(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT') THEN t.txn_date END), "
-            "MIN(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.txn_date END) "
-            "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id AND t.txn_date >= ? AND t.txn_date <= ? "
+            "MIN(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.txn_date END), "
+            "COUNT(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('SALE','RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN 1 END), "
+            "MAX(t.txn_date) "
+            "FROM parties p LEFT JOIN transactions t ON t.party_id=p.party_id "
             "WHERE p.type IN ('Customer','Credit Customer') GROUP BY p.name, p.type ORDER BY p.name"
         ));
-        query.addBindValue(bounds.first);
-        query.addBindValue(bounds.second);
         executePrepared(query, QStringLiteral("Read outstanding report"));
 
         QJsonArray rows;
@@ -1178,12 +1210,16 @@ public:
             if (partyName.compare(QStringLiteral("customer"), Qt::CaseInsensitive) == 0) {
                 continue;
             }
-            const double balance = query.value(2).toDouble() - query.value(3).toDouble();
-            if (std::abs(balance) < 0.005) {
+            const double debit = query.value(2).toDouble();
+            const double credit = query.value(3).toDouble();
+            const double balance = debit - credit;
+            if (domain::isZeroBalance(balance)) {
                 continue;
             }
             const QDate lastReceipt = query.value(4).toDate();
             const QDate firstSale = query.value(5).toDate();
+            const int transactionCount = query.value(6).toInt();
+            const QDate lastTxnDate = query.value(7).toDate();
             const QDate anchor = lastReceipt.isValid() ? lastReceipt : firstSale;
             const int daysUnpaid = anchor.isValid() ? static_cast<int>(anchor.daysTo(today)) : 0;
             maxDaysUnpaid = qMax(maxDaysUnpaid, daysUnpaid);
@@ -1202,7 +1238,13 @@ public:
             item.insert(QStringLiteral("status"), riskLabel(daysUnpaid, lastReceipt.isValid()));
             item.insert(QStringLiteral("days_unpaid"), daysUnpaid);
             item.insert(QStringLiteral("last_receipt"), lastReceipt.isValid() ? lastReceipt.toString(Qt::ISODate) : QStringLiteral("No receipt"));
+            item.insert(QStringLiteral("closing_balance"), balance);
             item.insert(QStringLiteral("balance"), balance);
+            item.insert(QStringLiteral("debit"), debit);
+            item.insert(QStringLiteral("credit"), credit);
+            item.insert(QStringLiteral("transaction_count"), transactionCount);
+            item.insert(QStringLiteral("last_transaction_date"),
+                lastTxnDate.isValid() ? lastTxnDate.toString(Qt::ISODate) : QString());
             rows.append(item);
             total += balance;
         }
@@ -1265,13 +1307,18 @@ public:
             }
         }
 
+        // Sundry Debtors: Use canonical balance calculation (Sale - Receipt/SaleReturn)
+        // for Credit Customer parties. Uses the same logic as outstanding() to ensure
+        // trial balance Sundry Debtors == sum of outstanding balances within FY.
+        // UPPER(LTRIM(RTRIM(...))) normalization ensures case/whitespace differences in the
+        // parties.type column do not silently exclude valid rows.
         QSqlQuery debtorQuery(database.handle());
         debtorQuery.prepare(QStringLiteral(
             "SELECT "
-            "SUM(CASE WHEN t.txn_type='Sale' THEN t.amount ELSE 0 END), "
-            "SUM(CASE WHEN t.txn_type IN ('Receipt','Reciept','Sale Return','Sales Return','Return') THEN t.amount ELSE 0 END) "
+            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type)))='SALE' THEN t.amount ELSE 0 END), "
+            "SUM(CASE WHEN UPPER(LTRIM(RTRIM(t.txn_type))) IN ('RECEIPT','RECIEPT','SALE RETURN','SALES RETURN','RETURN') THEN t.amount ELSE 0 END) "
             "FROM transactions t JOIN parties p ON t.party_id=p.party_id "
-            "WHERE p.type='Credit Customer' AND t.txn_date >= ? AND t.txn_date <= ?"
+            "WHERE UPPER(LTRIM(RTRIM(p.type))) IN ('CUSTOMER','CREDIT CUSTOMER') AND t.txn_date >= ? AND t.txn_date <= ?"
         ));
         debtorQuery.addBindValue(bounds.first);
         debtorQuery.addBindValue(bounds.second);
@@ -1337,10 +1384,15 @@ public:
 
         const double sales = query.value(0).toDouble();
         const double expenses = query.value(1).toDouble();
+        // Note: Purchase transactions are NOT included in P&L (matching Electron behavior).
+        // Purchase is a balance sheet item, not an income statement item in this system.
         QJsonObject result;
         result.insert(QStringLiteral("sales"), sales);
         result.insert(QStringLiteral("expenses"), expenses);
         result.insert(QStringLiteral("net_profit"), sales - expenses);
+        result.insert(QStringLiteral("period_start"), bounds.first.toString(Qt::ISODate));
+        result.insert(QStringLiteral("period_end"), bounds.second.toString(Qt::ISODate));
+        result.insert(QStringLiteral("financial_year"), selectedFinancialYear(database.handle()));
         return result;
     }
 

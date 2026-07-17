@@ -2,6 +2,7 @@
 #include "app/XlsxReader.h"
 
 #include "data/MigrationService.h"
+#include "domain/BalanceCalculator.h"
 #include "domain/DomainErrors.h"
 #include "domain/Types.h"
 
@@ -36,6 +37,8 @@
 
 #include <QThreadPool>
 #include <QRunnable>
+#include <QElapsedTimer>
+#include <QPointer>
 
 #include <exception>
 
@@ -81,6 +84,32 @@ QVariant jsonValueToVariant(const QJsonValue& value) {
     default:
         return QVariant();
     }
+}
+
+QVariantList partyBalancesFromOutstanding(const QJsonObject& outstanding) {
+    QVariantList result;
+    const QJsonArray rows = outstanding.value(QStringLiteral("data")).toArray();
+    result.reserve(rows.size());
+    for (const QJsonValue& value : rows) {
+        const QJsonObject row = value.toObject();
+        // closing_balance is the full historical balance (lifetime debit - credit)
+        const double balance = row.value(QStringLiteral("closing_balance")).toDouble(
+            row.value(QStringLiteral("balance")).toDouble());
+        QVariantMap entry = jsonObjectToMap(row);
+        entry.insert(QStringLiteral("balance"), balance);
+        entry.insert(QStringLiteral("closing_balance"), balance);
+        entry.insert(QStringLiteral("debit"), row.value(QStringLiteral("debit")).toDouble());
+        entry.insert(QStringLiteral("credit"), row.value(QStringLiteral("credit")).toDouble());
+        entry.insert(QStringLiteral("transaction_count"), row.value(QStringLiteral("transaction_count")).toInt());
+        entry.insert(QStringLiteral("last_transaction_date"), row.value(QStringLiteral("last_transaction_date")).toString());
+        entry.insert(QStringLiteral("balanceLabel"), QLocale().toString(qAbs(balance), 'f', 2)
+            + (balance >= 0.0 ? QStringLiteral(" Dr") : QStringLiteral(" Cr")));
+        entry.insert(QStringLiteral("lastDate"), row.value(QStringLiteral("last_receipt")).toString());
+        entry.insert(QStringLiteral("lastType"), QStringLiteral("Receipt"));
+        entry.insert(QStringLiteral("lastAmount"), 0.0);
+        result.append(entry);
+    }
+    return result;
 }
 
 // ---- Enum mapping (mirrors DesktopApplication helpers) -------------------
@@ -165,19 +194,50 @@ QString findExistingPartyName(const QStringList& parties, const QString& name) {
     return QString();
 }
 
+// ---- DatabaseTask: thread-safe report/export/backup worker ---------------
+//
+// Threading safety guarantees:
+// - Each task carries immutable params (QVariantMap copied by value)
+// - Generation counter allows stale request cancellation
+// - QPointer guards against receiver destruction
+// - SqliteBusinessServices creates per-call connections (QUuid names)
+// - ConnectionPool uses per-thread cache keys (QThread::currentThreadId)
+// - Timing instrumentation records each stage for diagnostics
+// - No QObject instances are passed across threads
+
 class DatabaseTask : public QRunnable {
 public:
     enum TaskType {
         GetLedger,
         GetDayBook,
         GetDashboard,
-        GetDailySummary
+        GetDailySummary,
+        GetOutstanding,
+        GetTrialBalance,
+        GetProfitAndLoss,
+        GetPartyBalances,
+        GetAuditLogs,
+        GetInventoryReport,
+        GetTransactions,
+        DoExport,
+        DoBackup,
+        DoRestore
     };
 
-    DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params, QObject* receiver)
-        : type_(type), context_(context), params_(params), receiver_(receiver) {}
+    DatabaseTask(TaskType type, AppContext& context, const QVariantMap& params,
+                 QObject* receiver, int generation, qint64 requestStartMs)
+        : type_(type), context_(context), params_(params),
+          receiver_(receiver), generation_(generation), requestStartMs_(requestStartMs) {}
 
     void run() override {
+        QElapsedTimer timer;
+        timer.start();
+
+        QVariantMap timings;
+        timings.insert(QStringLiteral("request_start_ms"), requestStartMs_);
+        timings.insert(QStringLiteral("queue_delay_ms"), QDateTime::currentMSecsSinceEpoch() - requestStartMs_);
+        timings.insert(QStringLiteral("db_start_ns"), timer.nsecsElapsed());
+
         if (type_ == GetLedger) {
             QVariantMap res;
             try {
@@ -190,14 +250,20 @@ public:
                 res.insert(QStringLiteral("ok"), false);
                 res.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
             }
-            QMetaObject::invokeMethod(receiver_, "onLedgerTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onLedgerTaskFinished", res, timings);
         } else if (type_ == GetDayBook) {
             QVariantList res;
             try {
                 const QDate date = QDate::fromString(params_.value(QStringLiteral("dateIso")).toString(), Qt::ISODate);
                 res = jsonArrayToList(context_.services().reports->dayBook(date));
             } catch (...) {}
-            QMetaObject::invokeMethod(receiver_, "onDayBookTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onDayBookTaskFinished", res, timings);
         } else if (type_ == GetDashboard) {
             QVariantMap res;
             try {
@@ -206,7 +272,10 @@ public:
                 res.insert(QStringLiteral("ok"), false);
                 res.insert(QStringLiteral("error"), QString::fromUtf8(err.what()));
             }
-            QMetaObject::invokeMethod(receiver_, "onDashboardTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantMap, res));
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onDashboardTaskFinished", res, timings);
         } else if (type_ == GetDailySummary) {
             QVariantList res;
             try {
@@ -215,7 +284,250 @@ public:
                 domain::ReportRange range{start, end, 0};
                 res = jsonArrayToList(context_.services().reports->dailySummary(range));
             } catch (...) {}
-            QMetaObject::invokeMethod(receiver_, "onDailySummaryTaskFinished", Qt::QueuedConnection, Q_ARG(QVariantList, res));
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onDailySummaryTaskFinished", res, timings);
+        } else if (type_ == GetOutstanding) {
+            QVariantMap res;
+            try { res = jsonObjectToMap(context_.services().reports->outstanding()); }
+            catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onOutstandingTaskFinished", res, timings);
+        } else if (type_ == GetTrialBalance) {
+            QVariantList res;
+            try { res = jsonArrayToList(context_.services().reports->trialBalance()); } catch (...) {}
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onTrialBalanceTaskFinished", res, timings);
+        } else if (type_ == GetProfitAndLoss) {
+            QVariantMap res;
+            try { res = jsonObjectToMap(context_.services().reports->profitAndLoss()); }
+            catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onProfitAndLossTaskFinished", res, timings);
+        } else if (type_ == GetPartyBalances) {
+            QVariantList res;
+            try {
+                timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+                timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+                res = partyBalancesFromOutstanding(context_.services().reports->outstanding());
+            } catch (...) {}
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onPartyBalancesTaskFinished", res, timings);
+        } else if (type_ == GetAuditLogs) {
+            QVariantList res;
+            try { res = jsonArrayToList(context_.services().audit->listAuditLogs(QStringLiteral("native"))); } catch (...) {}
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onAuditLogsTaskFinished", res, timings);
+        } else if (type_ == GetInventoryReport) {
+            QVariantMap res;
+            try {
+                const QString financialYear = params_.value(QStringLiteral("financialYear")).toString();
+                const int month = params_.value(QStringLiteral("month")).toInt();
+                res.insert(QStringLiteral("rows"), jsonArrayToList(context_.services().inventory->loadSnapshot(financialYear, month)));
+                res.insert(QStringLiteral("stockRows"), jsonArrayToList(context_.services().inventory->stockValue(financialYear, month)));
+            } catch (const std::exception& err) { res = errorResult(QString::fromUtf8(err.what())); }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onInventoryReportTaskFinished", res, timings);
+        } else if (type_ == GetTransactions) {
+            QVariantList res;
+            try {
+                const int page = params_.value(QStringLiteral("page")).toInt();
+                const int limit = params_.value(QStringLiteral("limit")).toInt();
+                const int days = params_.value(QStringLiteral("days")).toInt();
+                const QVector<domain::TransactionRow> rows =
+                    context_.services().transactions->listTransactions(
+                        page > 0 ? page : 1, limit > 0 ? limit : 100, days);
+                timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+                timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+                res.reserve(rows.size());
+                for (const domain::TransactionRow& row : rows) {
+                    QVariantMap item;
+                    item.insert(QStringLiteral("id"), row.id);
+                    item.insert(QStringLiteral("date"), row.date.toString(Qt::ISODate));
+                    item.insert(QStringLiteral("bill_no"), row.billNo);
+                    item.insert(QStringLiteral("party"), row.party);
+                    item.insert(QStringLiteral("amount"), row.amount);
+                    switch (row.type) {
+                    case domain::TransactionType::Sale: item.insert(QStringLiteral("type"), QStringLiteral("Sale")); break;
+                    case domain::TransactionType::SaleReturn: item.insert(QStringLiteral("type"), QStringLiteral("Sale Return")); break;
+                    case domain::TransactionType::Purchase: item.insert(QStringLiteral("type"), QStringLiteral("Purchase")); break;
+                    case domain::TransactionType::Expense: item.insert(QStringLiteral("type"), QStringLiteral("Expense")); break;
+                    case domain::TransactionType::Receipt: item.insert(QStringLiteral("type"), QStringLiteral("Receipt")); break;
+                    }
+                    switch (row.mode) {
+                    case domain::PaymentMode::Credit: item.insert(QStringLiteral("mode"), QStringLiteral("Credit")); break;
+                    case domain::PaymentMode::Cash: item.insert(QStringLiteral("mode"), QStringLiteral("Cash")); break;
+                    case domain::PaymentMode::Upi: item.insert(QStringLiteral("mode"), QStringLiteral("UPI")); break;
+                    case domain::PaymentMode::Bank: item.insert(QStringLiteral("mode"), QStringLiteral("Bank")); break;
+                    }
+                    res.append(item);
+                }
+            } catch (...) {
+                timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+                timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            }
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverListResult("onTransactionsTaskFinished", res, timings);
+        } else if (type_ == DoExport) {
+            QVariantMap res;
+            try {
+                const QString format = params_.value(QStringLiteral("format")).toString();
+                const QString title = params_.value(QStringLiteral("title")).toString();
+                const QVariantList columns = params_.value(QStringLiteral("columns")).toList();
+                const QVariantList rows = params_.value(QStringLiteral("rows")).toList();
+
+                const QString dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+                const QString baseName = title.simplified().replace(QLatin1Char(' '), QLatin1Char('_'));
+
+                if (format == QStringLiteral("pdf")) {
+                    const QString filePath = dir + QStringLiteral("/") + baseName + QStringLiteral(".pdf");
+                    // PDF generation in background thread
+                    QPdfWriter writer(filePath);
+                    writer.setPageSize(QPageSize(QPageSize::A4));
+                    writer.setPageOrientation(QPageLayout::Landscape);
+                    writer.setResolution(96);
+                    writer.setTitle(title);
+
+                    QPainter painter(&writer);
+                    if (painter.isActive()) {
+                        const int pageW = writer.width();
+                        const int margin = 60;
+                        int y = margin;
+
+                        QFont titleFont(QStringLiteral("Inter Tight"), 18, QFont::Bold);
+                        painter.setFont(titleFont);
+                        painter.setPen(QColor(0x1e, 0x24, 0x35));
+                        painter.drawText(margin, y + 22, title);
+                        y += 50;
+
+                        QFont subFont(QStringLiteral("Inter Tight"), 9);
+                        painter.setFont(subFont);
+                        painter.setPen(QColor(0x64, 0x74, 0x8b));
+                        painter.drawText(margin, y + 12, QStringLiteral("Generated: ") + QDate::currentDate().toString(QStringLiteral("dd MMM yyyy")));
+                        y += 30;
+
+                        if (!columns.isEmpty()) {
+                            const int colCount = columns.size();
+                            const int colW = (pageW - margin * 2) / colCount;
+                            const int rowH = 28;
+
+                            QFont headerFont(QStringLiteral("Inter Tight"), 8, QFont::Bold);
+                            painter.setFont(headerFont);
+                            painter.setPen(Qt::NoPen);
+                            painter.setBrush(QColor(0x1b, 0x24, 0x40));
+                            painter.drawRect(margin, y, pageW - margin * 2, rowH);
+                            painter.setPen(QColor(0xee, 0xf2, 0xfb));
+                            for (int c = 0; c < colCount; ++c) {
+                                painter.drawText(QRect(margin + c * colW + 6, y, colW - 12, rowH),
+                                                 Qt::AlignVCenter | Qt::AlignLeft, columns[c].toString());
+                            }
+                            y += rowH;
+
+                            QFont dataFont(QStringLiteral("Inter Tight"), 8);
+                            painter.setFont(dataFont);
+                            for (int r = 0; r < rows.size(); ++r) {
+                                if (y + rowH > writer.height() - margin) {
+                                    writer.newPage();
+                                    y = margin;
+                                }
+                                const QVariantList row = rows[r].toList();
+                                painter.setPen(Qt::NoPen);
+                                painter.setBrush(r % 2 == 0 ? QColor(0xf8, 0xfa, 0xfc) : QColor(0xff, 0xff, 0xff));
+                                painter.drawRect(margin, y, pageW - margin * 2, rowH);
+                                painter.setPen(QColor(0x1e, 0x24, 0x35));
+                                for (int c = 0; c < qMin(colCount, row.size()); ++c) {
+                                    painter.drawText(QRect(margin + c * colW + 6, y, colW - 12, rowH),
+                                                     Qt::AlignVCenter | Qt::AlignLeft, row[c].toString());
+                                }
+                                painter.setPen(QPen(QColor(0xe5, 0xe7, 0xeb), 1));
+                                painter.drawLine(margin, y + rowH, pageW - margin, y + rowH);
+                                y += rowH;
+                            }
+                        }
+                        painter.end();
+                    }
+                    res = okResult();
+                    res.insert(QStringLiteral("path"), filePath);
+                } else {
+                    // CSV/Excel export
+                    const QString filePath = dir + QStringLiteral("/") + baseName + QStringLiteral(".csv");
+                    QFile file(filePath);
+                    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                        QTextStream out(&file);
+                        // Header row
+                        QStringList headers;
+                        headers.reserve(columns.size());
+                        for (const QVariant& col : columns) {
+                            headers.append(col.toString());
+                        }
+                        out << headers.join(QLatin1Char(',')) << QStringLiteral("\n");
+                        // Data rows
+                        for (const QVariant& rowVar : rows) {
+                            const QVariantList row = rowVar.toList();
+                            QStringList cells;
+                            cells.reserve(row.size());
+                            for (const QVariant& cell : row) {
+                                QString val = cell.toString();
+                                if (val.contains(QLatin1Char(',')) || val.contains(QLatin1Char('"'))) {
+                                    val = QLatin1Char('"') + val.replace(QLatin1Char('"'), QStringLiteral("\"\"")) + QLatin1Char('"');
+                                }
+                                cells.append(val);
+                            }
+                            out << cells.join(QLatin1Char(',')) << QStringLiteral("\n");
+                        }
+                        file.close();
+                        res = okResult();
+                        res.insert(QStringLiteral("path"), filePath);
+                    } else {
+                        res = errorResult(QStringLiteral("Could not open file for writing"));
+                    }
+                }
+            } catch (const std::exception& err) {
+                res = errorResult(QString::fromUtf8(err.what()));
+            }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onExportTaskFinished", res, timings);
+        } else if (type_ == DoBackup) {
+            QVariantMap res;
+            try {
+                const QString targetDir = params_.value(QStringLiteral("targetDir")).toString().trimmed();
+                const domain::BackupResult result = context_.services().backups->backup(targetDir);
+                res = okResult();
+                res.insert(QStringLiteral("path"), result.path);
+                res.insert(QStringLiteral("status"), result.status);
+            } catch (const std::exception& err) {
+                res = errorResult(QString::fromUtf8(err.what()));
+            }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onBackupTaskFinished", res, timings);
+        } else if (type_ == DoRestore) {
+            QVariantMap res;
+            try {
+                const QString backupPath = params_.value(QStringLiteral("backupPath")).toString().trimmed();
+                context_.services().backups->restore(backupPath);
+                res = okResult();
+            } catch (const std::exception& err) {
+                res = errorResult(QString::fromUtf8(err.what()));
+            }
+            timings.insert(QStringLiteral("db_end_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_start_ns"), timer.nsecsElapsed());
+            timings.insert(QStringLiteral("transform_end_ns"), timer.nsecsElapsed());
+            deliverMapResult("onRestoreTaskFinished", res, timings);
         }
     }
 
@@ -223,7 +535,27 @@ private:
     TaskType type_;
     AppContext& context_;
     QVariantMap params_;
-    QObject* receiver_;
+    QPointer<QObject> receiver_;
+    int generation_;
+    qint64 requestStartMs_;
+
+    // Deliver a QVariantMap result safely - checks receiver still exists
+    void deliverMapResult(const char* slot, const QVariantMap& result, const QVariantMap& timings) {
+        if (receiver_.isNull()) return; // receiver destroyed, discard safely
+        QMetaObject::invokeMethod(receiver_.data(), slot, Qt::QueuedConnection,
+                                  Q_ARG(int, generation_),
+                                  Q_ARG(QVariantMap, result),
+                                  Q_ARG(QVariantMap, timings));
+    }
+
+    // Deliver a QVariantList result safely - checks receiver still exists
+    void deliverListResult(const char* slot, const QVariantList& result, const QVariantMap& timings) {
+        if (receiver_.isNull()) return; // receiver destroyed, discard safely
+        QMetaObject::invokeMethod(receiver_.data(), slot, Qt::QueuedConnection,
+                                  Q_ARG(int, generation_),
+                                  Q_ARG(QVariantList, result),
+                                  Q_ARG(QVariantMap, timings));
+    }
 };
 
 } // namespace
@@ -239,6 +571,12 @@ QmlBackend::QmlBackend(AppContext& context, QObject* parent)
     } catch (...) {
         // Database may not be configured yet; QML will surface config UI.
     }
+}
+
+QmlBackend::~QmlBackend() {
+    // Ensure all in-flight DatabaseTask instances complete before the AppContext
+    // reference they hold becomes invalid during application teardown.
+    QThreadPool::globalInstance()->waitForDone();
 }
 
 bool QmlBackend::setupRequired() const {
@@ -673,44 +1011,238 @@ QVariantMap QmlBackend::profitAndLoss() {
 }
 
 void QmlBackend::fetchLedger(const QString& party, const QString& startIso, const QString& endIso) {
+    const int gen = nextGeneration(DatabaseTask::GetLedger);
+    setLoading(DatabaseTask::GetLedger, true);
     QVariantMap params;
     params.insert(QStringLiteral("party"), party);
     params.insert(QStringLiteral("startIso"), startIso);
     params.insert(QStringLiteral("endIso"), endIso);
-    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetLedger, context_, params, this));
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetLedger, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDayBook(const QString& dateIso) {
+    const int gen = nextGeneration(DatabaseTask::GetDayBook);
+    setLoading(DatabaseTask::GetDayBook, true);
     QVariantMap params;
     params.insert(QStringLiteral("dateIso"), dateIso);
-    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDayBook, context_, params, this));
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetDayBook, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDashboard() {
-    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this));
+    const int gen = nextGeneration(DatabaseTask::GetDashboard);
+    setLoading(DatabaseTask::GetDashboard, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetDashboard, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
 void QmlBackend::fetchDailySummary(const QString& startIso, const QString& endIso) {
+    const int gen = nextGeneration(DatabaseTask::GetDailySummary);
+    setLoading(DatabaseTask::GetDailySummary, true);
     QVariantMap params;
     params.insert(QStringLiteral("startIso"), startIso);
     params.insert(QStringLiteral("endIso"), endIso);
-    QThreadPool::globalInstance()->start(new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this));
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetDailySummary, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
 }
 
-void QmlBackend::onLedgerTaskFinished(const QVariantMap& result) {
+void QmlBackend::fetchOutstanding() {
+    const int gen = nextGeneration(DatabaseTask::GetOutstanding);
+    setLoading(DatabaseTask::GetOutstanding, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetOutstanding, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchTrialBalance() {
+    const int gen = nextGeneration(DatabaseTask::GetTrialBalance);
+    setLoading(DatabaseTask::GetTrialBalance, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetTrialBalance, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchProfitAndLoss() {
+    const int gen = nextGeneration(DatabaseTask::GetProfitAndLoss);
+    setLoading(DatabaseTask::GetProfitAndLoss, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetProfitAndLoss, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchPartyBalances() {
+    const int gen = nextGeneration(DatabaseTask::GetPartyBalances);
+    setLoading(DatabaseTask::GetPartyBalances, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetPartyBalances, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchAuditLogs() {
+    const int gen = nextGeneration(DatabaseTask::GetAuditLogs);
+    setLoading(DatabaseTask::GetAuditLogs, true);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetAuditLogs, context_, {}, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchInventoryReport(const QString& financialYear, int month) {
+    const int gen = nextGeneration(DatabaseTask::GetInventoryReport);
+    setLoading(DatabaseTask::GetInventoryReport, true);
+    QVariantMap params;
+    params.insert(QStringLiteral("financialYear"), financialYear);
+    params.insert(QStringLiteral("month"), month);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetInventoryReport, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchTransactions(int page, int limit, int days) {
+    const int gen = nextGeneration(DatabaseTask::GetTransactions);
+    setLoading(DatabaseTask::GetTransactions, true);
+    QVariantMap params;
+    params.insert(QStringLiteral("page"), page);
+    params.insert(QStringLiteral("limit"), limit);
+    params.insert(QStringLiteral("days"), days);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::GetTransactions, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchExport(const QString& format, const QString& title,
+                             const QVariantList& columns, const QVariantList& rows) {
+    const int gen = nextGeneration(DatabaseTask::DoExport);
+    setLoading(DatabaseTask::DoExport, true);
+    QVariantMap params;
+    params.insert(QStringLiteral("format"), format);
+    params.insert(QStringLiteral("title"), title);
+    params.insert(QStringLiteral("columns"), QVariant::fromValue(columns));
+    params.insert(QStringLiteral("rows"), QVariant::fromValue(rows));
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::DoExport, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchBackup(const QString& targetDir) {
+    const int gen = nextGeneration(DatabaseTask::DoBackup);
+    setLoading(DatabaseTask::DoBackup, true);
+    QVariantMap params;
+    params.insert(QStringLiteral("targetDir"), targetDir);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::DoBackup, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+void QmlBackend::fetchRestore(const QString& backupPath) {
+    const int gen = nextGeneration(DatabaseTask::DoRestore);
+    setLoading(DatabaseTask::DoRestore, true);
+    QVariantMap params;
+    params.insert(QStringLiteral("backupPath"), backupPath);
+    QThreadPool::globalInstance()->start(
+        new DatabaseTask(DatabaseTask::DoRestore, context_, params, this, gen, QDateTime::currentMSecsSinceEpoch()));
+}
+
+// --- onXTaskFinished slots with generation check and timing emission ------
+
+void QmlBackend::onLedgerTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetLedger, false);
+    if (isStale(DatabaseTask::GetLedger, generation)) return;
+    emit reportTimingComplete(QStringLiteral("ledger"), timings);
     emit ledgerLoaded(result);
 }
 
-void QmlBackend::onDayBookTaskFinished(const QVariantList& result) {
+void QmlBackend::onDayBookTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetDayBook, false);
+    if (isStale(DatabaseTask::GetDayBook, generation)) return;
+    emit reportTimingComplete(QStringLiteral("dayBook"), timings);
     emit dayBookLoaded(result);
 }
 
-void QmlBackend::onDashboardTaskFinished(const QVariantMap& result) {
+void QmlBackend::onDashboardTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetDashboard, false);
+    if (isStale(DatabaseTask::GetDashboard, generation)) return;
+    emit reportTimingComplete(QStringLiteral("dashboard"), timings);
     emit dashboardLoaded(result);
 }
 
-void QmlBackend::onDailySummaryTaskFinished(const QVariantList& result) {
+void QmlBackend::onDailySummaryTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetDailySummary, false);
+    if (isStale(DatabaseTask::GetDailySummary, generation)) return;
+    emit reportTimingComplete(QStringLiteral("dailySummary"), timings);
     emit dailySummaryLoaded(result);
+}
+
+void QmlBackend::onOutstandingTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetOutstanding, false);
+    if (isStale(DatabaseTask::GetOutstanding, generation)) return;
+    emit reportTimingComplete(QStringLiteral("outstanding"), timings);
+    emit outstandingLoaded(result);
+}
+
+void QmlBackend::onTrialBalanceTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetTrialBalance, false);
+    if (isStale(DatabaseTask::GetTrialBalance, generation)) return;
+    emit reportTimingComplete(QStringLiteral("trialBalance"), timings);
+    emit trialBalanceLoaded(result);
+}
+
+void QmlBackend::onProfitAndLossTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetProfitAndLoss, false);
+    if (isStale(DatabaseTask::GetProfitAndLoss, generation)) return;
+    emit reportTimingComplete(QStringLiteral("profitAndLoss"), timings);
+    emit profitAndLossLoaded(result);
+}
+
+void QmlBackend::onPartyBalancesTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetPartyBalances, false);
+    if (isStale(DatabaseTask::GetPartyBalances, generation)) return;
+    emit reportTimingComplete(QStringLiteral("partyBalances"), timings);
+    emit partyBalancesLoaded(result);
+}
+
+void QmlBackend::onAuditLogsTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetAuditLogs, false);
+    if (isStale(DatabaseTask::GetAuditLogs, generation)) return;
+    emit reportTimingComplete(QStringLiteral("auditLogs"), timings);
+    emit auditLogsLoaded(result);
+}
+
+void QmlBackend::onInventoryReportTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetInventoryReport, false);
+    if (isStale(DatabaseTask::GetInventoryReport, generation)) return;
+    emit reportTimingComplete(QStringLiteral("inventoryReport"), timings);
+    emit inventoryReportLoaded(result);
+}
+
+void QmlBackend::onTransactionsTaskFinished(int generation, const QVariantList& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::GetTransactions, false);
+    if (isStale(DatabaseTask::GetTransactions, generation)) return;
+    emit reportTimingComplete(QStringLiteral("transactions"), timings);
+    emit transactionsLoaded(result);
+}
+
+void QmlBackend::onExportTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::DoExport, false);
+    if (isStale(DatabaseTask::DoExport, generation)) return;
+    emit reportTimingComplete(QStringLiteral("export"), timings);
+    emit exportComplete(result);
+    if (result.value(QStringLiteral("ok")).toBool()) {
+        emit toast(QStringLiteral("Export complete: ") + result.value(QStringLiteral("path")).toString(),
+                   QStringLiteral("success"));
+    }
+}
+
+void QmlBackend::onBackupTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::DoBackup, false);
+    if (isStale(DatabaseTask::DoBackup, generation)) return;
+    emit reportTimingComplete(QStringLiteral("backup"), timings);
+    emit backupComplete(result);
+    if (result.value(QStringLiteral("ok")).toBool()) {
+        emit toast(QStringLiteral("Backup complete"), QStringLiteral("success"));
+    }
+}
+
+void QmlBackend::onRestoreTaskFinished(int generation, const QVariantMap& result, const QVariantMap& timings) {
+    setLoading(DatabaseTask::DoRestore, false);
+    if (isStale(DatabaseTask::DoRestore, generation)) return;
+    emit reportTimingComplete(QStringLiteral("restore"), timings);
+    emit restoreComplete(result);
+    if (result.value(QStringLiteral("ok")).toBool()) {
+        emit toast(QStringLiteral("Database restored successfully"), QStringLiteral("success"));
+        emit dataChanged();
+    }
 }
 
 QVariantMap QmlBackend::saveCashInHand(const QString& dateIso, double amount) {
@@ -2015,22 +2547,7 @@ QVariantMap QmlBackend::exportRecentExcel(int days) {
 
 QVariantList QmlBackend::allPartyBalances() {
     try {
-        const QStringList names = partyNames();
-        QVariantList result;
-        for (const QString& name : names) {
-            const QVariantMap bal = partyBalance(name);
-            if (bal.value(QStringLiteral("hasData")).toBool()) {
-                QVariantMap entry;
-                entry.insert(QStringLiteral("party"), name);
-                entry.insert(QStringLiteral("balance"), bal.value(QStringLiteral("balance")));
-                entry.insert(QStringLiteral("balanceLabel"), bal.value(QStringLiteral("balanceLabel")));
-                entry.insert(QStringLiteral("lastDate"), bal.value(QStringLiteral("lastDate")));
-                entry.insert(QStringLiteral("lastType"), bal.value(QStringLiteral("lastType")));
-                entry.insert(QStringLiteral("lastAmount"), bal.value(QStringLiteral("lastAmount")));
-                result.append(entry);
-            }
-        }
-        return result;
+        return partyBalancesFromOutstanding(context_.services().reports->outstanding());
     } catch (...) {
         return {};
     }
@@ -2137,6 +2654,13 @@ QVariantMap QmlBackend::closingReport() {
         const double closingCash = opening + cashReceipts + cashSales;
         const double upiTotal = upiReceipts + upiSales;
 
+        // Compute total receivables using canonical balance from outstanding report
+        double totalReceivables = 0.0;
+        try {
+            const QJsonObject outstandingData = context_.services().reports->outstanding();
+            totalReceivables = outstandingData.value(QStringLiteral("total")).toDouble();
+        } catch (...) {}
+
         QVariantMap result;
         result.insert(QStringLiteral("date"), todayIso);
         result.insert(QStringLiteral("openingCash"), opening);
@@ -2148,6 +2672,7 @@ QVariantMap QmlBackend::closingReport() {
         result.insert(QStringLiteral("closingCash"), closingCash);
         result.insert(QStringLiteral("upiTotal"), upiTotal);
         result.insert(QStringLiteral("totalCollected"), cashReceipts + upiReceipts + cashSales + upiSales);
+        result.insert(QStringLiteral("receivables"), totalReceivables);
         result.insert(QStringLiteral("receiptCount"), receiptCount);
         result.insert(QStringLiteral("cashSaleCount"), cashSaleCount);
         result.insert(QStringLiteral("upiSaleCount"), upiSaleCount);
@@ -2288,6 +2813,49 @@ QString QmlBackend::formatDate(const QString& iso) const {
 
 QString QmlBackend::todayIso() const {
     return QDate::currentDate().toString(Qt::ISODate);
+}
+
+// ---- Request tracking helpers -------------------------------------------
+
+int QmlBackend::nextGeneration(int taskType) {
+    // Increment and return the new generation value.
+    // This makes any in-flight request for this task type stale.
+    // Use Acquire ordering to ensure the store is visible to the
+    // comparison in isStale() even under nested event-loop re-entry.
+    return requestTrackers_[taskType].generation.fetchAndAddAcquire(1) + 1;
+}
+
+bool QmlBackend::isStale(int taskType, int generation) const {
+    // If the generation delivered does not match current, the result is stale.
+    auto it = requestTrackers_.constFind(taskType);
+    if (it == requestTrackers_.constEnd()) return true;
+    return it->generation.loadAcquire() != generation;
+}
+
+void QmlBackend::setLoading(int taskType, bool loading) {
+    if (loadingFlags_.value(taskType, false) != loading) {
+        loadingFlags_[taskType] = loading;
+        emit loadingStatesChanged();
+    }
+}
+
+QVariantMap QmlBackend::loadingStates() const {
+    QVariantMap states;
+    states.insert(QStringLiteral("ledger"), loadingFlags_.value(DatabaseTask::GetLedger, false));
+    states.insert(QStringLiteral("dayBook"), loadingFlags_.value(DatabaseTask::GetDayBook, false));
+    states.insert(QStringLiteral("dashboard"), loadingFlags_.value(DatabaseTask::GetDashboard, false));
+    states.insert(QStringLiteral("dailySummary"), loadingFlags_.value(DatabaseTask::GetDailySummary, false));
+    states.insert(QStringLiteral("outstanding"), loadingFlags_.value(DatabaseTask::GetOutstanding, false));
+    states.insert(QStringLiteral("trialBalance"), loadingFlags_.value(DatabaseTask::GetTrialBalance, false));
+    states.insert(QStringLiteral("profitAndLoss"), loadingFlags_.value(DatabaseTask::GetProfitAndLoss, false));
+    states.insert(QStringLiteral("partyBalances"), loadingFlags_.value(DatabaseTask::GetPartyBalances, false));
+    states.insert(QStringLiteral("auditLogs"), loadingFlags_.value(DatabaseTask::GetAuditLogs, false));
+    states.insert(QStringLiteral("inventoryReport"), loadingFlags_.value(DatabaseTask::GetInventoryReport, false));
+    states.insert(QStringLiteral("transactions"), loadingFlags_.value(DatabaseTask::GetTransactions, false));
+    states.insert(QStringLiteral("export"), loadingFlags_.value(DatabaseTask::DoExport, false));
+    states.insert(QStringLiteral("backup"), loadingFlags_.value(DatabaseTask::DoBackup, false));
+    states.insert(QStringLiteral("restore"), loadingFlags_.value(DatabaseTask::DoRestore, false));
+    return states;
 }
 
 } // namespace mfinlogs::app

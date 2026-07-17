@@ -26,13 +26,13 @@ Item {
                 height: toastRect.height
                 property color tint: kind === "success" ? Theme.success
                                     : kind === "error" ? Theme.danger
-                                    : Theme.accent
+                                    : Theme.palette.primary
 
                 GlassPanel {
                     id: toastRect
                     width: Math.min(360, Math.max(220, label.implicitWidth + 64))
                     height: 52
-                    fillColor: Theme.bg2
+                    fillColor: Theme.palette.bgMuted
                     radius: Theme.rMd
 
                     Rectangle {
@@ -62,7 +62,7 @@ Item {
                         anchors.right: parent.right
                         anchors.rightMargin: 16
                         text: message
-                        color: Theme.text
+                        color: Theme.palette.fg
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fsSmall
                         wrapMode: Text.WordWrap

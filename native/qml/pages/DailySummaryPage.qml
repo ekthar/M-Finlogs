@@ -5,21 +5,39 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
     Connections {
         target: backend
         function onDailySummaryLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
             rows = result || []
-            console.log("[DAYSUMMARY] rows loaded asynchronously:", rows.length)
         }
     }
 
     function load() {
-        console.log("[DAYSUMMARY] load() called")
+        page.isLoading = true
         backend.fetchDailySummary(dateRange.fromIso, dateRange.toIso)
     }
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
     Component.onCompleted: {
-        console.log("[DAYSUMMARY] Component.onCompleted")
         dateRange.preset(30)
         load()
     }
@@ -82,6 +100,12 @@ Item {
             }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -90,6 +114,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No data for the selected range"
+                loading: page.isLoading
                 rows: page.rows
                 columns: [
                     { title: "Date", key: "date", date: true, weight: 1.2 },

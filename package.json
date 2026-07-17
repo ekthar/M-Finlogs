@@ -7,6 +7,7 @@
   "scripts": {
     "start": "electron .",
     "preflight:build": "node scripts/preflight-build.js",
+    "check:source": "node --check main.js && node --check preload.js && node --check renderer.js && node --check scripts/preflight-build.js && python -c \"import ast,pathlib; [ast.parse(pathlib.Path(f).read_text(encoding='utf-8'), filename=f) for f in ['backend.py','backend_runner.py','config.py']]\"",
     "close:packaging": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/close-packaging-processes.ps1",
     "clean:packaging": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-packaging-output.ps1",
     "package:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1",
@@ -29,7 +30,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ektharxd",
+        "owner": "ekthar",
         "repo": "M-Finlogs"
       }
     ],
@@ -49,7 +50,11 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "electron-updater": "^6.3.0"
+    "chart.js": "^4.4.7",
+    "electron-updater": "^6.3.0",
+    "flatpickr": "^4.6.13",
+    "ionicons": "^7.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "electron": "^40.0.0",

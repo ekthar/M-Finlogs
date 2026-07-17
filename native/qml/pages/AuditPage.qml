@@ -5,10 +5,36 @@ import MFinlogs
 Item {
     id: page
     property var rows: []
+    property bool isLoading: false
+    property string errorMessage: ""
 
-    function load() { console.log("[AUDIT] load() called"); rows = backend.auditLogs(); console.log("[AUDIT] rows:", rows ? rows.length : "null") }
-    Component.onCompleted: { console.log("[AUDIT] Component.onCompleted"); load() }
-    Connections { target: backend; function onDataChanged() { console.log("[AUDIT] dataChanged"); page.load() } }
+    Timer {
+        id: timeoutTimer
+        interval: 15000
+        running: page.isLoading
+        onTriggered: {
+            if (page.isLoading) {
+                page.isLoading = false
+                page.errorMessage = "Request timed out. Check your database connection."
+            }
+        }
+    }
+
+    function load() { page.isLoading = true; backend.fetchAuditLogs() }
+    Component.onCompleted: { load() }
+    Connections {
+        target: backend
+        function onDataChanged() { page.load() }
+        function onAuditLogsLoaded(result) {
+            page.isLoading = false
+            if (result && result.error) {
+                page.errorMessage = result.error
+                return
+            }
+            page.errorMessage = ""
+            page.rows = result || []
+        }
+    }
 
     function doExportPdf() {
         var cols = ["Time", "User", "Action", "Details"]
@@ -49,6 +75,12 @@ Item {
             GhostButton { text: "Refresh"; onClicked: page.load() }
         }
 
+        ErrorBanner {
+            Layout.fillWidth: true
+            message: page.errorMessage
+            onRetry: page.load()
+        }
+
         GlassPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -57,6 +89,7 @@ Item {
                 anchors.fill: parent
                 anchors.margins: Theme.s5
                 emptyText: "No audit entries"
+                loading: page.isLoading
                 rows: page.rows
                 columns: [
                     { title: "Time", key: "timestamp", weight: 1.6 },

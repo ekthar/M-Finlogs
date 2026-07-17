@@ -8,9 +8,12 @@ Column {
     property string subtitle: ""
     spacing: 4
 
+    Accessible.role: Accessible.Heading
+    Accessible.name: root.title
+
     Text {
         text: root.title
-        color: Theme.text
+        color: Theme.palette.fg
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fsTitle
         font.weight: Font.Bold
@@ -18,7 +21,7 @@ Column {
     Text {
         visible: root.subtitle.length > 0
         text: root.subtitle
-        color: Theme.textDim
+        color: Theme.palette.fgMuted
         font.family: Theme.fontFamily
         font.pixelSize: Theme.fsSmall
     }

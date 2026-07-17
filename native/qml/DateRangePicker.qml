@@ -9,8 +9,7 @@ GlassPanel {
     implicitHeight: 52
     radius: Theme.rMd
     elevated: false
-    fillColor: Theme.alpha(Theme.bg1, 0.5)
-    sheen: false
+    fillColor: Theme.alpha(Theme.palette.bgSubtle, 0.5)
 
     property date fromDate: new Date()
     property date toDate: new Date()
@@ -42,7 +41,7 @@ GlassPanel {
 
         Text {
             text: "\u231A"
-            color: Theme.accent
+            color: Theme.palette.primary
             font.pixelSize: 16
         }
 
@@ -50,7 +49,7 @@ GlassPanel {
             spacing: 0
             Text {
                 text: "From"
-                color: Theme.textFaint
+                color: Theme.palette.fgSubtle
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
             }
@@ -59,16 +58,16 @@ GlassPanel {
                 implicitWidth: 120
                 implicitHeight: 26
                 text: root.fromIso
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSmall
                 placeholderText: "YYYY-MM-DD"
-                placeholderTextColor: Theme.textFaint
+                placeholderTextColor: Theme.palette.fgSubtle
                 background: Rectangle {
                     radius: Theme.rSm
-                    color: Theme.alpha(Theme.glass, 0.5)
-                    border.width: 1
-                    border.color: Theme.glassBorder
+                    color: Theme.alpha(Theme.palette.fg, 0.04)
+                    border.width: Theme.bwDefault
+                    border.color: Theme.palette.border
                 }
                 onTextChanged: {
                     if (text.length === 10) {
@@ -87,7 +86,7 @@ GlassPanel {
             spacing: 0
             Text {
                 text: "To"
-                color: Theme.textFaint
+                color: Theme.palette.fgSubtle
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsTiny
             }
@@ -96,16 +95,16 @@ GlassPanel {
                 implicitWidth: 120
                 implicitHeight: 26
                 text: root.toIso
-                color: Theme.text
+                color: Theme.palette.fg
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fsSmall
                 placeholderText: "YYYY-MM-DD"
-                placeholderTextColor: Theme.textFaint
+                placeholderTextColor: Theme.palette.fgSubtle
                 background: Rectangle {
                     radius: Theme.rSm
-                    color: Theme.alpha(Theme.glass, 0.5)
-                    border.width: 1
-                    border.color: Theme.glassBorder
+                    color: Theme.alpha(Theme.palette.fg, 0.04)
+                    border.width: Theme.bwDefault
+                    border.color: Theme.palette.border
                 }
                 onTextChanged: {
                     if (text.length === 10) {
@@ -128,17 +127,17 @@ GlassPanel {
                 Layout.preferredHeight: 26
                 Layout.preferredWidth: labelText.implicitWidth + 16
                 radius: Theme.rPill
-                color: Theme.alpha(Theme.accent, 0.08)
+                color: Theme.alpha(Theme.palette.primary, 0.08)
                 border.width: 1
-                border.color: Theme.alpha(Theme.accent, 0.15)
+                border.color: Theme.alpha(Theme.palette.primary, 0.15)
                 Text {
                     id: labelText
                     anchors.centerIn: parent
                     text: modelData
-                    color: Theme.accent
+                    color: Theme.palette.primary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fsTiny
-                    font.weight: Font.DemiBold
+                    font.weight: Theme.wSemibold
                 }
                 TapHandler {
                     onTapped: {

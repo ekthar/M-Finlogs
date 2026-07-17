@@ -4,7 +4,7 @@ REM Prerequisites:
 REM   - Build completed: cmake --build native\build --config Release --target mfinlogs-native
 REM   - Qt deployed: windeployqt run on the package folder
 REM   - Inno Setup installed (iscc.exe in PATH or at default location)
-REM   - Internet connection (to download ODBC driver if not cached)
+REM   - Optional ODBC driver MSI placed beside this script when bundling is desired
 
 set PROJECT_ROOT=%~dp0..\..
 set BUILD_DIR=%PROJECT_ROOT%\native\build
@@ -13,16 +13,11 @@ set INSTALLER_DIR=%PROJECT_ROOT%\native\installer
 set ODBC_MSI=%INSTALLER_DIR%\msodbcsql_17.10.5.1_x64.msi
 set ODBC_URL=https://go.microsoft.com/fwlink/?linkid=2249003
 
-echo === Step 1: Download ODBC Driver if not cached ===
-if not exist "%ODBC_MSI%" (
-    echo Downloading Microsoft ODBC Driver 17 for SQL Server...
-    powershell -Command "Invoke-WebRequest -Uri '%ODBC_URL%' -OutFile '%ODBC_MSI%'"
-    if %errorlevel% neq 0 (
-        echo WARNING: Could not download ODBC driver. Installer will not include it.
-        echo Download manually from: %ODBC_URL%
-    )
+echo === Step 1: ODBC driver is optional ===
+if exist "%ODBC_MSI%" (
+    echo Using cached ODBC driver MSI.
 ) else (
-    echo ODBC driver already cached.
+    echo ODBC driver MSI not bundled; installer will not download it.
 )
 
 echo === Step 2: Create package directory ===
@@ -55,4 +50,4 @@ if exist "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" (
 )
 
 echo === Done! Installer created in %INSTALLER_DIR%\Output\ ===
-pause
+exit /b 0
