@@ -26,13 +26,14 @@ interface EditTransactionModalProps {
   onSaved: () => void;
 }
 
-type EditField = "amount" | "bill_no" | "txn_date" | "payment_mode";
+type EditField = "amount" | "bill_no" | "txn_date" | "payment_mode" | "txn_type";
 
 const fields: { key: EditField; label: string; icon: typeof DollarSign }[] = [
   { key: "amount", label: "Amount", icon: DollarSign },
   { key: "bill_no", label: "Bill No", icon: Hash },
   { key: "txn_date", label: "Date", icon: Calendar },
-  { key: "payment_mode", label: "Payment Mode", icon: CreditCard },
+  { key: "payment_mode", label: "Mode", icon: CreditCard },
+  { key: "txn_type", label: "Type", icon: FileText },
 ];
 
 export function EditTransactionModal({ transaction, open, onClose, onSaved }: EditTransactionModalProps) {
@@ -56,6 +57,7 @@ export function EditTransactionModal({ transaction, open, onClose, onSaved }: Ed
       case "bill_no": setValue(transaction.billNo || ""); break;
       case "txn_date": setValue(new Date(transaction.txnDate).toISOString().split("T")[0]); break;
       case "payment_mode": setValue(transaction.paymentMode); break;
+      case "txn_type": setValue(transaction.txnType); break;
     }
     setTimeout(() => inputRef.current?.focus(), 50);
   }, [selectedField, transaction]);
@@ -163,6 +165,18 @@ export function EditTransactionModal({ transaction, open, onClose, onSaved }: Ed
                   <option value="Credit">Credit</option>
                   <option value="UPI">UPI</option>
                   <option value="Bank">Bank</option>
+                </Select>
+              ) : selectedField === "txn_type" ? (
+                <Select
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="text-base h-12"
+                >
+                  <option value="Sale">Sale</option>
+                  <option value="Sale Return">Sale Return</option>
+                  <option value="Expense">Expense</option>
+                  <option value="Receipt">Receipt</option>
                 </Select>
               ) : (
                 <Input

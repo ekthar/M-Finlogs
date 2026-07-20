@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
+import { addToQueue, flushQueue, getPendingCount, startAutoSync } from "@/lib/offline-queue";
+import { invalidateCache } from "@/lib/use-cached-fetch";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,11 +15,12 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/data-table";
-import { Plus, ChevronLeft, ChevronRight, Search, Pencil, Trash2, Filter } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Search, Pencil, Trash2, Filter, Wifi, WifiOff, CloudUpload } from "lucide-react";
+import { springs } from "@/lib/design-tokens";
 
 interface Transaction { txnId: number; txnDate: string; billNo: string | null; txnType: string; paymentMode: string; amount: string; party: { name: string; type: string }; }
 interface PartyOption { name: string; normalizedName: string; }
-const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } } };
+const itemVariants = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: springs.default } };
 function fmt(n: number | string) { return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n)); }
 
 export default function DailyEntryPage() {
@@ -39,6 +42,9 @@ export default function DailyEntryPage() {
   const [mode, setMode] = useState("Credit");
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
+  const [online, setOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+
   const dateRef = useRef<HTMLInputElement>(null);
   const billRef = useRef<HTMLInputElement>(null);
   const partyRef = useRef<HTMLInputElement>(null);
@@ -47,6 +53,21 @@ export default function DailyEntryPage() {
   const amountRef = useRef<HTMLInputElement>(null);
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+
+  // Online/offline detection
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const goOnline = () => { setOnline(true); toast.success("Back online — syncing..."); };
+    const goOffline = () => { setOnline(false); toast.warning("You're offline. Entries will save locally."); };
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    const cleanup = startAutoSync();
+    const syncListener = (e: Event) => { const detail = (e as CustomEvent).detail; if (detail?.synced) { toast.success(`${detail.synced} entry(s) synced`); loadTransactions(page); setPendingCount(getPendingCount()); } };
+    window.addEventListener("mfinlogs:synced", syncListener);
+    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); window.removeEventListener("mfinlogs:synced", syncListener); cleanup?.(); };
+  }, []);
+
+  useEffect(() => { setPendingCount(getPendingCount()); }, [transactions]);
 
   const loadTransactions = useCallback(async (p: number) => {
     setLoading(true);
@@ -68,45 +89,91 @@ export default function DailyEntryPage() {
 
   const handleAdd = async () => {
     if (!amount || parseFloat(amount) <= 0) { toast.error("Enter a valid amount"); amountRef.current?.focus(); return; }
-    setSaving(true);
+
+    const amt = parseFloat(amount);
+
+    // OPTIMISTIC: Show in UI immediately
+    const optimisticTxn: Transaction = {
+      txnId: -Date.now(), txnDate: date, billNo: billNo || null,
+      txnType, paymentMode: mode, amount: String(amt),
+      party: { name: party, type: "" },
+    };
+    setTransactions((prev) => [optimisticTxn, ...prev]);
+    setTotal((t) => t + 1);
+    toast.success("Saved", { description: `₹${fmt(amt)} • ${party}` });
+    setAmount(""); setBillNo(""); billRef.current?.focus();
+
+    // QUEUE: Save to localStorage (survives offline/refresh)
+    addToQueue({ txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: amt, companyId });
+    setPendingCount(getPendingCount());
+
+    // SYNC: Try to send to server in background
     try {
-      const res = await fetch("/api/transactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: parseFloat(amount), companyId }) });
-      if (res.ok) { toast.success("Transaction added", { description: `₹${fmt(amount)} • ${party}` }); setAmount(""); setBillNo(""); loadTransactions(1); billRef.current?.focus(); }
-      else { const err = await res.json(); toast.error(err.error || "Failed"); }
-    } catch { toast.error("Network error"); }
-    setSaving(false);
+      const res = await fetch("/api/transactions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: amt, companyId }),
+      });
+      if (res.ok) {
+        // Sync success — flush queue entry and reload real data
+        await flushQueue();
+        setPendingCount(getPendingCount());
+        invalidateCache("/api/transactions");
+        loadTransactions(1);
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Server error — saved locally, will retry");
+      }
+    } catch {
+      // Offline — entry is safe in queue
+      if (!navigator.onLine) toast.info("Saved offline — will sync when connected");
+    }
   };
 
-  const handleDelete = async () => { if (deleteId === null) return; try { await fetch(`/api/transactions/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); loadTransactions(page); } catch { toast.error("Failed"); } setDeleteId(null); };
+  const handleDelete = async () => {
+    if (deleteId === null) return;
+    // Optimistic remove
+    setTransactions(prev => prev.filter(t => t.txnId !== deleteId));
+    try { await fetch(`/api/transactions/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); } catch { toast.error("Failed — refresh to see current state"); }
+    setDeleteId(null);
+  };
 
   const filtered = search ? transactions.filter(t => t.party.name.toLowerCase().includes(search.toLowerCase()) || (t.billNo||"").toLowerCase().includes(search.toLowerCase())) : transactions;
 
   return (
     <motion.div initial="initial" animate="animate" className="space-y-4">
-      <motion.div {...fadeUp} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <div><h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Daily Transactions</h1><p className="mt-0.5 text-sm text-zinc-500">{total.toLocaleString()} entries • FY {financialYear}</p></div>
-        <div className="flex items-center gap-2"><Button variant={showFilters ? "default" : "outline"} size="sm" onClick={() => setShowFilters(!showFilters)}><Filter className="h-3.5 w-3.5 mr-1" />Filters</Button><Badge variant="info">{page}/{totalPages}</Badge></div>
+      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Daily Transactions</h1>
+          <p className="mt-0.5 text-sm text-zinc-500">{total.toLocaleString()} entries • FY {financialYear}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Online/Offline + Pending indicator */}
+          {!online && <Badge variant="warning" className="gap-1"><WifiOff className="h-3 w-3"/>Offline</Badge>}
+          {pendingCount > 0 && <Badge variant="info" className="gap-1"><CloudUpload className="h-3 w-3"/>{pendingCount} pending</Badge>}
+          <Button variant={showFilters ? "default" : "outline"} size="sm" onClick={() => setShowFilters(!showFilters)}><Filter className="h-3.5 w-3.5 mr-1"/>Filters</Button>
+          <Badge>{page}/{totalPages}</Badge>
+        </div>
       </motion.div>
 
-      {showFilters && <Card className="p-3"><div className="flex flex-wrap items-end gap-3"><div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">From</label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-40" /></div><div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">To</label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-40" /></div><Button variant="secondary" size="sm" onClick={() => { const e=new Date(); setStartDate(new Date(e.getTime()-29*86400000).toISOString().split("T")[0]); setEndDate(e.toISOString().split("T")[0]); }}>Last 30 Days</Button><Button variant="secondary" size="sm" onClick={() => { setStartDate(""); setEndDate(""); }}>All</Button><Button size="sm" onClick={() => loadTransactions(1)}>Apply</Button></div></Card>}
+      {showFilters && <Card className="p-3"><div className="flex flex-wrap items-end gap-3"><div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">From</label><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-40"/></div><div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">To</label><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-40"/></div><Button variant="secondary" size="sm" onClick={() => { const e=new Date(); setStartDate(new Date(e.getTime()-29*86400000).toISOString().split("T")[0]); setEndDate(e.toISOString().split("T")[0]); }}>Last 30</Button><Button variant="secondary" size="sm" onClick={() => { setStartDate(""); setEndDate(""); }}>All</Button><Button size="sm" onClick={() => loadTransactions(1)}>Apply</Button></div></Card>}
 
-      <motion.div {...fadeUp}><Card className="p-4"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end">
-        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Date</label><Input ref={dateRef} type="date" value={date} onChange={e => setDate(e.target.value)} onKeyDown={e => handleEntryNav(e, billRef)} /></div>
-        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Bill/Ref</label><Input ref={billRef} placeholder="Bill No" value={billNo} onChange={e => setBillNo(e.target.value)} onKeyDown={e => handleEntryNav(e, partyRef)} /></div>
-        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Party</label><Input ref={partyRef} value={party} onChange={e => setParty(e.target.value)} list="pdl" onKeyDown={e => handleEntryNav(e, typeRef)} onFocus={e => { if(e.target.value==="Customer") e.target.select(); }} /><datalist id="pdl">{parties.map(p => <option key={p.normalizedName} value={p.name}/>)}</datalist></div>
+      <motion.div variants={itemVariants}><Card className="p-4"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end">
+        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Date</label><Input ref={dateRef} type="date" value={date} onChange={e => setDate(e.target.value)} onKeyDown={e => handleEntryNav(e, billRef)}/></div>
+        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Bill/Ref</label><Input ref={billRef} placeholder="Bill No" value={billNo} onChange={e => setBillNo(e.target.value)} onKeyDown={e => handleEntryNav(e, partyRef)}/></div>
+        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Party</label><Input ref={partyRef} value={party} onChange={e => setParty(e.target.value)} list="pdl" onKeyDown={e => handleEntryNav(e, typeRef)} onFocus={e => {if(e.target.value==="Customer") e.target.select();}}/><datalist id="pdl">{parties.map(p=><option key={p.normalizedName} value={p.name}/>)}</datalist></div>
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Type</label><Select ref={typeRef} value={txnType} onChange={e => setTxnType(e.target.value)} onKeyDown={e => handleEntryNav(e, modeRef)}><option>Sale</option><option>Sale Return</option><option>Expense</option><option>Receipt</option></Select></div>
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Mode</label><Select ref={modeRef} value={mode} onChange={e => setMode(e.target.value)} onKeyDown={e => handleEntryNav(e, amountRef)}><option>Credit</option><option>Cash</option><option>UPI</option><option>Bank</option></Select></div>
-        <div className="flex gap-2"><div className="flex-1"><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Amount</label><Input ref={amountRef} type="number" placeholder="0.00" min="0" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => { if(e.key==="Enter"){e.preventDefault();handleAdd();}}} /></div><Button className="mt-auto h-10 w-10 p-0" size="icon" onClick={handleAdd} disabled={saving}><Plus className="h-4 w-4"/></Button></div>
-      </div><p className="mt-2 text-right text-[11px] text-zinc-400">Enter navigates fields → Enter in Amount saves</p></Card></motion.div>
+        <div className="flex gap-2"><div className="flex-1"><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Amount</label><Input ref={amountRef} type="number" placeholder="0.00" min="0" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => {if(e.key==="Enter"){e.preventDefault();handleAdd();}}}/></div><Button className="mt-auto h-9 w-9 p-0" size="icon" onClick={handleAdd}><Plus className="h-4 w-4"/></Button></div>
+      </div><p className="mt-2 text-right text-[11px] text-zinc-400">Enter navigates → Enter in Amount saves instantly</p></Card></motion.div>
 
       <div className="flex items-center justify-between"><div className="relative"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"/><Input placeholder="Filter..." className="h-8 w-40 sm:w-48 pl-8 text-xs" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="flex items-center gap-1"><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => loadTransactions(Math.max(1,page-1))} disabled={page<=1}><ChevronLeft className="h-4 w-4"/></Button><span className="min-w-[50px] text-center text-xs text-zinc-500">{page}/{totalPages}</span><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => loadTransactions(Math.min(totalPages,page+1))} disabled={page>=totalPages}><ChevronRight className="h-4 w-4"/></Button></div></div>
 
-      <motion.div {...fadeUp}>{loading ? <TableSkeleton rows={8} cols={7}/> : <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="hidden sm:table-cell">Bill</TableHead><TableHead>Party</TableHead><TableHead className="hidden md:table-cell">Type</TableHead><TableHead className="hidden md:table-cell">Mode</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-20 text-center">Edit</TableHead></TableRow></TableHeader><TableBody>
-        {filtered.length===0 ? <TableRow><TableCell colSpan={7} className="h-32 text-center"><p className="text-sm text-zinc-500">No transactions</p></TableCell></TableRow> : filtered.map(t => <TableRow key={t.txnId}><TableCell className="text-xs">{new Date(t.txnDate).toLocaleDateString("en-IN")}</TableCell><TableCell className="hidden sm:table-cell text-xs">{t.billNo||"—"}</TableCell><TableCell className="font-medium max-w-[140px] truncate text-xs">{t.party.name}</TableCell><TableCell className="hidden md:table-cell"><Badge variant={t.txnType==="Sale"?"success":t.txnType==="Expense"?"danger":"info"}>{t.txnType}</Badge></TableCell><TableCell className="hidden md:table-cell"><Badge>{t.paymentMode}</Badge></TableCell><TableCell className="text-right font-mono text-xs font-medium">₹{fmt(t.amount)}</TableCell><TableCell className="text-center"><div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditTxn(t)}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setDeleteId(t.txnId)}><Trash2 className="h-3 w-3"/></Button></div></TableCell></TableRow>)}
+      <motion.div variants={itemVariants}>{loading && transactions.length === 0 ? <TableSkeleton rows={8} cols={7}/> : <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="hidden sm:table-cell">Bill</TableHead><TableHead>Party</TableHead><TableHead className="hidden md:table-cell">Type</TableHead><TableHead className="hidden md:table-cell">Mode</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-20 text-center">Edit</TableHead></TableRow></TableHeader><TableBody>
+        {filtered.length===0 ? <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-zinc-500">No transactions</TableCell></TableRow> : filtered.map(t => <TableRow key={t.txnId} className={t.txnId < 0 ? "opacity-60" : ""}><TableCell className="text-xs">{new Date(t.txnDate).toLocaleDateString("en-IN")}</TableCell><TableCell className="hidden sm:table-cell text-xs">{t.billNo||"—"}</TableCell><TableCell className="font-medium max-w-[140px] truncate text-xs">{t.party.name}</TableCell><TableCell className="hidden md:table-cell"><Badge variant={t.txnType==="Sale"?"success":t.txnType==="Expense"?"danger":"info"}>{t.txnType}</Badge></TableCell><TableCell className="hidden md:table-cell"><Badge>{t.paymentMode}</Badge></TableCell><TableCell className="text-right font-mono text-xs font-medium">₹{fmt(t.amount)}</TableCell><TableCell className="text-center">{t.txnId > 0 ? <div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setEditTxn(t)}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={()=>setDeleteId(t.txnId)}><Trash2 className="h-3 w-3"/></Button></div> : <Badge variant="warning">syncing</Badge>}</TableCell></TableRow>)}
       </TableBody></Table>}</motion.div>
 
       <EditTransactionModal transaction={editTxn} open={!!editTxn} onClose={() => setEditTxn(null)} onSaved={() => loadTransactions(page)}/>
-      <ConfirmDialog open={deleteId!==null} title="Delete Transaction" message="Permanently delete this transaction?" variant="danger" confirmLabel="Delete" onConfirm={handleDelete} onCancel={() => setDeleteId(null)}/>
+      <ConfirmDialog open={deleteId!==null} title="Delete Transaction" message="Permanently delete?" variant="danger" confirmLabel="Delete" onConfirm={handleDelete} onCancel={() => setDeleteId(null)}/>
     </motion.div>
   );
 }

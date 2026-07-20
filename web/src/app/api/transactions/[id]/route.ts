@@ -21,6 +21,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       bill_no: "billNo",
       txn_date: "txnDate",
       payment_mode: "paymentMode",
+      txn_type: "txnType",
     };
 
     const prismaField = allowedFields[field];
