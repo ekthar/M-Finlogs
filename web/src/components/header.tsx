@@ -39,6 +39,10 @@ export function Header({ className }: HeaderProps) {
 
       {/* Right: User info */}
       <div className="flex items-center gap-3">
+        <button className="hidden sm:flex items-center gap-2 h-8 px-3 rounded-lg border border-zinc-200 text-xs text-zinc-400 hover:text-zinc-600 hover:border-zinc-300 transition-colors dark:border-zinc-700 dark:hover:border-zinc-600" onClick={() => { const e = new KeyboardEvent("keydown", { key: "k", metaKey: true }); window.dispatchEvent(e); }}>
+          <span>Search</span>
+          <kbd className="text-[10px] bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">⌘K</kbd>
+        </button>
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
           <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">A</span>
         </div>

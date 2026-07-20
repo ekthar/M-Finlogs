@@ -1,7 +1,10 @@
 "use client";
 
-import { Sidebar } from "@/components/sidebar";
-import { Header } from "@/components/header";
+import { TopNav } from "@/components/top-nav";
+import { MobileNav } from "@/components/mobile-nav";
+import { Toaster } from "@/components/ui/toast";
+import { CommandPalette } from "@/components/ui/command-palette";
+import { AppProvider } from "@/lib/app-context";
 
 export default function DashboardLayout({
   children,
@@ -9,14 +12,16 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <div className="flex flex-1 flex-col pl-[260px] transition-all duration-300">
-        <Header />
-        <main className="flex-1 p-6">
+    <AppProvider>
+      <div className="min-h-screen">
+        <TopNav />
+        <main className="mx-auto max-w-7xl px-4 py-5 pb-20 lg:px-6 lg:pb-6">
           {children}
         </main>
+        <MobileNav />
+        <Toaster />
+        <CommandPalette />
       </div>
-    </div>
+    </AppProvider>
   );
 }

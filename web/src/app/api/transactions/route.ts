@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { transactionSchema } from "@/lib/validators";
 import { financialYearForDate } from "@/lib/financial-year";
 import { normalizePartyKey } from "@/lib/utils";
 
@@ -8,13 +7,21 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1");
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const companyId = searchParams.get("companyId") || "";
+    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
+    const companyId = searchParams.get("companyId") || "cm_default_001";
     const financialYear = searchParams.get("financialYear") || "";
+    const startDate = searchParams.get("start") || "";
+    const endDate = searchParams.get("end") || "";
 
-    const where: Record<string, unknown> = {};
-    if (companyId) where.companyId = companyId;
+    const where: Record<string, unknown> = { companyId };
     if (financialYear) where.financialYear = financialYear;
+    if (startDate && endDate) {
+      where.txnDate = { gte: new Date(startDate), lte: new Date(endDate) };
+    } else if (startDate) {
+      where.txnDate = { gte: new Date(startDate) };
+    } else if (endDate) {
+      where.txnDate = { lte: new Date(endDate) };
+    }
 
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
@@ -42,17 +49,16 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const parsed = transactionSchema.safeParse(body);
+    const { txnDate, billNo, party, txnType, paymentMode, amount, companyId: bodyCompanyId } = body;
+    const companyId = bodyCompanyId || "cm_default_001";
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid input", details: parsed.error.flatten() },
-        { status: 400 }
-      );
+    if (!txnDate || !party || !txnType || !paymentMode || !amount) {
+      return NextResponse.json({ error: "All fields are required" }, { status: 400 });
     }
 
-    const { txnDate, billNo, party, txnType, paymentMode, amount } = parsed.data;
-    const companyId = body.companyId || "";
+    if (parseFloat(amount) <= 0) {
+      return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
+    }
 
     // Find the party
     const normalizedName = normalizePartyKey(party);
@@ -61,7 +67,7 @@ export async function POST(request: Request) {
     });
 
     if (!partyRecord) {
-      return NextResponse.json({ error: "Party not found" }, { status: 404 });
+      return NextResponse.json({ error: `Party "${party}" not found. Create it first.` }, { status: 404 });
     }
 
     const txnDateObj = new Date(txnDate);
@@ -75,7 +81,7 @@ export async function POST(request: Request) {
         txnType,
         paymentMode,
         financialYear,
-        amount,
+        amount: parseFloat(amount),
         companyId,
       },
     });
