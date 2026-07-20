@@ -34,9 +34,20 @@ public partial class MainForm : Form
         InitializeComponent();
         SetupForm();
         SetupTitleBar();
-        SetupWebView();
         SetupTrayManager();
         SetupAutoUpdater();
+
+        // WebView2 must be initialized AFTER the form is shown and its Handle is created.
+        // Error 0x8007139F occurs if EnsureCoreWebView2Async is called before the
+        // hosting window is fully realized.
+        this.Shown += MainForm_Shown;
+    }
+
+    private async void MainForm_Shown(object? sender, EventArgs e)
+    {
+        // Only initialize once
+        this.Shown -= MainForm_Shown;
+        await InitializeWebViewAsync();
     }
 
     private void SetupForm()
@@ -198,7 +209,7 @@ public partial class MainForm : Form
         };
     }
 
-    private async void SetupWebView()
+    private async Task InitializeWebViewAsync()
     {
         webView = new WebView2
         {
@@ -209,19 +220,47 @@ public partial class MainForm : Form
         webView.BringToFront();
         titleBar.BringToFront();
 
+        // Ensure the control's handle is created before initializing WebView2
+        if (!webView.IsHandleCreated)
+        {
+            webView.CreateControl();
+        }
+
         try
         {
             // Configure WebView2 environment with additional arguments to handle
             // service worker redirect issues (common with Next.js/PWA apps on Netlify)
             var userDataFolder = Path.Combine(AppConfig.AppDataDir, "WebView2");
+            Directory.CreateDirectory(userDataFolder);
+
             var options = new CoreWebView2EnvironmentOptions
             {
                 // Disable service worker fetch interception to prevent redirect errors
-                // The "FetchEvent resulted in a network error response: redirected response"
-                // error occurs when a SW uses redirect:manual but gets a redirected response
                 AdditionalBrowserArguments = "--disable-features=ServiceWorkerPaymentApps"
             };
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
+
+            CoreWebView2Environment? env = null;
+
+            // Retry environment creation up to 3 times (handles transient 0x8007139F)
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
+                    break;
+                }
+                catch (Exception ex) when (attempt < 3)
+                {
+                    System.Diagnostics.Debug.WriteLine($"WebView2 env creation attempt {attempt} failed: {ex.Message}");
+                    await Task.Delay(500 * attempt);
+                }
+            }
+
+            if (env == null)
+            {
+                throw new InvalidOperationException("Could not create WebView2 environment after 3 attempts.");
+            }
+
             await webView.EnsureCoreWebView2Async(env);
 
             // Configure settings
@@ -230,14 +269,8 @@ public partial class MainForm : Form
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
-            // Unregister any existing service workers that cause redirect conflicts.
-            // This is the primary fix for: "FetchEvent resulted in a network error
-            // response: a redirected response was used for a request whose redirect
-            // mode is not 'follow'."
-            await UnregisterServiceWorkersAsync();
-
-            // Also clear service worker registrations via the profile API
-            // This catches SWs even before a page is loaded
+            // Clear service worker registrations via the profile API
+            // to prevent "redirected response" errors from previous sessions
             await ClearServiceWorkerRegistrationsAsync();
 
             // Handle navigation events
@@ -254,6 +287,16 @@ public partial class MainForm : Form
             // Navigate to the appropriate URL
             webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
         }
+        catch (System.Runtime.InteropServices.COMException comEx) when ((uint)comEx.HResult == 0x8007139F)
+        {
+            // 0x8007139F = "The group or resource is not in the correct state"
+            // This typically means WebView2 Runtime is not properly installed
+            ShowWebView2InstallPrompt();
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            ShowWebView2InstallPrompt();
+        }
         catch (Exception ex)
         {
             MessageBox.Show(
@@ -261,6 +304,33 @@ public partial class MainForm : Form
                 "M-Finlogs - Error",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Show a user-friendly prompt to install WebView2 Runtime
+    /// </summary>
+    private void ShowWebView2InstallPrompt()
+    {
+        var result = MessageBox.Show(
+            "WebView2 Runtime is not installed or not functioning correctly.\n\n" +
+            "M-Finlogs requires Microsoft Edge WebView2 Runtime to display the application.\n\n" +
+            "Would you like to download it now?",
+            "M-Finlogs - WebView2 Required",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (result == DialogResult.Yes)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+                    UseShellExecute = true
+                });
+            }
+            catch { }
         }
     }
 
