@@ -31,6 +31,7 @@ const reportItems: NavItem[] = [
   { label: "Outstanding", href: "/reports/outstanding", icon: Receipt },
   { label: "Trial Balance", href: "/reports/trial-balance", icon: ArrowLeftRight },
   { label: "P & L", href: "/reports/profit-loss", icon: TrendingUp },
+  { label: "Comparison", href: "/reports/comparison", icon: ArrowLeftRight },
 ];
 
 const inventoryItems: NavItem[] = [
@@ -40,6 +41,7 @@ const inventoryItems: NavItem[] = [
 
 const mgmtItems: NavItem[] = [
   { label: "Parties", href: "/parties", icon: Users },
+  { label: "Import", href: "/import", icon: Package },
   { label: "Audit Logs", href: "/audit", icon: ScrollText },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
