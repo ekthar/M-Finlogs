@@ -7,12 +7,14 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { DashboardSkeleton } from "@/components/ui/skeleton";
 import { AnimatedNumber } from "@/components/ui/animated-number";
+import { ActivityFeed } from "@/components/activity-feed";
 import { springs } from "@/lib/design-tokens";
 import { TrendingUp, Wallet, Landmark, AlertCircle, IndianRupee } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
 interface DashboardData { todaySales: number; monthlySales: number; cashBalance: number; bankBalance: number; receivables: number; totalFunds: number; }
 interface TrendPoint { date: string; sales: number; expenses: number; receipts: number; }
+interface SparkData { sales: number[]; expenses: number[]; cash: number[]; receipts: number[]; }
 
 const containerVariants = { initial: {}, animate: { transition: { staggerChildren: 0.06 } } };
 const itemVariants = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0, transition: springs.default } };
@@ -23,6 +25,7 @@ export default function DashboardPage() {
   const { companyId, financialYear } = useApp();
   const [data, setData] = useState<DashboardData | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
+  const [spark, setSpark] = useState<SparkData>({ sales: [], expenses: [], cash: [], receipts: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -30,9 +33,11 @@ export default function DashboardPage() {
     Promise.all([
       fetch(`/api/dashboard?companyId=${companyId}&financialYear=${financialYear}`).then(r => r.json()),
       fetch(`/api/dashboard/trend?companyId=${companyId}&days=30`).then(r => r.json()),
-    ]).then(([d, t]) => {
+      fetch(`/api/dashboard/sparkline?companyId=${companyId}`).then(r => r.json()),
+    ]).then(([d, t, s]) => {
       setData(d);
       setTrend(t.trend || []);
+      setSpark(s || { sales: [], expenses: [], cash: [], receipts: [] });
     }).catch(() => {}).finally(() => setLoading(false));
   }, [companyId, financialYear]);
 
@@ -53,11 +58,11 @@ export default function DashboardPage() {
       </motion.div>
 
       <motion.div variants={containerVariants} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricCard title="Today's Sales" value={d.todaySales} icon={TrendingUp} />
-        <MetricCard title="Monthly Sales" value={d.monthlySales} icon={IndianRupee} />
-        <MetricCard title="Cash Balance" value={d.cashBalance} icon={Wallet} />
-        <MetricCard title="Bank + UPI" value={d.bankBalance} icon={Landmark} />
-        <MetricCard title="Receivables" value={d.receivables} icon={AlertCircle} className="border-red-100/50 dark:border-red-900/20" />
+        <MetricCard title="Today's Sales" value={d.todaySales} icon={TrendingUp} sparkData={spark.sales} sparkColor="#10b981" />
+        <MetricCard title="Monthly Sales" value={d.monthlySales} icon={IndianRupee} sparkData={spark.sales} sparkColor="#6366f1" />
+        <MetricCard title="Cash Balance" value={d.cashBalance} icon={Wallet} sparkData={spark.cash} sparkColor="#f59e0b" />
+        <MetricCard title="Bank + UPI" value={d.bankBalance} icon={Landmark} sparkData={spark.receipts} sparkColor="#3b82f6" />
+        <MetricCard title="Receivables" value={d.receivables} icon={AlertCircle} className="border-red-100/50 dark:border-red-900/20" sparkData={spark.expenses} sparkColor="#ef4444" />
       </motion.div>
 
       {/* Charts Row */}
@@ -111,20 +116,31 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      {/* Quick Insights */}
-      <motion.div variants={itemVariants}>
-        <Card>
-          <CardHeader><CardTitle>Quick Insights</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-              <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Total Funds</p><AnimatedNumber value={d.totalFunds} prefix="₹" className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100" /></div>
-              <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Cash Ratio</p><p className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100">{d.totalFunds>0?Math.round((d.cashBalance/d.totalFunds)*100):0}%</p></div>
-              <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Today</p><AnimatedNumber value={d.todaySales} prefix="₹" className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100" /></div>
-              <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Outstanding</p><AnimatedNumber value={d.receivables} prefix="₹" className="mt-1.5 text-xl font-semibold text-red-500" /></div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+      {/* Quick Insights + Activity Feed */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <motion.div variants={itemVariants} className="lg:col-span-2">
+          <Card>
+            <CardHeader><CardTitle>Quick Insights</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
+                <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Total Funds</p><AnimatedNumber value={d.totalFunds} prefix="₹" className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100" /></div>
+                <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Cash Ratio</p><p className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100">{d.totalFunds>0?Math.round((d.cashBalance/d.totalFunds)*100):0}%</p></div>
+                <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Today</p><AnimatedNumber value={d.todaySales} prefix="₹" className="mt-1.5 text-xl font-semibold text-zinc-900 dark:text-zinc-100" /></div>
+                <div><p className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">Outstanding</p><AnimatedNumber value={d.receivables} prefix="₹" className="mt-1.5 text-xl font-semibold text-red-500" /></div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card className="h-full">
+            <CardHeader><CardTitle>Recent Activity</CardTitle></CardHeader>
+            <CardContent className="max-h-[200px] overflow-y-auto">
+              <ActivityFeed limit={6} />
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
     </motion.div>
   );
 }

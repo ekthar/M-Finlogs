@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { AnimatedNumber } from "@/components/ui/animated-number";
+import { Sparkline } from "@/components/ui/sparkline";
 import { motion } from "framer-motion";
 import { springs } from "@/lib/design-tokens";
 import type { LucideIcon } from "lucide-react";
@@ -12,10 +13,12 @@ interface MetricCardProps {
   prefix?: string;
   icon: LucideIcon;
   trend?: { value: number; label: string };
+  sparkData?: number[];
+  sparkColor?: string;
   className?: string;
 }
 
-export function MetricCard({ title, value, prefix = "₹", icon: Icon, trend, className }: MetricCardProps) {
+export function MetricCard({ title, value, prefix = "₹", icon: Icon, trend, sparkData, sparkColor, className }: MetricCardProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 16, scale: 0.97 }}
@@ -51,6 +54,12 @@ export function MetricCard({ title, value, prefix = "₹", icon: Icon, trend, cl
           prefix={prefix}
           className="text-[1.65rem] font-semibold tracking-tight text-zinc-900 dark:text-zinc-100"
         />
+
+        {sparkData && sparkData.length > 1 && (
+          <div className="mt-2">
+            <Sparkline data={sparkData} color={sparkColor || "#10b981"} width={80} height={20} />
+          </div>
+        )}
 
         {trend && (
           <div className="mt-2.5 flex items-center gap-1.5">
