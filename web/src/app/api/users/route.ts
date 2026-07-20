@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { hash } from "argon2";
+import bcrypt from "bcryptjs";
 import { createUserSchema } from "@/lib/validators";
 
 export async function GET() {
@@ -35,11 +35,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "User already exists" }, { status: 409 });
     }
 
-    const passwordHash = await hash(password, {
-      timeCost: 3,
-      memoryCost: 65536,
-      parallelism: 2,
-    });
+    const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await prisma.user.create({
       data: { username, passwordHash, role },

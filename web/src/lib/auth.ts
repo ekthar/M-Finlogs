@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db";
-import { verify } from "argon2";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -30,7 +30,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!user || !user.passwordHash) return null;
 
         try {
-          const valid = await verify(user.passwordHash, password);
+          const valid = await bcrypt.compare(password, user.passwordHash);
           if (!valid) return null;
         } catch {
           return null;
