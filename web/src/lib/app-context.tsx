@@ -10,7 +10,8 @@ interface AppContextType {
   role: string;
   setFinancialYear: (fy: string) => void;
   setCompanyId: (id: string) => void;
-  apiParams: string; // pre-built query params string
+  setUser: (username: string, role: string) => void;
+  apiParams: string;
 }
 
 const AppContext = createContext<AppContextType>({
@@ -20,6 +21,7 @@ const AppContext = createContext<AppContextType>({
   role: "admin",
   setFinancialYear: () => {},
   setCompanyId: () => {},
+  setUser: () => {},
   apiParams: "",
 });
 
@@ -50,8 +52,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const apiParams = `companyId=${encodeURIComponent(companyId)}&financialYear=${encodeURIComponent(financialYear)}`;
 
+  const setUser = (u: string, r: string) => { setUsername(u); setRole(r); };
+
   return (
-    <AppContext.Provider value={{ companyId, financialYear, username, role, setFinancialYear, setCompanyId, apiParams }}>
+    <AppContext.Provider value={{ companyId, financialYear, username, role, setFinancialYear, setCompanyId, setUser, apiParams }}>
       {children}
     </AppContext.Provider>
   );

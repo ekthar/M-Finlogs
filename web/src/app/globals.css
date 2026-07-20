@@ -190,3 +190,28 @@ table tbody tr:active {
   background: rgba(59, 130, 246, 0.2);
   color: inherit;
 }
+
+
+/* ─── THEME: Deep Blue ─────────────────────────────────────── */
+[data-theme="deep-blue"] {
+  --surface-page: #0f172a;
+  --surface-card: rgba(30, 41, 59, 0.8);
+  --surface-nav: rgba(15, 23, 42, 0.85);
+  --border-subtle: rgba(148, 163, 184, 0.1);
+  --border-default: rgba(148, 163, 184, 0.15);
+}
+.theme-deep-blue body { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
+.theme-deep-blue .glass-regular { background: rgba(30, 41, 59, 0.75); }
+.theme-deep-blue .glass-thick { background: rgba(15, 23, 42, 0.8); }
+
+/* ─── THEME: Warm Paper ────────────────────────────────────── */
+[data-theme="warm"] {
+  --surface-page: #faf8f5;
+  --surface-card: rgba(255, 253, 249, 0.85);
+  --surface-nav: rgba(250, 248, 245, 0.8);
+  --border-subtle: rgba(146, 64, 14, 0.06);
+  --border-default: rgba(146, 64, 14, 0.1);
+}
+[data-theme="warm"] body { background: linear-gradient(135deg, #faf8f5 0%, #fef3c7 50%, #faf8f5 100%); }
+[data-theme="warm"] h1, [data-theme="warm"] h2, [data-theme="warm"] h3 { color: #451a03; }
+[data-theme="warm"] .glass-regular { background: rgba(255, 253, 249, 0.82); border-color: rgba(146, 64, 14, 0.08); }

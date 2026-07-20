@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { partySchema } from "@/lib/validators";
 import { normalizePartyKey } from "@/lib/utils";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const companyId = searchParams.get("companyId") || "";
+    const companyId = searchParams.get("companyId") || "cm_default_001";
 
     const parties = await prisma.party.findMany({
-      where: companyId ? { companyId } : {},
+      where: { companyId },
       orderBy: { name: "asc" },
     });
 
@@ -23,29 +22,20 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const parsed = partySchema.safeParse(body);
+    const { name, type = "Customer", creditAllowed = false, companyId: bodyCompanyId, autoCreate } = body;
+    const companyId = bodyCompanyId || "cm_default_001";
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid input", details: parsed.error.flatten() },
-        { status: 400 }
-      );
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Party name is required" }, { status: 400 });
     }
 
-    const { name, type, creditAllowed } = parsed.data;
-    const companyId = body.companyId || "";
-    const normalizedName = normalizePartyKey(name);
+    const normalizedName = normalizePartyKey(name.trim());
 
     // Check for only one Bank
     if (type === "Bank") {
-      const existing = await prisma.party.count({
-        where: { type: "Bank", companyId },
-      });
+      const existing = await prisma.party.count({ where: { type: "Bank", companyId } });
       if (existing > 0) {
-        return NextResponse.json(
-          { error: "Only one Bank account is allowed." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Only one Bank account is allowed." }, { status: 400 });
       }
     }
 
@@ -54,20 +44,15 @@ export async function POST(request: Request) {
       where: { normalizedName, companyId },
     });
     if (existing) {
-      return NextResponse.json(
-        { error: "Party already exists" },
-        { status: 409 }
-      );
+      if (autoCreate) {
+        // Auto-create mode: return existing party (no error)
+        return NextResponse.json({ status: "Exists", party: existing });
+      }
+      return NextResponse.json({ error: "Party already exists" }, { status: 409 });
     }
 
     const party = await prisma.party.create({
-      data: {
-        name,
-        normalizedName,
-        type,
-        creditAllowed,
-        companyId,
-      },
+      data: { name: name.trim(), normalizedName, type, creditAllowed, companyId },
     });
 
     return NextResponse.json({ status: "Party Created", party }, { status: 201 });
