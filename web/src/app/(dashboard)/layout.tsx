@@ -6,6 +6,7 @@ import { MobileNav } from "@/components/mobile-nav";
 import { Toaster } from "@/components/ui/toast";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { SessionGuard } from "@/components/session-guard";
+import { ShortcutsPanel } from "@/components/shortcuts-panel";
 import { AppProvider } from "@/lib/app-context";
 import { applyTheme, getStoredTheme } from "@/lib/themes";
 
@@ -30,6 +31,7 @@ export default function DashboardLayout({
         <Toaster />
         <CommandPalette />
         <SessionGuard />
+        <ShortcutsPanel />
       </div>
     </AppProvider>
   );

@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { financialYearForDate } from "@/lib/financial-year";
 import { normalizePartyKey } from "@/lib/utils";
+import { requireAuth } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1");
@@ -47,6 +51,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAuth(request);
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const body = await request.json();
     const { txnDate, billNo, party, txnType, paymentMode, amount, companyId: bodyCompanyId, clientId } = body;

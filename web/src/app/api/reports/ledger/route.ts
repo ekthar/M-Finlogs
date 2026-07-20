@@ -27,9 +27,16 @@ export async function GET(request: Request) {
       where.txnDate = { gte: new Date(startDate), lte: new Date(endDate) };
     }
 
+    // Pagination for large ledgers
+    const page = parseInt(searchParams.get("page") || "1");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "200"), 500);
+    const totalCount = await prisma.transaction.count({ where });
+
     const transactions = await prisma.transaction.findMany({
       where,
       orderBy: [{ txnDate: "asc" }, { txnId: "asc" }],
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
     // Build ledger with running balance
@@ -59,7 +66,7 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ party: party.name, ledger, totalBalance: balance });
+    return NextResponse.json({ party: party.name, ledger, totalBalance: balance, totalCount, page, totalPages: Math.ceil(totalCount / limit) });
   } catch (error) {
     console.error("GET /api/reports/ledger error:", error);
     return NextResponse.json({ error: "Failed to fetch ledger" }, { status: 500 });
