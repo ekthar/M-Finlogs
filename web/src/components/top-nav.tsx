@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/app-context";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NotificationBell } from "@/components/notification-bell";
 import {
@@ -13,6 +13,61 @@ import {
   Settings, ChevronDown, Search, LogOut, Menu, X, ShoppingCart,
   Wallet, AlertTriangle, DollarSign,
 } from "lucide-react";
+function UserMenu() {
+  const { username, role } = useApp();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    localStorage.removeItem("mfinlogs_context");
+    window.location.href = "/login";
+  };
+
+  const initial = (username || "A").charAt(0).toUpperCase();
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-[11px] font-bold text-white">
+          {initial}
+        </div>
+        <span className="hidden sm:block text-xs font-medium text-zinc-700 dark:text-zinc-300">{username}</span>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.96 }}
+            transition={{ type: "spring" as const, bounce: 0, duration: 0.2 }}
+            className="absolute right-0 top-full mt-2 w-52 rounded-xl border border-zinc-200/60 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl dark:border-zinc-700/60 dark:bg-zinc-900/95 z-50"
+          >
+            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 mb-1">
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{username}</p>
+              <p className="text-[10px] text-zinc-400 capitalize">{role}</p>
+            </div>
+            <Link href="/settings" onClick={() => setOpen(false)} className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors">
+              <Settings className="h-4 w-4 text-zinc-400" /> Settings
+            </Link>
+            <button onClick={handleLogout} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              <LogOut className="h-4 w-4" /> Logout
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 interface NavItem { label: string; href: string; icon: typeof LayoutDashboard; }
 
@@ -177,10 +232,8 @@ export function TopNav() {
               <kbd className="hidden sm:inline text-[10px] bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 rounded">⌘K</kbd>
             </button>
 
-            {/* User */}
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-              <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300">A</span>
-            </div>
+            {/* User menu */}
+            <UserMenu />
 
             {/* Mobile toggle */}
             <button

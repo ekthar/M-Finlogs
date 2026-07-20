@@ -30,14 +30,28 @@ export default function SettingsPage() {
   const [newLockDate, setNewLockDate] = useState("");
   const [cashDate, setCashDate] = useState(new Date().toISOString().split("T")[0]);
   const [cashAmount, setCashAmount] = useState("");
+  const [brandName, setBrandName] = useState("M-Finlogs");
+  const [brandCompany, setBrandCompany] = useState("");
+  const [brandTagline, setBrandTagline] = useState("");
 
   useEffect(() => {
     setActiveTheme(getStoredTheme());
+    // Load branding
+    fetch(`/api/settings/branding?companyId=${companyId}`).then(r=>r.json()).then(d => {
+      if (d.softwareName) setBrandName(d.softwareName);
+      if (d.companyDisplayName) setBrandCompany(d.companyDisplayName);
+      if (d.companyTagline) setBrandTagline(d.companyTagline);
+    }).catch(()=>{});
     if (role === "admin") {
       fetch("/api/users").then(r=>r.json()).then(d=>setUsers(d.users||[])).catch(()=>{});
       fetch(`/api/day-lock?companyId=${companyId}`).then(r=>r.json()).then(d=>setLockDate(d.lockDate||"")).catch(()=>{});
     }
   }, [role, companyId]);
+
+  const saveBranding = async () => {
+    const res = await fetch("/api/settings/branding", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ companyId, softwareName: brandName, companyDisplayName: brandCompany, companyTagline: brandTagline }) });
+    if (res.ok) toast.success("Branding saved"); else toast.error("Failed");
+  };
 
   const handleTheme = (key: string) => { applyTheme(key); setActiveTheme(key); toast.success(`Theme: ${themes.find(t=>t.key===key)?.name}`); };
 
@@ -73,8 +87,14 @@ export default function SettingsPage() {
     <motion.div initial="initial" animate="animate" className="space-y-6 max-w-3xl">
       <motion.div variants={itemVariants}><h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Settings</h1></motion.div>
 
-      {/* About */}
-      <motion.div variants={itemVariants}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Info className="h-4 w-4"/>About</CardTitle></CardHeader><CardContent><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-700 dark:from-white dark:to-zinc-200"><span className="text-sm font-bold text-white dark:text-zinc-900">M</span></div><div><p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">M-Finlogs Web</p><p className="text-[11px] text-zinc-500">by EKTHAR</p></div><Badge className="ml-auto">v2.2</Badge></div></CardContent></Card></motion.div>
+      {/* About + Branding */}
+      <motion.div variants={itemVariants}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Info className="h-4 w-4"/>Branding</CardTitle></CardHeader><CardContent className="space-y-4">
+        <div className="flex items-center gap-3 mb-4"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-zinc-900 to-zinc-700 dark:from-white dark:to-zinc-200"><span className="text-sm font-bold text-white dark:text-zinc-900">M</span></div><div><p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">M-Finlogs Web</p><p className="text-[11px] text-zinc-500">by EKTHAR</p></div><Badge className="ml-auto">v2.2</Badge></div>
+        <div><label className="mb-1.5 block text-xs font-medium text-zinc-600">Software Name</label><Input placeholder="M-Finlogs" value={brandName} onChange={e => setBrandName(e.target.value)}/></div>
+        <div><label className="mb-1.5 block text-xs font-medium text-zinc-600">Company Display Name</label><Input placeholder="Your Company Name" value={brandCompany} onChange={e => setBrandCompany(e.target.value)}/></div>
+        <div><label className="mb-1.5 block text-xs font-medium text-zinc-600">Tagline (optional)</label><Input placeholder="e.g. Since 1998" value={brandTagline} onChange={e => setBrandTagline(e.target.value)}/></div>
+        <Button onClick={saveBranding} variant="outline" className="w-full">Save Branding</Button>
+      </CardContent></Card></motion.div>
 
       {/* Theme */}
       <motion.div variants={itemVariants}><Card><CardHeader><CardTitle className="flex items-center gap-2"><Palette className="h-4 w-4"/>Theme</CardTitle></CardHeader><CardContent><div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{themes.map(t=>(<button key={t.key} onClick={()=>handleTheme(t.key)} className={`group relative rounded-xl p-3 border-2 transition-all text-left ${activeTheme===t.key?"border-blue-500 ring-2 ring-blue-500/20":"border-zinc-200 dark:border-zinc-700 hover:border-zinc-300"}`}><div className="flex gap-1.5 mb-2"><div className="h-5 w-5 rounded-md" style={{background:t.preview.bg}}/><div className="h-5 w-5 rounded-md border" style={{background:t.preview.card}}/><div className="h-5 w-5 rounded-md" style={{background:t.preview.accent}}/></div><p className="text-xs font-medium text-zinc-900 dark:text-zinc-100">{t.name}</p><p className="text-[10px] text-zinc-500 mt-0.5">{t.description}</p>{activeTheme===t.key&&<div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-blue-500"/>}</button>))}</div></CardContent></Card></motion.div>
