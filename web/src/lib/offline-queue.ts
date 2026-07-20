@@ -69,6 +69,10 @@ export function getPendingCount(): number {
   return getQueue().filter((q) => q.status === "pending" || q.status === "failed").length;
 }
 
+export function clearQueue() {
+  localStorage.removeItem(QUEUE_KEY);
+}
+
 /**
  * Flush queue — attempt to sync all pending entries to server.
  * Returns number of successfully synced items.
