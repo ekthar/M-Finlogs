@@ -11,8 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { exportLedgerPdf } from "@/lib/export-pdf";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/data-table";
-import { Printer, Search, Pencil, Trash2 } from "lucide-react";
+import { Printer, Search, Pencil, Trash2, FileText } from "lucide-react";
 
 interface LedgerEntry { txnId: number; date: string; billNo: string | null; txnType: string; paymentMode: string; debit: number; credit: number; balance: number; }
 interface PartyOption { name: string; normalizedName: string; }
@@ -79,7 +80,10 @@ export default function LedgerPage() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Party Ledger</h1>
           <p className="mt-0.5 text-sm text-zinc-500">{partyName ? `Showing: ${partyName} • Balance: ₹${fmt(totalBalance)}` : "Select a party to view statement"}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-1.5 h-3.5 w-3.5" /> Print</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => { if (ledger.length) { exportLedgerPdf(partyName, ledger, totalBalance); toast.success("PDF exported"); } }}><FileText className="mr-1.5 h-3.5 w-3.5"/>PDF</Button>
+          <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="mr-1.5 h-3.5 w-3.5" /> Print</Button>
+        </div>
       </motion.div>
 
       {/* Filters with party datalist */}

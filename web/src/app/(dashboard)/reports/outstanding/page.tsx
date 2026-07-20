@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { useApp } from "@/lib/app-context";
+import { exportOutstandingPdf } from "@/lib/export-pdf";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/data-table";
-import { Download } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 
 interface OutstandingEntry { partyId: number; name: string; balance: number; daysUnpaid: number; lastReceipt: string | null; status: string; }
 const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } } };
 function fmt(n: number) { return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(n); }
 
 export default function OutstandingPage() {
+  const { companyId } = useApp();
   const [data, setData] = useState<OutstandingEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [highCount, setHighCount] = useState(0);
@@ -20,18 +24,19 @@ export default function OutstandingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/reports/outstanding").then(r => r.json()).then(d => {
+    fetch(`/api/reports/outstanding?companyId=${companyId}`).then(r => r.json()).then(d => {
       setData(d.outstanding || []);
       setTotal(d.total || 0);
       setHighCount(d.highCount || 0);
       setCriticalCount(d.criticalCount || 0);
     }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [companyId]);
 
   return (
     <motion.div initial="initial" animate="animate" className="space-y-5">
       <motion.div {...fadeUp} className="flex items-center justify-between">
         <div><h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Credit Outstanding</h1><p className="mt-0.5 text-sm text-zinc-500">{loading ? "Loading..." : `${data.length} parties with outstanding balance`}</p></div>
+        <Button variant="outline" size="sm" onClick={() => { if (data.length) { exportOutstandingPdf(data, total); toast.success("PDF exported"); }}}><FileText className="mr-1.5 h-3.5 w-3.5"/>Export PDF</Button>
       </motion.div>
 
       <motion.div {...fadeUp} className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -113,6 +113,9 @@ export default function DailyEntryPage() {
     if (!amount || parseFloat(amount) <= 0) { toast.error("Enter a valid amount"); amountRef.current?.focus(); return; }
     const amt = parseFloat(amount);
 
+    // Amount warning for very large values (>₹10 Lakh)
+    if (amt > 1000000 && !window.confirm(`₹${amt.toLocaleString("en-IN")} is very large. Confirm?`)) return;
+
     // 1. Queue it (localStorage — survives offline, refresh, crash)
     const entry = enqueue({ txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: amt, companyId });
 
