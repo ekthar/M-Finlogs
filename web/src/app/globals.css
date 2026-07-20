@@ -3,141 +3,190 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Apple-style design foundations:
- * - System font stack with optical sizing
- * - Tight tracking on large text, normal on body
- * - Translucent materials via backdrop-filter
- * - Spring-based motion (handled by Framer Motion)
- * - Reduced motion support
+ * Apple-Level Design System
+ * ─────────────────────────
+ * 1. System font with optical sizing
+ * 2. Size-specific tracking (tight on large, normal on body)
+ * 3. Translucent materials via backdrop-filter  
+ * 4. Spring-based motion (Framer Motion, not CSS transitions)
+ * 5. Reduced motion / transparency / contrast support
+ * 6. Focus-visible only (not focus)
+ * 7. Scroll shadows instead of borders
  */
 
 :root {
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
+  --font-mono: "SF Mono", "JetBrains Mono", "Fira Code", monospace;
 
-  /* Functional colors */
-  --surface: rgba(255, 255, 255, 0.6);
-  --surface-hover: rgba(255, 255, 255, 0.85);
-  --border: rgba(0, 0, 0, 0.06);
-  --overlay: rgba(0, 0, 0, 0.4);
+  /* Semantic surfaces */
+  --surface-page: #f8f9fa;
+  --surface-card: rgba(255, 255, 255, 0.72);
+  --surface-nav: rgba(255, 255, 255, 0.65);
+  --surface-modal: rgba(255, 255, 255, 0.92);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-default: rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, 0.4);
 }
 
 .dark {
-  --surface: rgba(24, 24, 27, 0.6);
-  --surface-hover: rgba(24, 24, 27, 0.85);
-  --border: rgba(255, 255, 255, 0.06);
-  --overlay: rgba(0, 0, 0, 0.6);
+  --surface-page: #09090b;
+  --surface-card: rgba(24, 24, 27, 0.72);
+  --surface-nav: rgba(24, 24, 27, 0.65);
+  --surface-modal: rgba(24, 24, 27, 0.92);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --scrim: rgba(0, 0, 0, 0.6);
 }
 
-/* Base reset & defaults */
+/* ─── BASE ──────────────────────────────────────────────────── */
 html {
   font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 body {
   font-family: var(--font-sans);
-  background: linear-gradient(135deg, #fafafa 0%, #f4f4f5 100%);
+  background: var(--surface-page);
   min-height: 100vh;
 }
 
-.dark body {
-  background: linear-gradient(135deg, #09090b 0%, #18181b 100%);
-}
+/* ─── TYPOGRAPHY: Size-specific tracking ───────────────────── */
+/* Large text: NEGATIVE tracking (tighter) */
+.text-display, h1 { letter-spacing: -0.03em; line-height: 1.05; }
+h2 { letter-spacing: -0.025em; line-height: 1.1; }
+h3 { letter-spacing: -0.02em; line-height: 1.15; }
+/* Body: ZERO tracking */
+p, span, td, th, label, li { letter-spacing: 0; }
+/* Small text: POSITIVE tracking (looser for legibility) */
+.text-xs, .text-[11px], .text-[10px] { letter-spacing: 0.01em; }
+/* Overline/labels: WIDE tracking */
+.tracking-wider { letter-spacing: 0.08em; }
+.tracking-widest { letter-spacing: 0.12em; }
 
-/* Scrollbar styling */
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-none {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-}
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
-}
-.dark .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-/* Typography: Apple-style size-specific tracking */
-h1, .text-display {
-  letter-spacing: -0.025em;
-  line-height: 1.1;
-}
-h2 {
+/* Monospace numbers: tabular figures for alignment */
+.font-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-h3 {
-  letter-spacing: -0.015em;
-  line-height: 1.2;
 }
 
-/* Reduced motion */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+/* ─── MATERIALS: Glass surfaces ────────────────────────────── */
+.glass-thin {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+}
+.glass-regular {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--border-subtle);
+}
+.glass-thick {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid var(--border-subtle);
+}
+.glass-ultra {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(32px) saturate(2);
 }
 
-/* Reduced transparency */
-@media (prefers-reduced-transparency: reduce) {
-  .backdrop-blur-xl,
-  .backdrop-blur-2xl {
-    backdrop-filter: none !important;
-    background-color: white !important;
-  }
-  .dark .backdrop-blur-xl,
-  .dark .backdrop-blur-2xl {
-    background-color: #18181b !important;
-  }
+.dark .glass-thin { background: rgba(24, 24, 27, 0.6); }
+.dark .glass-regular { background: rgba(24, 24, 27, 0.72); }
+.dark .glass-thick { background: rgba(24, 24, 27, 0.65); }
+.dark .glass-ultra { background: rgba(24, 24, 27, 0.92); }
+
+/* ─── SCROLL SHADOW (not hard borders) ─────────────────────── */
+.scroll-shadow-top {
+  mask-image: linear-gradient(to bottom, transparent, black 20px);
+}
+.scroll-shadow-y {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 16px,
+    black calc(100% - 16px),
+    transparent
+  );
 }
 
-/* Focus ring */
+/* ─── SCROLLBAR ────────────────────────────────────────────── */
+.scrollbar-none::-webkit-scrollbar { display: none; }
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.15); }
+.dark ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ─── FOCUS: Only on keyboard navigation ───────────────────── */
+:focus { outline: none; }
 :focus-visible {
-  outline: 2px solid rgb(24, 24, 27);
+  outline: 2px solid rgb(59, 130, 246);
   outline-offset: 2px;
   border-radius: 8px;
 }
-.dark :focus-visible {
-  outline-color: rgb(244, 244, 245);
-}
+.dark :focus-visible { outline-color: rgb(147, 197, 253); }
 
-/* Table hover effect */
-table tbody tr {
-  transition: background-color 150ms ease-out;
-}
-
-/* Glass panel effect */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-.dark .glass-panel {
-  background: rgba(24, 24, 27, 0.6);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* Print styles */
-@media print {
-  .no-print {
-    display: none !important;
+/* ─── REDUCED MOTION ───────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
-  body {
+}
+
+/* ─── REDUCED TRANSPARENCY ─────────────────────────────────── */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-thin, .glass-regular, .glass-thick, .glass-ultra,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
     background: white !important;
   }
+  .dark .glass-thin, .dark .glass-regular, .dark .glass-thick, .dark .glass-ultra,
+  .dark [class*="backdrop-blur"] {
+    background: #18181b !important;
+  }
+}
+
+/* ─── HIGH CONTRAST ────────────────────────────────────────── */
+@media (prefers-contrast: more) {
+  :root {
+    --border-subtle: rgba(0, 0, 0, 0.2);
+    --border-default: rgba(0, 0, 0, 0.3);
+  }
+  .glass-regular, .glass-thick {
+    background: white !important;
+    border: 1px solid rgba(0,0,0,0.2) !important;
+  }
+}
+
+/* ─── PRINT ────────────────────────────────────────────────── */
+@media print {
+  .no-print, nav, header { display: none !important; }
+  body { background: white !important; }
+  * { break-inside: avoid; }
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+}
+
+/* ─── TABLE INTERACTIONS ───────────────────────────────────── */
+table tbody tr {
+  transition: background-color 100ms ease-out;
+}
+table tbody tr:active {
+  transform: scale(0.998);
+  transition: transform 80ms ease-out;
+}
+
+/* ─── SELECTION ────────────────────────────────────────────── */
+::selection {
+  background: rgba(59, 130, 246, 0.2);
+  color: inherit;
 }

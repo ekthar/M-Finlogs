@@ -8,10 +8,11 @@ const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     <div
       ref={ref}
       className={cn(
-        "rounded-2xl border border-zinc-200/60 bg-white/70 p-6",
-        "backdrop-blur-xl shadow-sm",
-        "transition-all duration-300 ease-out",
-        "dark:border-zinc-700/60 dark:bg-zinc-900/70",
+        "rounded-2xl p-6",
+        "border border-zinc-200/50 bg-white/72",
+        "backdrop-blur-xl",
+        "shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.03)]",
+        "dark:border-zinc-700/50 dark:bg-zinc-900/72",
         className
       )}
       {...props}
@@ -22,11 +23,7 @@ Card.displayName = "Card";
 
 const CardHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn("flex flex-col space-y-1.5 pb-4", className)}
-      {...props}
-    />
+    <div ref={ref} className={cn("flex flex-col space-y-1 pb-4", className)} {...props} />
   )
 );
 CardHeader.displayName = "CardHeader";
@@ -35,10 +32,7 @@ const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingEleme
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn(
-        "text-lg font-semibold leading-tight tracking-tight text-zinc-900 dark:text-zinc-100",
-        className
-      )}
+      className={cn("text-[15px] font-semibold text-zinc-900 dark:text-zinc-100", className)}
       {...props}
     />
   )
@@ -47,11 +41,7 @@ CardTitle.displayName = "CardTitle";
 
 const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p
-      ref={ref}
-      className={cn("text-sm text-zinc-500 dark:text-zinc-400", className)}
-      {...props}
-    />
+    <p ref={ref} className={cn("text-[13px] text-zinc-500 dark:text-zinc-400", className)} {...props} />
   )
 );
 CardDescription.displayName = "CardDescription";
