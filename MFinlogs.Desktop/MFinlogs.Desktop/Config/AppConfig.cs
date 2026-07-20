@@ -12,7 +12,7 @@ public class AppConfig
     public string Mode { get; set; } = "online"; // "online", "offline", or "hybrid"
 
     [JsonPropertyName("onlineUrl")]
-    public string OnlineUrl { get; set; } = "https://finlogs.netlify.app";
+    public string OnlineUrl { get; set; } = "https://mfinlogs.pages.dev";
 
     [JsonPropertyName("localPort")]
     public int LocalPort { get; set; } = 8080;
