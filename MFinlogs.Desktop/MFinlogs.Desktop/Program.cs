@@ -25,8 +25,8 @@ internal static class Program
         splash.Show();
         Application.DoEvents();
 
-        // Initialize local server for offline mode
-        if (Config.IsOfflineMode)
+        // Initialize local server for offline/hybrid mode
+        if (Config.NeedsLocalServer)
         {
             try
             {
@@ -46,7 +46,7 @@ internal static class Program
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Failed to start offline mode:\n{ex.Message}\n\nSwitching to online mode.",
+                    $"Failed to start local server:\n{ex.Message}\n\nSwitching to online mode.",
                     "M-Finlogs",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);

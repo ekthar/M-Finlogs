@@ -122,8 +122,8 @@ public partial class MainForm : Form
         // Mode indicator
         lblMode = new Label
         {
-            Text = Program.Config.IsOnlineMode ? "● Online" : "● Offline",
-            ForeColor = Program.Config.IsOnlineMode ? Color.FromArgb(34, 197, 94) : Color.FromArgb(251, 146, 60),
+            Text = GetModeLabel(),
+            ForeColor = GetModeLabelColor(),
             Font = new Font("Segoe UI", 8f, FontStyle.Regular),
             AutoSize = true,
             Location = new Point(130, 11),
@@ -227,6 +227,12 @@ public partial class MainForm : Form
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
             webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
 
+            // In hybrid mode: intercept API calls and redirect to local server
+            if (Program.Config.IsHybridMode)
+            {
+                SetupHybridApiInterception();
+            }
+
             // Navigate to the appropriate URL
             webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
         }
@@ -271,6 +277,60 @@ public partial class MainForm : Form
         // Open links in the same window
         e.Handled = true;
         webView.CoreWebView2.Navigate(e.Uri);
+    }
+
+    /// <summary>
+    /// In hybrid mode, inject JavaScript to override fetch/XHR so all /api/* calls
+    /// are redirected from the remote Netlify origin to the local embedded server.
+    /// This allows the cloud-hosted UI to use a local SQLite database.
+    /// </summary>
+    private void SetupHybridApiInterception()
+    {
+        var localUrl = Program.Config.LocalServerUrl;
+
+        // Inject script that rewrites API calls to local server
+        var script = $@"
+            (function() {{
+                const LOCAL_API = '{localUrl}';
+                const originalFetch = window.fetch;
+
+                window.fetch = function(input, init) {{
+                    let url = (typeof input === 'string') ? input : input.url;
+
+                    // Redirect /api/* paths to local server
+                    if (url.startsWith('/api/') || url.includes('/api/')) {{
+                        const apiPath = url.includes('/api/') 
+                            ? '/api/' + url.split('/api/')[1]
+                            : url;
+                        url = LOCAL_API + apiPath;
+
+                        if (typeof input === 'string') {{
+                            input = url;
+                        }} else {{
+                            input = new Request(url, input);
+                        }}
+                    }}
+
+                    return originalFetch.call(this, input, init);
+                }};
+
+                // Also override XMLHttpRequest for legacy calls
+                const originalOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url, ...args) {{
+                    if (url.startsWith('/api/') || url.includes('/api/')) {{
+                        const apiPath = url.includes('/api/')
+                            ? '/api/' + url.split('/api/')[1]
+                            : url;
+                        url = LOCAL_API + apiPath;
+                    }}
+                    return originalOpen.call(this, method, url, ...args);
+                }};
+
+                console.log('[M-Finlogs Hybrid] API calls redirected to ' + LOCAL_API);
+            }})();
+        ";
+
+        webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
     }
 
     #endregion
@@ -571,7 +631,7 @@ public partial class MainForm : Form
     #region Public Methods
 
     /// <summary>
-    /// Switch between online and offline mode
+    /// Switch between online, offline, and hybrid modes
     /// </summary>
     public void SwitchMode(string mode)
     {
@@ -580,14 +640,34 @@ public partial class MainForm : Form
 
         lblMode.Invoke(() =>
         {
-            lblMode.Text = mode == "online" ? "● Online" : "● Offline";
-            lblMode.ForeColor = mode == "online"
-                ? Color.FromArgb(34, 197, 94)
-                : Color.FromArgb(251, 146, 60);
+            lblMode.Text = GetModeLabel();
+            lblMode.ForeColor = GetModeLabelColor();
         });
 
         // Reload to new URL
         webView?.CoreWebView2?.Navigate(Program.Config.ActiveUrl);
+    }
+
+    private static string GetModeLabel()
+    {
+        return Program.Config.Mode?.ToLower() switch
+        {
+            "online" => "● Online",
+            "offline" => "● Offline",
+            "hybrid" => "● Hybrid",
+            _ => "● Online"
+        };
+    }
+
+    private static Color GetModeLabelColor()
+    {
+        return Program.Config.Mode?.ToLower() switch
+        {
+            "online" => Color.FromArgb(34, 197, 94),   // green
+            "offline" => Color.FromArgb(251, 146, 60), // orange
+            "hybrid" => Color.FromArgb(99, 102, 241),  // indigo
+            _ => Color.FromArgb(34, 197, 94)
+        };
     }
 
     /// <summary>

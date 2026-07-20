@@ -9,7 +9,7 @@ namespace MFinlogs.Desktop.Config;
 public class AppConfig
 {
     [JsonPropertyName("mode")]
-    public string Mode { get; set; } = "online"; // "online" or "offline"
+    public string Mode { get; set; } = "online"; // "online", "offline", or "hybrid"
 
     [JsonPropertyName("onlineUrl")]
     public string OnlineUrl { get; set; } = "https://finlogs.netlify.app";
@@ -64,10 +64,26 @@ public class AppConfig
     public bool IsOfflineMode => Mode?.ToLower() == "offline";
 
     [JsonIgnore]
-    public string LocalServerUrl => $"http://localhost:{LocalPort}";
+    public bool IsHybridMode => Mode?.ToLower() == "hybrid";
+
+    /// <summary>
+    /// Whether the local API server + SQLite DB should be started.
+    /// True for both "offline" (fully local) and "hybrid" (online UI + local DB).
+    /// </summary>
+    [JsonIgnore]
+    public bool NeedsLocalServer => IsOfflineMode || IsHybridMode;
 
     [JsonIgnore]
-    public string ActiveUrl => IsOnlineMode ? OnlineUrl : LocalServerUrl;
+    public string LocalServerUrl => $"http://localhost:{LocalPort}";
+
+    /// <summary>
+    /// The URL WebView2 navigates to:
+    /// - Online: remote Netlify URL (cloud DB via Supabase)
+    /// - Offline: local embedded server (local DB)
+    /// - Hybrid: remote Netlify URL but API calls intercepted to local server
+    /// </summary>
+    [JsonIgnore]
+    public string ActiveUrl => IsOfflineMode ? LocalServerUrl : OnlineUrl;
 
     [JsonIgnore]
     public string DatabasePath => Path.Combine(AppDataDir, "finlogs.db");

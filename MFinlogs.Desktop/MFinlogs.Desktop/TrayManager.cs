@@ -29,32 +29,51 @@ public class TrayManager : IDisposable
 
         // Mode submenu
         var modeMenu = new ToolStripMenuItem("Mode");
-        var onlineItem = new ToolStripMenuItem("Online")
+        var onlineItem = new ToolStripMenuItem("Online (Cloud DB)")
         {
             Checked = Program.Config.IsOnlineMode,
             CheckOnClick = false
         };
-        onlineItem.Click += (s, e) =>
-        {
-            mainForm.SwitchMode("online");
-            onlineItem.Checked = true;
-            ((ToolStripMenuItem)modeMenu.DropDownItems[1]).Checked = false;
-        };
-
-        var offlineItem = new ToolStripMenuItem("Offline")
+        var offlineItem = new ToolStripMenuItem("Offline (Local DB)")
         {
             Checked = Program.Config.IsOfflineMode,
             CheckOnClick = false
         };
+        var hybridItem = new ToolStripMenuItem("Hybrid (Online UI + Local DB)")
+        {
+            Checked = Program.Config.IsHybridMode,
+            CheckOnClick = false
+        };
+
+        void UncheckAllModes()
+        {
+            onlineItem.Checked = false;
+            offlineItem.Checked = false;
+            hybridItem.Checked = false;
+        }
+
+        onlineItem.Click += (s, e) =>
+        {
+            UncheckAllModes();
+            onlineItem.Checked = true;
+            mainForm.SwitchMode("online");
+        };
         offlineItem.Click += (s, e) =>
         {
-            mainForm.SwitchMode("offline");
+            UncheckAllModes();
             offlineItem.Checked = true;
-            ((ToolStripMenuItem)modeMenu.DropDownItems[0]).Checked = false;
+            mainForm.SwitchMode("offline");
+        };
+        hybridItem.Click += (s, e) =>
+        {
+            UncheckAllModes();
+            hybridItem.Checked = true;
+            mainForm.SwitchMode("hybrid");
         };
 
         modeMenu.DropDownItems.Add(onlineItem);
         modeMenu.DropDownItems.Add(offlineItem);
+        modeMenu.DropDownItems.Add(hybridItem);
 
         var separator2 = new ToolStripSeparator();
 
