@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toast";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { SessionGuard } from "@/components/session-guard";
 import { ShortcutsPanel } from "@/components/shortcuts-panel";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { AppProvider } from "@/lib/app-context";
 import { applyTheme, getStoredTheme } from "@/lib/themes";
 
@@ -25,6 +26,7 @@ export default function DashboardLayout({
       <div className="min-h-screen">
         <TopNav />
         <main className="mx-auto max-w-7xl px-4 py-5 pb-20 lg:px-6 lg:pb-6">
+          <Breadcrumbs />
           {children}
         </main>
         <MobileNav />
