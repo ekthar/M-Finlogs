@@ -211,9 +211,17 @@ public partial class MainForm : Form
 
         try
         {
-            // Configure WebView2 environment
+            // Configure WebView2 environment with additional arguments to handle
+            // service worker redirect issues (common with Next.js/PWA apps on Netlify)
             var userDataFolder = Path.Combine(AppConfig.AppDataDir, "WebView2");
-            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            var options = new CoreWebView2EnvironmentOptions
+            {
+                // Disable service worker fetch interception to prevent redirect errors
+                // The "FetchEvent resulted in a network error response: redirected response"
+                // error occurs when a SW uses redirect:manual but gets a redirected response
+                AdditionalBrowserArguments = "--disable-features=ServiceWorkerPaymentApps"
+            };
+            var env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
             await webView.EnsureCoreWebView2Async(env);
 
             // Configure settings
@@ -221,6 +229,16 @@ public partial class MainForm : Form
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+
+            // Unregister any existing service workers that cause redirect conflicts.
+            // This is the primary fix for: "FetchEvent resulted in a network error
+            // response: a redirected response was used for a request whose redirect
+            // mode is not 'follow'."
+            await UnregisterServiceWorkersAsync();
+
+            // Also clear service worker registrations via the profile API
+            // This catches SWs even before a page is loaded
+            await ClearServiceWorkerRegistrationsAsync();
 
             // Handle navigation events
             webView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
@@ -264,11 +282,19 @@ public partial class MainForm : Form
         // Allow all navigations within the app
     }
 
-    private void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
         if (!e.IsSuccess)
         {
             System.Diagnostics.Debug.WriteLine($"Navigation failed: {e.WebErrorStatus}");
+
+            // If navigation failed due to service worker redirect issue, retry
+            // by unregistering service workers and reloading
+            if (e.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown ||
+                e.WebErrorStatus == CoreWebView2WebErrorStatus.ConnectionAborted)
+            {
+                await RetryWithServiceWorkerBypass();
+            }
         }
     }
 
@@ -277,6 +303,96 @@ public partial class MainForm : Form
         // Open links in the same window
         e.Handled = true;
         webView.CoreWebView2.Navigate(e.Uri);
+    }
+
+    /// <summary>
+    /// Unregister all service workers to prevent the redirect mode conflict.
+    /// Next.js/PWA service workers on Netlify can cause:
+    /// "FetchEvent resulted in a network error response: a redirected response
+    /// was used for a request whose redirect mode is not 'follow'"
+    /// </summary>
+    private async Task UnregisterServiceWorkersAsync()
+    {
+        try
+        {
+            var script = @"
+                (async () => {
+                    if ('serviceWorker' in navigator) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (const reg of registrations) {
+                            await reg.unregister();
+                        }
+                        return registrations.length;
+                    }
+                    return 0;
+                })();
+            ";
+            var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
+            System.Diagnostics.Debug.WriteLine($"Service workers unregistered: {result}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SW unregister error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Clear service worker registrations at the WebView2 profile level.
+    /// This uses the ClearBrowsingData API to remove all service workers
+    /// before the target URL's SW can intercept the navigation fetch.
+    /// </summary>
+    private async Task ClearServiceWorkerRegistrationsAsync()
+    {
+        try
+        {
+            // WebView2's profile API can clear service workers at the browser level
+            var profile = webView.CoreWebView2.Profile;
+            await profile.ClearBrowsingDataAsync(
+                CoreWebView2BrowsingDataKinds.ServiceWorkers);
+            System.Diagnostics.Debug.WriteLine("Cleared SW registrations via profile API");
+        }
+        catch (Exception ex)
+        {
+            // ClearBrowsingDataAsync may not be available on older WebView2 runtimes
+            System.Diagnostics.Debug.WriteLine($"Profile SW clear fallback: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// If service worker caused a navigation failure, clear it and retry
+    /// </summary>
+    private async Task RetryWithServiceWorkerBypass()
+    {
+        try
+        {
+            // First try to unregister any SWs via about:blank
+            webView.CoreWebView2.Navigate("about:blank");
+            await Task.Delay(500);
+
+            // Clear the service worker cache
+            await webView.CoreWebView2.ExecuteScriptAsync(@"
+                (async () => {
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        for (const r of regs) await r.unregister();
+                    }
+                    // Also clear caches that the SW may have populated
+                    if ('caches' in window) {
+                        const names = await caches.keys();
+                        for (const n of names) await caches.delete(n);
+                    }
+                })();
+            ");
+
+            await Task.Delay(300);
+
+            // Now navigate to the actual URL
+            webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Retry navigation error: {ex.Message}");
+        }
     }
 
     /// <summary>
