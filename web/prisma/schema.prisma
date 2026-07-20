@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  username     String   @id
+  passwordHash String?  @map("password_hash")
+  role         String   @default("accounts")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  key       String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  parties      Party[]
+  transactions Transaction[]
+  dailyCash    DailyCash[]
+  inventory    InventoryItem[]
+  settings     AppSetting[]
+  auditLogs    AuditLog[]
+
+  @@map("companies")
+}
+
+model Party {
+  partyId        Int     @id @default(autoincrement()) @map("party_id")
+  name           String
+  normalizedName String  @map("normalized_name")
+  type           String
+  creditAllowed  Boolean @default(false) @map("credit_allowed")
+  companyId      String  @map("company_id")
+
+  transactions Transaction[]
+  company      Company       @relation(fields: [companyId], references: [id])
+
+  @@unique([normalizedName, companyId])
+  @@index([companyId])
+  @@map("parties")
+}
+
+model Transaction {
+  txnId         Int      @id @default(autoincrement()) @map("txn_id")
+  txnDate       DateTime @map("txn_date") @db.Date
+  billNo        String?  @map("bill_no")
+  partyId       Int      @map("party_id")
+  txnType       String   @map("txn_type")
+  paymentMode   String   @map("payment_mode")
+  financialYear String   @map("financial_year")
+  amount        Decimal  @db.Decimal(18, 2)
+  companyId     String   @map("company_id")
+
+  party   Party   @relation(fields: [partyId], references: [partyId])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([txnDate(sort: Desc), txnId(sort: Desc)])
+  @@index([partyId])
+  @@index([txnType])
+  @@index([paymentMode])
+  @@index([financialYear, txnDate])
+  @@index([companyId])
+  @@map("transactions")
+}
+
+model DailyCash {
+  id         Int      @id @default(autoincrement())
+  cashDate   DateTime @map("cash_date") @db.Date
+  cashInHand Decimal  @map("cash_in_hand") @db.Decimal(18, 2)
+  updatedAt  DateTime @default(now()) @map("updated_at")
+  companyId  String   @map("company_id")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([cashDate, companyId])
+  @@map("daily_cash")
+}
+
+model AppSetting {
+  id           Int     @id @default(autoincrement())
+  settingKey   String  @map("setting_key")
+  settingValue String? @map("setting_value")
+  companyId    String  @map("company_id")
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([settingKey, companyId])
+  @@map("app_settings")
+}
+
+model InventoryItem {
+  id          Int      @id @default(autoincrement())
+  clientRowId String?  @map("client_row_id")
+  name        String
+  cost        Float    @default(0)
+  minStock    Float    @default(0) @map("min_stock")
+  updatedAt   DateTime @default(now()) @map("updated_at")
+  companyId   String   @map("company_id")
+
+  quantities InventoryQuantity[]
+  purchases  InventoryPurchase[]
+  company    Company             @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, clientRowId])
+  @@map("inventory_items")
+}
+
+model InventoryQuantity {
+  id            Int    @id @default(autoincrement())
+  itemId        Int    @map("item_id")
+  financialYear String @map("financial_year")
+  month         Int
+  day           Int
+  qty           Float
+  companyId     String @map("company_id")
+
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, financialYear, month, itemId])
+  @@map("inventory_quantities")
+}
+
+model InventoryPurchase {
+  id            Int    @id @default(autoincrement())
+  itemId        Int    @map("item_id")
+  financialYear String @map("financial_year")
+  month         Int
+  day           Int
+  qty           Float
+  companyId     String @map("company_id")
+
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, financialYear, month, itemId])
+  @@map("inventory_purchases")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  timestamp DateTime @default(now())
+  username  String
+  action    String
+  details   String?
+  companyId String   @map("company_id")
+
+  user    User    @relation(fields: [username], references: [username])
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, timestamp(sort: Desc)])
+  @@map("audit_logs")
+}
