@@ -108,7 +108,7 @@ export default function LoginPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="pl-9"
-                  autoComplete="off"
+                  autoComplete="username"
                   autoFocus
                 />
               </div>
@@ -130,6 +130,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-9"
+                  autoComplete="current-password"
                 />
               </div>
             </motion.div>
