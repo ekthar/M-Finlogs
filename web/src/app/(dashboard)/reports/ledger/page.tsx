@@ -3,21 +3,25 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { useApp } from "@/lib/app-context";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { TableSkeleton } from "@/components/ui/skeleton";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/data-table";
-import { Printer, Search } from "lucide-react";
+import { Printer, Search, Pencil, Trash2 } from "lucide-react";
 
-interface LedgerEntry { date: string; billNo: string | null; txnType: string; paymentMode: string; debit: number; credit: number; balance: number; }
+interface LedgerEntry { txnId: number; date: string; billNo: string | null; txnType: string; paymentMode: string; debit: number; credit: number; balance: number; }
 interface PartyOption { name: string; normalizedName: string; }
 
 const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } } };
 function fmt(n: number) { return new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(n); }
 
 export default function LedgerPage() {
+  const { companyId } = useApp();
   const [parties, setParties] = useState<PartyOption[]>([]);
   const [party, setParty] = useState("");
   const [start, setStart] = useState("");
@@ -26,14 +30,16 @@ export default function LedgerPage() {
   const [loading, setLoading] = useState(false);
   const [partyName, setPartyName] = useState("");
   const [totalBalance, setTotalBalance] = useState(0);
+  const [editTxn, setEditTxn] = useState<any>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   // Load party list on mount
   useEffect(() => {
-    fetch("/api/parties")
+    fetch(`/api/parties?companyId=${companyId}`)
       .then((r) => r.json())
       .then((d) => setParties(d.parties || []))
       .catch(() => {});
-  }, []);
+  }, [companyId]);
 
   const load = async () => {
     if (!party.trim()) {
@@ -42,7 +48,7 @@ export default function LedgerPage() {
     }
     setLoading(true);
     try {
-      const params = new URLSearchParams({ party: party.trim() });
+      const params = new URLSearchParams({ party: party.trim(), companyId });
       if (start) params.set("start", start);
       if (end) params.set("end", end);
       const res = await fetch(`/api/reports/ledger?${params}`);
@@ -58,6 +64,12 @@ export default function LedgerPage() {
       }
     } catch { toast.error("Network error"); }
     setLoading(false);
+  };
+
+  const handleDelete = async () => {
+    if (deleteId === null) return;
+    try { await fetch(`/api/transactions/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); load(); } catch { toast.error("Failed"); }
+    setDeleteId(null);
   };
 
   return (
@@ -127,6 +139,7 @@ export default function LedgerPage() {
                 <TableHead className="text-right">Debit</TableHead>
                 <TableHead className="text-right">Credit</TableHead>
                 <TableHead className="text-right">Balance</TableHead>
+              <TableHead className="w-16 text-center">Edit</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -149,6 +162,7 @@ export default function LedgerPage() {
                   <TableCell className="text-right font-mono text-red-600">{e.debit > 0 ? `₹${fmt(e.debit)}` : ""}</TableCell>
                   <TableCell className="text-right font-mono text-emerald-600">{e.credit > 0 ? `₹${fmt(e.credit)}` : ""}</TableCell>
                   <TableCell className="text-right font-mono font-medium">{fmt(e.balance)}</TableCell>
+                <TableCell className="text-center"><div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditTxn({ txnId: e.txnId, txnDate: e.date, billNo: e.billNo, txnType: e.txnType, paymentMode: e.paymentMode, amount: String(e.debit || e.credit), party: { name: partyName } })}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => setDeleteId(e.txnId)}><Trash2 className="h-3 w-3"/></Button></div></TableCell>
                 </TableRow>
               ))}
               {ledger.length > 0 && (
@@ -158,12 +172,16 @@ export default function LedgerPage() {
                   <TableCell className="text-right font-mono text-red-600">₹{fmt(ledger.reduce((s, e) => s + e.debit, 0))}</TableCell>
                   <TableCell className="text-right font-mono text-emerald-600">₹{fmt(ledger.reduce((s, e) => s + e.credit, 0))}</TableCell>
                   <TableCell className="text-right font-mono font-bold">₹{fmt(totalBalance)}</TableCell>
+                  <TableCell></TableCell>
                 </TableRow>
               )}
             </TableBody>
           </Table>
         )}
       </motion.div>
+
+      <EditTransactionModal transaction={editTxn} open={!!editTxn} onClose={() => setEditTxn(null)} onSaved={load} />
+      <ConfirmDialog open={deleteId!==null} title="Delete Transaction" message="Permanently delete this entry?" variant="danger" confirmLabel="Delete" onConfirm={handleDelete} onCancel={() => setDeleteId(null)} />
     </motion.div>
   );
 }

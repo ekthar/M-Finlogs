@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useApp } from "@/lib/app-context";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/data-table";
 import { RefreshCw } from "lucide-react";
@@ -10,14 +11,15 @@ interface LogEntry { id: number; timestamp: string; username: string; action: st
 const fadeUp = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0, transition: { type: "spring" as const, bounce: 0, duration: 0.4 } } };
 
 export default function AuditPage() {
+  const { companyId } = useApp();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = () => {
     setLoading(true);
-    fetch("/api/audit").then(r => r.json()).then(d => setLogs(d.logs || [])).catch(() => {}).finally(() => setLoading(false));
+    fetch(`/api/audit?companyId=${companyId}`).then(r => r.json()).then(d => setLogs(d.logs || [])).catch(() => {}).finally(() => setLoading(false));
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [companyId]);
 
   return (
     <motion.div initial="initial" animate="animate" className="space-y-5">

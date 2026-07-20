@@ -92,6 +92,13 @@ export default function DailyEntryPage() {
 
   useEffect(() => { loadTransactions(1); }, [loadTransactions]);
   useEffect(() => { fetch(`/api/parties?companyId=${companyId}`).then(r => r.json()).then(d => setParties(d.parties || [])).catch(() => {}); }, [companyId]);
+  // Auto-load next bill number
+  useEffect(() => {
+    fetch(`/api/transactions/last-bill?companyId=${companyId}`)
+      .then(r => r.json())
+      .then(d => { if (d.nextBill && !billNo) setBillNo(d.nextBill); })
+      .catch(() => {});
+  }, [companyId]);
 
   const handleEntryNav = (e: React.KeyboardEvent, next: React.RefObject<HTMLInputElement | HTMLSelectElement | null>) => { if (e.key === "Enter") { e.preventDefault(); next.current?.focus(); } };
 

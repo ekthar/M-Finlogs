@@ -48,6 +48,7 @@ export async function GET(request: Request) {
       }
 
       return {
+        txnId: t.txnId,
         date: t.txnDate,
         billNo: t.billNo,
         txnType: t.txnType,

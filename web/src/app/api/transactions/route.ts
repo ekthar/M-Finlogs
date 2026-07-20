@@ -66,9 +66,34 @@ export async function POST(request: Request) {
         where: { billNo: `__cid:${clientId}`, companyId },
       });
       if (existing) {
-        // Already processed — return 409 so client knows it's a dupe
         return NextResponse.json({ status: "Already exists", transaction: existing }, { status: 409 });
       }
+    }
+
+    // DUPLICATE DETECTION: Check if same bill+date+party+amount exists within last 5 minutes
+    if (billNo) {
+      const normalizedName = normalizePartyKey(party);
+      const duplicate = await prisma.transaction.findFirst({
+        where: {
+          companyId,
+          billNo,
+          txnDate: new Date(txnDate),
+        },
+      });
+      if (duplicate) {
+        return NextResponse.json({
+          error: `Bill #${billNo} already exists for this date. Duplicate entry prevented.`,
+          duplicate: true,
+        }, { status: 409 });
+      }
+    }
+
+    // DATE VALIDATION: No future dates allowed
+    const txnDateObj = new Date(txnDate);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (txnDateObj > today) {
+      return NextResponse.json({ error: "Future dates are not allowed" }, { status: 400 });
     }
 
     // Find the party
@@ -81,7 +106,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Party "${party}" not found. Create it first.` }, { status: 404 });
     }
 
-    const txnDateObj = new Date(txnDate);
     const financialYear = financialYearForDate(txnDateObj);
 
     const transaction = await prisma.transaction.create({
