@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
-import { createUserSchema } from "@/lib/validators";
 import { requireAdmin } from "@/lib/auth-guard";
 
 export async function GET(request: Request) {
@@ -26,16 +25,19 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const parsed = createUserSchema.safeParse(body);
+    const { username, password, role } = body;
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid input", details: parsed.error.flatten() },
-        { status: 400 }
-      );
+    if (!username || !password || !role) {
+      return NextResponse.json({ error: "username, password, and role required" }, { status: 400 });
     }
 
-    const { username, password, role } = parsed.data;
+    if (password.length < 6) {
+      return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+    }
+
+    if (!["admin", "accounts"].includes(role)) {
+      return NextResponse.json({ error: "Role must be admin or accounts" }, { status: 400 });
+    }
 
     const existing = await prisma.user.findUnique({ where: { username } });
     if (existing) {

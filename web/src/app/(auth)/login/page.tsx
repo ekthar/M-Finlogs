@@ -31,6 +31,14 @@ export default function LoginPage() {
         return;
       }
 
+      const data = await res.json();
+      // Store user info so AppContext can read it
+      localStorage.setItem("mfinlogs_context", JSON.stringify({
+        companyId: "cm_default_001",
+        financialYear: "2026-2027",
+        username: data.user?.username || username,
+        role: data.user?.role || "accounts",
+      }));
       window.location.href = "/";
     } catch {
       setError("Connection failed. Please try again.");

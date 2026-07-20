@@ -16,16 +16,32 @@ export interface AuthPayload {
  */
 export async function verifyAuth(request: Request): Promise<AuthPayload | null> {
   try {
-    // Check Authorization header first
-    const authHeader = request.headers.get("authorization");
     let token = "";
 
+    // 1. Check Authorization header
+    const authHeader = request.headers.get("authorization");
     if (authHeader?.startsWith("Bearer ")) {
       token = authHeader.slice(7);
-    } else {
-      // Fallback to cookie
-      const cookieStore = await cookies();
-      token = cookieStore.get("next-auth.session-token")?.value || "";
+    }
+
+    // 2. Check cookie from request headers directly (works on serverless)
+    if (!token) {
+      const cookieHeader = request.headers.get("cookie") || "";
+      const match = cookieHeader.match(/next-auth\.session-token=([^;]+)/);
+      if (match) token = match[1];
+      // Also check secure variant
+      if (!token) {
+        const secureMatch = cookieHeader.match(/__Secure-next-auth\.session-token=([^;]+)/);
+        if (secureMatch) token = secureMatch[1];
+      }
+    }
+
+    // 3. Fallback: try next/headers cookies() (works in some environments)
+    if (!token) {
+      try {
+        const cookieStore = await cookies();
+        token = cookieStore.get("next-auth.session-token")?.value || cookieStore.get("__Secure-next-auth.session-token")?.value || "";
+      } catch {}
     }
 
     if (!token) return null;
