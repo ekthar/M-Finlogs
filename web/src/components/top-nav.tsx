@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { NotificationBell } from "@/components/notification-bell";
 import {
   LayoutDashboard, PenLine, BookOpen, CalendarDays, FileBarChart,
   Receipt, ArrowLeftRight, TrendingUp, Package, Users, ScrollText,
@@ -160,6 +161,9 @@ export function TopNav() {
             >
               {fyOptions.map(fy => <option key={fy} value={fy}>FY {fy.replace("-", "-")}</option>)}
             </select>
+
+            {/* Notifications */}
+            <NotificationBell />
 
             {/* Search trigger */}
             <button
