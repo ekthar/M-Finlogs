@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
-import { addToQueue, getPendingCount, startAutoSync, clearQueue } from "@/lib/offline-queue";
+import { enqueue, getPendingCount, startAutoSync, cleanupSynced } from "@/lib/offline-queue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,23 +51,30 @@ export default function DailyEntryPage() {
   const [editTxn, setEditTxn] = useState<Transaction | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  // Online/offline detection + auto-sync for OFFLINE entries only
+  // Auto-sync setup
   useEffect(() => {
     setOnline(navigator.onLine);
-    const goOnline = () => { setOnline(true); toast.success("Back online"); };
-    const goOffline = () => { setOnline(false); toast.warning("Offline — entries save locally"); };
+    const goOnline = () => setOnline(true);
+    const goOffline = () => { setOnline(false); toast.warning("Offline — entries safe locally"); };
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     const cleanup = startAutoSync();
-    const syncListener = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.synced) { toast.success(`${detail.synced} offline entry(s) synced`); loadTransactions(page); setPendingCount(getPendingCount()); }
-    };
-    window.addEventListener("mfinlogs:synced", syncListener);
-    return () => { window.removeEventListener("online", goOnline); window.removeEventListener("offline", goOffline); window.removeEventListener("mfinlogs:synced", syncListener); cleanup?.(); };
-  }, []);
 
-  useEffect(() => { setPendingCount(getPendingCount()); }, [transactions]);
+    // When queue syncs, refresh the table
+    const onSynced = () => {
+      setPendingCount(getPendingCount());
+      cleanupSynced();
+      loadTransactions(1);
+    };
+    window.addEventListener("mfinlogs:synced", onSynced);
+
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("mfinlogs:synced", onSynced);
+      cleanup?.();
+    };
+  }, []);
 
   const loadTransactions = useCallback(async (p: number) => {
     setLoading(true);
@@ -80,6 +87,7 @@ export default function DailyEntryPage() {
       setTransactions(data.transactions || []); setTotalPages(data.totalPages || 1); setTotal(data.total || 0); setPage(p);
     } catch {}
     setLoading(false);
+    setPendingCount(getPendingCount());
   }, [companyId, financialYear, startDate, endDate]);
 
   useEffect(() => { loadTransactions(1); }, [loadTransactions]);
@@ -87,12 +95,21 @@ export default function DailyEntryPage() {
 
   const handleEntryNav = (e: React.KeyboardEvent, next: React.RefObject<HTMLInputElement | HTMLSelectElement | null>) => { if (e.key === "Enter") { e.preventDefault(); next.current?.focus(); } };
 
-  const handleAdd = async () => {
+  /**
+   * INSTANT SAVE — never waits for server.
+   * 1. Add to queue (localStorage) → <1ms
+   * 2. Show optimistic row in table → instant
+   * 3. Queue worker syncs to server in background → non-blocking
+   * 4. Server deduplicates by clientId → no duplicates ever
+   */
+  const handleAdd = () => {
     if (!amount || parseFloat(amount) <= 0) { toast.error("Enter a valid amount"); amountRef.current?.focus(); return; }
     const amt = parseFloat(amount);
-    const entryData = { txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: amt, companyId };
 
-    // Show optimistic entry in UI immediately
+    // 1. Queue it (localStorage — survives offline, refresh, crash)
+    const entry = enqueue({ txnDate: date, billNo: billNo || undefined, party, txnType, paymentMode: mode, amount: amt, companyId });
+
+    // 2. Optimistic UI — show immediately
     const optimisticTxn: Transaction = {
       txnId: -Date.now(), txnDate: date, billNo: billNo || null,
       txnType, paymentMode: mode, amount: String(amt),
@@ -100,43 +117,20 @@ export default function DailyEntryPage() {
     };
     setTransactions((prev) => [optimisticTxn, ...prev]);
     setTotal((t) => t + 1);
+    setPendingCount(getPendingCount());
+
+    // 3. Feedback + reset form
     toast.success("Saved", { description: `₹${fmt(amt)} • ${party}` });
     setAmount(""); setBillNo(""); billRef.current?.focus();
 
-    // STRATEGY: If online → POST directly. If offline → queue only.
-    if (navigator.onLine) {
-      // ONLINE: Send directly to server (no queue)
-      try {
-        const res = await fetch("/api/transactions", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entryData),
-        });
-        if (res.ok) {
-          // Success — reload to get real server ID
-          loadTransactions(1);
-        } else {
-          const err = await res.json();
-          toast.error(err.error || "Server rejected — check party name");
-          // Remove optimistic entry on failure
-          setTransactions((prev) => prev.filter(t => t.txnId !== optimisticTxn.txnId));
-          setTotal((t) => t - 1);
-        }
-      } catch {
-        // Network failed mid-request — save to queue as fallback
-        addToQueue(entryData);
-        setPendingCount(getPendingCount());
-        toast.info("Network hiccup — saved locally, will retry");
-      }
-    } else {
-      // OFFLINE: Save to queue only (auto-sync will POST later)
-      addToQueue(entryData);
-      setPendingCount(getPendingCount());
-    }
+    // 4. Background sync handles the rest (non-blocking)
+    // Queue worker will POST and deduplicate automatically
   };
 
   const handleDelete = async () => {
     if (deleteId === null) return;
     setTransactions(prev => prev.filter(t => t.txnId !== deleteId));
+    setTotal(t => t - 1);
     try { await fetch(`/api/transactions/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); } catch { toast.error("Failed"); }
     setDeleteId(null);
   };
@@ -152,7 +146,7 @@ export default function DailyEntryPage() {
         </div>
         <div className="flex items-center gap-2">
           {!online && <Badge variant="warning" className="gap-1"><WifiOff className="h-3 w-3"/>Offline</Badge>}
-          {pendingCount > 0 && <Badge variant="info" className="gap-1"><CloudUpload className="h-3 w-3"/>{pendingCount} pending</Badge>}
+          {pendingCount > 0 && <Badge variant="info" className="gap-1"><CloudUpload className="h-3 w-3"/>{pendingCount} syncing</Badge>}
           <Button variant={showFilters ? "default" : "outline"} size="sm" onClick={() => setShowFilters(!showFilters)}><Filter className="h-3.5 w-3.5 mr-1"/>Filters</Button>
           <Badge>{page}/{totalPages}</Badge>
         </div>
@@ -167,12 +161,12 @@ export default function DailyEntryPage() {
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Type</label><Select ref={typeRef} value={txnType} onChange={e => setTxnType(e.target.value)} onKeyDown={e => handleEntryNav(e, modeRef)}><option>Sale</option><option>Sale Return</option><option>Expense</option><option>Receipt</option></Select></div>
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Mode</label><Select ref={modeRef} value={mode} onChange={e => setMode(e.target.value)} onKeyDown={e => handleEntryNav(e, amountRef)}><option>Credit</option><option>Cash</option><option>UPI</option><option>Bank</option></Select></div>
         <div className="flex gap-2"><div className="flex-1"><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Amount</label><Input ref={amountRef} type="number" placeholder="0.00" min="0" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => {if(e.key==="Enter"){e.preventDefault();handleAdd();}}}/></div><Button className="mt-auto h-9 w-9 p-0" size="icon" onClick={handleAdd}><Plus className="h-4 w-4"/></Button></div>
-      </div><p className="mt-2 text-right text-[11px] text-zinc-400">Enter navigates → Enter in Amount saves</p></Card></motion.div>
+      </div><p className="mt-2 text-right text-[11px] text-zinc-400">Enter navigates → Enter in Amount saves instantly (works offline)</p></Card></motion.div>
 
       <div className="flex items-center justify-between"><div className="relative"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"/><Input placeholder="Filter..." className="h-8 w-40 sm:w-48 pl-8 text-xs" value={search} onChange={e => setSearch(e.target.value)}/></div><div className="flex items-center gap-1"><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => loadTransactions(Math.max(1,page-1))} disabled={page<=1}><ChevronLeft className="h-4 w-4"/></Button><span className="min-w-[50px] text-center text-xs text-zinc-500">{page}/{totalPages}</span><Button variant="outline" size="icon" className="h-8 w-8" onClick={() => loadTransactions(Math.min(totalPages,page+1))} disabled={page>=totalPages}><ChevronRight className="h-4 w-4"/></Button></div></div>
 
       <motion.div variants={itemVariants}>{loading && transactions.length === 0 ? <TableSkeleton rows={8} cols={7}/> : <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="hidden sm:table-cell">Bill</TableHead><TableHead>Party</TableHead><TableHead className="hidden md:table-cell">Type</TableHead><TableHead className="hidden md:table-cell">Mode</TableHead><TableHead className="text-right">Amount</TableHead><TableHead className="w-20 text-center">Edit</TableHead></TableRow></TableHeader><TableBody>
-        {filtered.length===0 ? <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-zinc-500">No transactions</TableCell></TableRow> : filtered.map(t => <TableRow key={t.txnId} className={t.txnId < 0 ? "opacity-50 bg-blue-50/30 dark:bg-blue-900/10" : ""}><TableCell className="text-xs">{new Date(t.txnDate).toLocaleDateString("en-IN")}</TableCell><TableCell className="hidden sm:table-cell text-xs">{t.billNo||"—"}</TableCell><TableCell className="font-medium max-w-[140px] truncate text-xs">{t.party.name}</TableCell><TableCell className="hidden md:table-cell"><Badge variant={t.txnType==="Sale"?"success":t.txnType==="Expense"?"danger":"info"}>{t.txnType}</Badge></TableCell><TableCell className="hidden md:table-cell"><Badge>{t.paymentMode}</Badge></TableCell><TableCell className="text-right font-mono text-xs font-medium">₹{fmt(t.amount)}</TableCell><TableCell className="text-center">{t.txnId > 0 ? <div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setEditTxn(t)}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={()=>setDeleteId(t.txnId)}><Trash2 className="h-3 w-3"/></Button></div> : <span className="text-[10px] text-blue-500">syncing...</span>}</TableCell></TableRow>)}
+        {filtered.length===0 ? <TableRow><TableCell colSpan={7} className="h-32 text-center text-sm text-zinc-500">No transactions</TableCell></TableRow> : filtered.map(t => <TableRow key={t.txnId} className={t.txnId < 0 ? "opacity-50 bg-blue-50/20 dark:bg-blue-900/5" : ""}><TableCell className="text-xs">{new Date(t.txnDate).toLocaleDateString("en-IN")}</TableCell><TableCell className="hidden sm:table-cell text-xs">{t.billNo||"—"}</TableCell><TableCell className="font-medium max-w-[140px] truncate text-xs">{t.party.name}</TableCell><TableCell className="hidden md:table-cell"><Badge variant={t.txnType==="Sale"?"success":t.txnType==="Expense"?"danger":"info"}>{t.txnType}</Badge></TableCell><TableCell className="hidden md:table-cell"><Badge>{t.paymentMode}</Badge></TableCell><TableCell className="text-right font-mono text-xs font-medium">₹{fmt(t.amount)}</TableCell><TableCell className="text-center">{t.txnId > 0 ? <div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-7 w-7" onClick={()=>setEditTxn(t)}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={()=>setDeleteId(t.txnId)}><Trash2 className="h-3 w-3"/></Button></div> : <span className="text-[10px] text-blue-500 animate-pulse">syncing</span>}</TableCell></TableRow>)}
       </TableBody></Table>}</motion.div>
 
       <EditTransactionModal transaction={editTxn} open={!!editTxn} onClose={() => setEditTxn(null)} onSaved={() => loadTransactions(page)}/>

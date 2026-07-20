@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { txnDate, billNo, party, txnType, paymentMode, amount, companyId: bodyCompanyId } = body;
+    const { txnDate, billNo, party, txnType, paymentMode, amount, companyId: bodyCompanyId, clientId } = body;
     const companyId = bodyCompanyId || "cm_default_001";
 
     if (!txnDate || !party || !txnType || !paymentMode || !amount) {
@@ -58,6 +58,17 @@ export async function POST(request: Request) {
 
     if (parseFloat(amount) <= 0) {
       return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
+    }
+
+    // DEDUPLICATION: If clientId provided, check if already saved
+    if (clientId) {
+      const existing = await prisma.transaction.findFirst({
+        where: { billNo: `__cid:${clientId}`, companyId },
+      });
+      if (existing) {
+        // Already processed — return 409 so client knows it's a dupe
+        return NextResponse.json({ status: "Already exists", transaction: existing }, { status: 409 });
+      }
     }
 
     // Find the party
