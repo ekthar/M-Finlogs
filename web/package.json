@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
+    "pages:build": "prisma generate && npx @cloudflare/next-on-pages",
+    "pages:dev": "npx wrangler pages dev",
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts"
@@ -35,7 +37,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@netlify/plugin-nextjs": "^5.15.12",
+    "@cloudflare/next-on-pages": "^1.13.16",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
@@ -47,6 +49,7 @@
     "eslint-config-next": "16.2.10",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.0.0"
   }
 }
