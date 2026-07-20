@@ -42,11 +42,24 @@ export async function POST(request: Request) {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       recordLoginAttempt(ip, false);
+      // Log failed attempt
+      try {
+        await prisma.auditLog.create({
+          data: { username, action: "LOGIN_FAILED", details: `Failed login from ${ip}`, companyId: "cm_default_001" },
+        });
+      } catch {}
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
     // Success
     recordLoginAttempt(ip, true);
+
+    // Audit log the login
+    try {
+      await prisma.auditLog.create({
+        data: { username: user.username, action: "LOGIN", details: `Logged in from ${ip}`, companyId: "cm_default_001" },
+      });
+    } catch {}
 
     const token = await new SignJWT({ username: user.username, role: user.role })
       .setProtectedHeader({ alg: "HS256" })

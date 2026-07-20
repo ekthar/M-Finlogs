@@ -169,11 +169,24 @@ p, span, td, th, label, li { letter-spacing: 0; }
 
 /* ─── PRINT ────────────────────────────────────────────────── */
 @media print {
-  .no-print, nav, header { display: none !important; }
+  .no-print, nav, header, [class*="bottom-0"] { display: none !important; }
   body { background: white !important; }
   * { break-inside: avoid; }
   table { page-break-inside: auto; }
   tr { page-break-inside: avoid; }
+  main { padding: 0 !important; max-width: 100% !important; }
+
+  /* Print header — auto-inserted */
+  body::before {
+    content: "M-Finlogs — " attr(data-company) " | Printed: " attr(data-print-date);
+    display: block;
+    text-align: center;
+    font-size: 10px;
+    color: #666;
+    padding: 8px 0;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 16px;
+  }
 }
 
 /* ─── TABLE INTERACTIONS ───────────────────────────────────── */

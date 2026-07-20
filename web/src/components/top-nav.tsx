@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useApp } from "@/lib/app-context";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, PenLine, BookOpen, CalendarDays, FileBarChart,
@@ -117,8 +117,17 @@ function DropdownMenu({ label, items, icon: Icon }: { label: string; items: NavI
 }
 
 export function TopNav() {
-  const { financialYear, setFinancialYear } = useApp();
+  const { financialYear, setFinancialYear, companyId } = useApp();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [fyOptions, setFyOptions] = useState<string[]>([financialYear]);
+
+  // Load FY options from API
+  useEffect(() => {
+    fetch(`/api/financial-years?companyId=${companyId}`)
+      .then(r => r.json())
+      .then(d => { if (d.years?.length) setFyOptions(d.years); })
+      .catch(() => {});
+  }, [companyId]);
 
   return (
     <>
@@ -149,9 +158,7 @@ export function TopNav() {
               onChange={(e) => setFinancialYear(e.target.value)}
               className="hidden sm:block h-8 rounded-lg border border-zinc-200 bg-white/80 px-2 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
             >
-              <option value="2026-2027">FY 2026-27</option>
-              <option value="2025-2026">FY 2025-26</option>
-              <option value="2024-2025">FY 2024-25</option>
+              {fyOptions.map(fy => <option key={fy} value={fy}>FY {fy.replace("-", "-")}</option>)}
             </select>
 
             {/* Search trigger */}

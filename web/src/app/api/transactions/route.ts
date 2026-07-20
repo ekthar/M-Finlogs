@@ -96,14 +96,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Future dates are not allowed" }, { status: 400 });
     }
 
-    // Find the party
+    // Find the party — auto-create if not found
     const normalizedName = normalizePartyKey(party);
-    const partyRecord = await prisma.party.findFirst({
+    let partyRecord = await prisma.party.findFirst({
       where: { normalizedName, companyId },
     });
 
     if (!partyRecord) {
-      return NextResponse.json({ error: `Party "${party}" not found. Create it first.` }, { status: 404 });
+      // Auto-create party as Customer (user can change type later)
+      partyRecord = await prisma.party.create({
+        data: {
+          name: party.trim(),
+          normalizedName,
+          type: "Customer",
+          creditAllowed: paymentMode === "Credit",
+          companyId,
+        },
+      });
     }
 
     const financialYear = financialYearForDate(txnDateObj);
