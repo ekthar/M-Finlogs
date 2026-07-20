@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <Content Include="Assets\finlogs.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\InterTight-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\InterTight-Bold.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\splash.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('Assets\splash.png')" />
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

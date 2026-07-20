@@ -1,12 +1,12 @@
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Web.WebView2.Core;
 using MFinlogs.Desktop.Config;
+using System.Drawing.Drawing2D;
+using System.Drawing.Text;
+using System.Runtime.InteropServices;
 
 namespace MFinlogs.Desktop;
 
-/// <summary>
-/// Main application window with WebView2, custom title bar, and keyboard shortcuts
-/// </summary>
 public partial class MainForm : Form
 {
     private WebView2 webView = null!;
@@ -16,168 +16,149 @@ public partial class MainForm : Form
     private FormWindowState previousWindowState;
     private FormBorderStyle previousBorderStyle;
 
-    // Custom title bar controls
+    // Layout - proper dock order prevents overlap
     private Panel titleBar = null!;
-    private Label titleLabel = null!;
-    private PictureBox titleIcon = null!;
-    private Button btnMinimize = null!;
-    private Button btnMaximize = null!;
-    private Button btnClose = null!;
-    private Label lblMode = null!;
+    private Panel webViewContainer = null!;
 
-    // Drag support
+    // Title bar controls
+    private Label titleLabel = null!;
+    private Label lblMode = null!;
+    private Panel btnClose = null!;
+    private Panel btnMinimize = null!;
+    private Panel btnMaximize = null!;
+
+    // Drag
     private bool isDragging = false;
     private Point dragStart;
+
+    // Fonts
+    private Font appFont = null!;
+    private Font appFontBold = null!;
 
     public MainForm()
     {
         InitializeComponent();
+        LoadFonts();
         SetupForm();
         SetupTitleBar();
+        SetupWebViewContainer();
         SetupTrayManager();
         SetupAutoUpdater();
-
-        // WebView2 must be initialized AFTER the form is shown and its Handle is created.
-        // Error 0x8007139F occurs if EnsureCoreWebView2Async is called before the
-        // hosting window is fully realized.
         this.Shown += MainForm_Shown;
     }
 
     private async void MainForm_Shown(object? sender, EventArgs e)
     {
-        // Only initialize once
         this.Shown -= MainForm_Shown;
         await InitializeWebViewAsync();
+    }
+
+
+    private void LoadFonts()
+    {
+        try
+        {
+            var pfc = new PrivateFontCollection();
+            var regular = Path.Combine(AppContext.BaseDirectory, "Assets", "InterTight-Regular.ttf");
+            var bold = Path.Combine(AppContext.BaseDirectory, "Assets", "InterTight-Bold.ttf");
+            if (File.Exists(regular)) pfc.AddFontFile(regular);
+            if (File.Exists(bold)) pfc.AddFontFile(bold);
+            if (pfc.Families.Length > 0)
+            {
+                appFont = new Font(pfc.Families[0], 9f, FontStyle.Regular);
+                appFontBold = new Font(pfc.Families[0], 9.5f, FontStyle.Bold);
+                return;
+            }
+        }
+        catch { }
+        appFont = new Font("Segoe UI", 9f, FontStyle.Regular);
+        appFontBold = new Font("Segoe UI", 9.5f, FontStyle.Bold);
     }
 
     private void SetupForm()
     {
         var config = Program.Config;
-
         this.Text = "M-Finlogs";
         this.MinimumSize = new Size(1024, 600);
         this.StartPosition = FormStartPosition.CenterScreen;
-        this.FormBorderStyle = FormBorderStyle.None; // Custom title bar
+        this.FormBorderStyle = FormBorderStyle.None;
         this.BackColor = GetThemeBackColor();
+        this.DoubleBuffered = true;
 
-        // Restore window position/size
         if (config.WindowWidth > 0 && config.WindowHeight > 0)
-        {
             this.Size = new Size(config.WindowWidth, config.WindowHeight);
-        }
         else
-        {
             this.Size = new Size(1280, 800);
-        }
 
         if (config.WindowX >= 0 && config.WindowY >= 0)
         {
             this.Location = new Point(config.WindowX, config.WindowY);
             this.StartPosition = FormStartPosition.Manual;
         }
-
         if (config.IsMaximized)
-        {
             this.WindowState = FormWindowState.Maximized;
-        }
 
-        // Handle window state changes
         this.Resize += MainForm_Resize;
         this.FormClosing += MainForm_FormClosing;
         this.KeyPreview = true;
         this.KeyDown += MainForm_KeyDown;
     }
 
+
     private void SetupTitleBar()
     {
-        var themeColor = GetThemeTitleBarColor();
-
-        // Title bar panel
         titleBar = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 36,
-            BackColor = themeColor,
-            Padding = new Padding(8, 0, 0, 0)
+            Height = 32,
+            BackColor = GetThemeTitleBarColor(),
+            Padding = Padding.Empty
         };
+        titleBar.Paint += TitleBar_Paint;
 
-        // App icon
-        titleIcon = new PictureBox
-        {
-            Size = new Size(20, 20),
-            Location = new Point(10, 8),
-            SizeMode = PictureBoxSizeMode.StretchImage
-        };
+        // macOS traffic lights (left)
+        btnClose = MakeCircleBtn(Color.FromArgb(255, 95, 87), 12, 9);
+        btnMinimize = MakeCircleBtn(Color.FromArgb(255, 189, 46), 34, 9);
+        btnMaximize = MakeCircleBtn(Color.FromArgb(39, 201, 63), 56, 9);
+        btnClose.Click += (s, e) => { if (Program.Config.MinimizeToTray) HideToTray(); else ExitApplication(); };
+        btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
+        btnMaximize.Click += (s, e) => ToggleMaximize();
 
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "finlogs.ico");
-        if (File.Exists(iconPath))
-        {
-            try
-            {
-                titleIcon.Image = new Icon(iconPath, 20, 20).ToBitmap();
-            }
-            catch { }
-        }
-
-        // Title text
+        // Centered title
         titleLabel = new Label
         {
             Text = "M-Finlogs",
+            Font = appFontBold,
             ForeColor = GetThemeTitleForeColor(),
-            Font = new Font("Segoe UI", 10f, FontStyle.Bold),
-            AutoSize = true,
-            Location = new Point(36, 9),
+            AutoSize = false,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Dock = DockStyle.Fill,
             BackColor = Color.Transparent
         };
 
-        // Mode indicator
+        // Mode pill (right)
         lblMode = new Label
         {
             Text = GetModeLabel(),
+            Font = appFont,
             ForeColor = GetModeLabelColor(),
-            Font = new Font("Segoe UI", 8f, FontStyle.Regular),
             AutoSize = true,
-            Location = new Point(130, 11),
-            BackColor = Color.Transparent
+            BackColor = Color.Transparent,
+            Padding = new Padding(6, 2, 6, 2)
         };
+        var rightPanel = new Panel { Dock = DockStyle.Right, Width = 100, BackColor = Color.Transparent };
+        rightPanel.Controls.Add(lblMode);
+        rightPanel.Resize += (s, e) => lblMode.Location = new Point(rightPanel.Width - lblMode.Width - 12, 7);
 
-        // Window control buttons
-        var buttonWidth = 46;
-        var buttonHeight = 36;
-
-        btnClose = CreateTitleButton("✕", buttonWidth, buttonHeight);
-        btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 17, 35);
-        btnClose.Click += (s, e) =>
-        {
-            if (Program.Config.MinimizeToTray)
-            {
-                HideToTray();
-            }
-            else
-            {
-                ExitApplication();
-            }
-        };
-
-        btnMaximize = CreateTitleButton("□", buttonWidth, buttonHeight);
-        btnMaximize.Click += (s, e) => ToggleMaximize();
-
-        btnMinimize = CreateTitleButton("─", buttonWidth, buttonHeight);
-        btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
-
-        // Layout buttons from right
-        btnClose.Dock = DockStyle.Right;
-        btnMaximize.Dock = DockStyle.Right;
-        btnMinimize.Dock = DockStyle.Right;
-
-        titleBar.Controls.Add(titleIcon);
         titleBar.Controls.Add(titleLabel);
-        titleBar.Controls.Add(lblMode);
         titleBar.Controls.Add(btnClose);
-        titleBar.Controls.Add(btnMaximize);
         titleBar.Controls.Add(btnMinimize);
+        titleBar.Controls.Add(btnMaximize);
+        titleBar.Controls.Add(rightPanel);
+        btnClose.BringToFront(); btnMinimize.BringToFront(); btnMaximize.BringToFront();
+        rightPanel.BringToFront();
 
-        // Drag support for title bar
+        // Drag
         titleBar.MouseDown += TitleBar_MouseDown;
         titleBar.MouseMove += TitleBar_MouseMove;
         titleBar.MouseUp += TitleBar_MouseUp;
@@ -190,720 +171,270 @@ public partial class MainForm : Form
         this.Controls.Add(titleBar);
     }
 
-    private Button CreateTitleButton(string text, int width, int height)
+    private Panel MakeCircleBtn(Color c, int x, int y)
     {
-        return new Button
+        var p = new Panel { Size = new Size(14, 14), Location = new Point(x, y), BackColor = c, Cursor = Cursors.Hand };
+        var path = new GraphicsPath(); path.AddEllipse(0, 0, 14, 14);
+        p.Region = new Region(path);
+        p.MouseEnter += (s, e) => p.BackColor = ControlPaint.Light(c, 0.2f);
+        p.MouseLeave += (s, e) => p.BackColor = c;
+        return p;
+    }
+
+    private void TitleBar_Paint(object? sender, PaintEventArgs e)
+    {
+        var sepColor = Program.Config.Theme?.ToLower() switch
         {
-            Text = text,
-            Size = new Size(width, height),
-            FlatStyle = FlatStyle.Flat,
-            ForeColor = GetThemeTitleForeColor(),
-            BackColor = Color.Transparent,
-            Font = new Font("Segoe UI", 10f),
-            TabStop = false,
-            FlatAppearance =
-            {
-                BorderSize = 0,
-                MouseOverBackColor = Color.FromArgb(50, 255, 255, 255)
-            }
+            "dark" or "deep blue" or "deepblue" or "warm" => Color.FromArgb(25, 255, 255, 255),
+            _ => Color.FromArgb(15, 0, 0, 0)
         };
+        using var pen = new Pen(sepColor, 1f);
+        e.Graphics.DrawLine(pen, 0, titleBar.Height - 1, titleBar.Width, titleBar.Height - 1);
+    }
+
+
+    /// <summary>
+    /// WebView container fills space BELOW title bar - prevents overlap
+    /// </summary>
+    private void SetupWebViewContainer()
+    {
+        webViewContainer = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Padding = Padding.Empty,
+            Margin = Padding.Empty,
+            BackColor = GetThemeBackColor()
+        };
+        this.Controls.Add(webViewContainer);
+        // Dock order: titleBar added last so it docks on top; container fills remainder
+        titleBar.BringToFront();
     }
 
     private async Task InitializeWebViewAsync()
     {
-        webView = new WebView2
-        {
-            Dock = DockStyle.Fill
-        };
+        webView = new WebView2 { Dock = DockStyle.Fill };
+        webViewContainer.Controls.Add(webView);
 
-        this.Controls.Add(webView);
-        webView.BringToFront();
-        titleBar.BringToFront();
-
-        // Ensure the control's handle is created before initializing WebView2
-        if (!webView.IsHandleCreated)
-        {
-            webView.CreateControl();
-        }
+        if (!webView.IsHandleCreated) webView.CreateControl();
 
         try
         {
-            // Configure WebView2 environment with additional arguments to handle
-            // service worker redirect issues (common with Next.js/PWA apps on Netlify)
             var userDataFolder = Path.Combine(AppConfig.AppDataDir, "WebView2");
             Directory.CreateDirectory(userDataFolder);
-
-            var options = new CoreWebView2EnvironmentOptions
+            var opts = new CoreWebView2EnvironmentOptions
             {
-                // Disable service worker fetch interception to prevent redirect errors
                 AdditionalBrowserArguments = "--disable-features=ServiceWorkerPaymentApps"
             };
-
             CoreWebView2Environment? env = null;
-
-            // Retry environment creation up to 3 times (handles transient 0x8007139F)
-            for (int attempt = 1; attempt <= 3; attempt++)
+            for (int i = 1; i <= 3; i++)
             {
-                try
-                {
-                    env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
-                    break;
-                }
-                catch (Exception ex) when (attempt < 3)
-                {
-                    System.Diagnostics.Debug.WriteLine($"WebView2 env creation attempt {attempt} failed: {ex.Message}");
-                    await Task.Delay(500 * attempt);
-                }
+                try { env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, opts); break; }
+                catch when (i < 3) { await Task.Delay(500 * i); }
             }
-
-            if (env == null)
-            {
-                throw new InvalidOperationException("Could not create WebView2 environment after 3 attempts.");
-            }
+            if (env == null) throw new InvalidOperationException("WebView2 environment creation failed.");
 
             await webView.EnsureCoreWebView2Async(env);
 
-            // Configure settings
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
-            // Clear service worker registrations via the profile API
-            // to prevent "redirected response" errors from previous sessions
-            await ClearServiceWorkerRegistrationsAsync();
+            try { await webView.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.ServiceWorkers); } catch { }
 
-            // Handle navigation events
-            webView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
-            webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+            webView.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; webView.CoreWebView2.Navigate(e.Uri); };
 
-            // In hybrid mode: intercept API calls and redirect to local server
-            if (Program.Config.IsHybridMode)
-            {
-                SetupHybridApiInterception();
-            }
+            if (Program.Config.IsHybridMode) SetupHybridApiInterception();
 
-            // Navigate to the appropriate URL
             webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
         }
-        catch (System.Runtime.InteropServices.COMException comEx) when ((uint)comEx.HResult == 0x8007139F)
-        {
-            // 0x8007139F = "The group or resource is not in the correct state"
-            // This typically means WebView2 Runtime is not properly installed
-            ShowWebView2InstallPrompt();
-        }
-        catch (WebView2RuntimeNotFoundException)
-        {
-            ShowWebView2InstallPrompt();
-        }
+        catch (COMException comEx) when ((uint)comEx.HResult == 0x8007139F) { ShowWebView2InstallPrompt(); }
+        catch (WebView2RuntimeNotFoundException) { ShowWebView2InstallPrompt(); }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                $"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
-                "M-Finlogs - Error",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            MessageBox.Show($"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
+                "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
-    /// <summary>
-    /// Show a user-friendly prompt to install WebView2 Runtime
-    /// </summary>
+
     private void ShowWebView2InstallPrompt()
     {
-        var result = MessageBox.Show(
-            "WebView2 Runtime is not installed or not functioning correctly.\n\n" +
-            "M-Finlogs requires Microsoft Edge WebView2 Runtime to display the application.\n\n" +
-            "Would you like to download it now?",
-            "M-Finlogs - WebView2 Required",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning);
+        if (MessageBox.Show("WebView2 Runtime is required.\nDownload now?", "M-Finlogs",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703", UseShellExecute = true }); }
+            catch { }
+        }
+    }
 
-        if (result == DialogResult.Yes)
+    private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess && (e.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown ||
+            e.WebErrorStatus == CoreWebView2WebErrorStatus.ConnectionAborted))
         {
             try
             {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-                    UseShellExecute = true
-                });
+                webView.CoreWebView2.Navigate("about:blank");
+                await Task.Delay(400);
+                await webView.CoreWebView2.ExecuteScriptAsync(@"(async()=>{
+                    if('serviceWorker' in navigator){const r=await navigator.serviceWorker.getRegistrations();for(const s of r)await s.unregister();}
+                    if('caches' in window){const n=await caches.keys();for(const k of n)await caches.delete(k);}})();");
+                await Task.Delay(200);
+                webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
             }
             catch { }
         }
     }
 
-    private void SetupTrayManager()
-    {
-        trayManager = new TrayManager(this);
-    }
-
-    private void SetupAutoUpdater()
-    {
-        autoUpdater = new AutoUpdater();
-        _ = autoUpdater.CheckForUpdatesAsync(silent: true);
-    }
-
-    #region WebView2 Events
-
-    private void CoreWebView2_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
-    {
-        // Allow all navigations within the app
-    }
-
-    private async void CoreWebView2_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
-    {
-        if (!e.IsSuccess)
-        {
-            System.Diagnostics.Debug.WriteLine($"Navigation failed: {e.WebErrorStatus}");
-
-            // If navigation failed due to service worker redirect issue, retry
-            // by unregistering service workers and reloading
-            if (e.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown ||
-                e.WebErrorStatus == CoreWebView2WebErrorStatus.ConnectionAborted)
-            {
-                await RetryWithServiceWorkerBypass();
-            }
-        }
-    }
-
-    private void CoreWebView2_NewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
-    {
-        // Open links in the same window
-        e.Handled = true;
-        webView.CoreWebView2.Navigate(e.Uri);
-    }
-
-    /// <summary>
-    /// Unregister all service workers to prevent the redirect mode conflict.
-    /// Next.js/PWA service workers on Netlify can cause:
-    /// "FetchEvent resulted in a network error response: a redirected response
-    /// was used for a request whose redirect mode is not 'follow'"
-    /// </summary>
-    private async Task UnregisterServiceWorkersAsync()
-    {
-        try
-        {
-            var script = @"
-                (async () => {
-                    if ('serviceWorker' in navigator) {
-                        const registrations = await navigator.serviceWorker.getRegistrations();
-                        for (const reg of registrations) {
-                            await reg.unregister();
-                        }
-                        return registrations.length;
-                    }
-                    return 0;
-                })();
-            ";
-            var result = await webView.CoreWebView2.ExecuteScriptAsync(script);
-            System.Diagnostics.Debug.WriteLine($"Service workers unregistered: {result}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"SW unregister error: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Clear service worker registrations at the WebView2 profile level.
-    /// This uses the ClearBrowsingData API to remove all service workers
-    /// before the target URL's SW can intercept the navigation fetch.
-    /// </summary>
-    private async Task ClearServiceWorkerRegistrationsAsync()
-    {
-        try
-        {
-            // WebView2's profile API can clear service workers at the browser level
-            var profile = webView.CoreWebView2.Profile;
-            await profile.ClearBrowsingDataAsync(
-                CoreWebView2BrowsingDataKinds.ServiceWorkers);
-            System.Diagnostics.Debug.WriteLine("Cleared SW registrations via profile API");
-        }
-        catch (Exception ex)
-        {
-            // ClearBrowsingDataAsync may not be available on older WebView2 runtimes
-            System.Diagnostics.Debug.WriteLine($"Profile SW clear fallback: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// If service worker caused a navigation failure, clear it and retry
-    /// </summary>
-    private async Task RetryWithServiceWorkerBypass()
-    {
-        try
-        {
-            // First try to unregister any SWs via about:blank
-            webView.CoreWebView2.Navigate("about:blank");
-            await Task.Delay(500);
-
-            // Clear the service worker cache
-            await webView.CoreWebView2.ExecuteScriptAsync(@"
-                (async () => {
-                    if ('serviceWorker' in navigator) {
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        for (const r of regs) await r.unregister();
-                    }
-                    // Also clear caches that the SW may have populated
-                    if ('caches' in window) {
-                        const names = await caches.keys();
-                        for (const n of names) await caches.delete(n);
-                    }
-                })();
-            ");
-
-            await Task.Delay(300);
-
-            // Now navigate to the actual URL
-            webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Retry navigation error: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// In hybrid mode, inject JavaScript to override fetch/XHR so all /api/* calls
-    /// are redirected from the remote Netlify origin to the local embedded server.
-    /// This allows the cloud-hosted UI to use a local SQLite database.
-    /// </summary>
     private void SetupHybridApiInterception()
     {
-        var localUrl = Program.Config.LocalServerUrl;
-
-        // Inject script that rewrites API calls to local server
-        var script = $@"
-            (function() {{
-                const LOCAL_API = '{localUrl}';
-                const originalFetch = window.fetch;
-
-                window.fetch = function(input, init) {{
-                    let url = (typeof input === 'string') ? input : input.url;
-
-                    // Redirect /api/* paths to local server
-                    if (url.startsWith('/api/') || url.includes('/api/')) {{
-                        const apiPath = url.includes('/api/') 
-                            ? '/api/' + url.split('/api/')[1]
-                            : url;
-                        url = LOCAL_API + apiPath;
-
-                        if (typeof input === 'string') {{
-                            input = url;
-                        }} else {{
-                            input = new Request(url, input);
-                        }}
-                    }}
-
-                    return originalFetch.call(this, input, init);
-                }};
-
-                // Also override XMLHttpRequest for legacy calls
-                const originalOpen = XMLHttpRequest.prototype.open;
-                XMLHttpRequest.prototype.open = function(method, url, ...args) {{
-                    if (url.startsWith('/api/') || url.includes('/api/')) {{
-                        const apiPath = url.includes('/api/')
-                            ? '/api/' + url.split('/api/')[1]
-                            : url;
-                        url = LOCAL_API + apiPath;
-                    }}
-                    return originalOpen.call(this, method, url, ...args);
-                }};
-
-                console.log('[M-Finlogs Hybrid] API calls redirected to ' + LOCAL_API);
-            }})();
-        ";
-
-        webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+        var u = Program.Config.LocalServerUrl;
+        webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($@"(function(){{
+            const L='{u}';const F=window.fetch;
+            window.fetch=function(i,o){{let url=(typeof i==='string')?i:i.url;
+            if(url.startsWith('/api/')||url.includes('/api/')){{url=L+'/api/'+url.split('/api/')[1];i=(typeof i==='string')?url:new Request(url,i);}}
+            return F.call(this,i,o);}};
+            const X=XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open=function(m,url,...a){{if(url.startsWith('/api/')||url.includes('/api/'))url=L+'/api/'+url.split('/api/')[1];return X.call(this,m,url,...a);}};
+        }})();");
     }
 
-    #endregion
+    private void SetupTrayManager() { trayManager = new TrayManager(this); }
+    private void SetupAutoUpdater() { autoUpdater = new AutoUpdater(); _ = autoUpdater.CheckForUpdatesAsync(silent: true); }
+
 
     #region Keyboard Shortcuts
-
     private void MainForm_KeyDown(object? sender, KeyEventArgs e)
     {
         switch (e.KeyCode)
         {
-            case Keys.F11:
-                ToggleFullscreen();
-                e.Handled = true;
-                break;
-
-            case Keys.D when e.Control && e.Shift:
-                // Ctrl+Shift+D = DevTools
-                webView?.CoreWebView2?.OpenDevToolsWindow();
-                e.Handled = true;
-                break;
-
-            case Keys.Q when e.Control:
-                // Ctrl+Q = Quit
-                ExitApplication();
-                e.Handled = true;
-                break;
-
-            case Keys.P when e.Control:
-                // Ctrl+P = Print
-                PrintPage();
-                e.Handled = true;
-                break;
-
-            case Keys.F5:
-                // F5 = Refresh
-                webView?.CoreWebView2?.Reload();
-                e.Handled = true;
-                break;
+            case Keys.F11: ToggleFullscreen(); e.Handled = true; break;
+            case Keys.D when e.Control && e.Shift: webView?.CoreWebView2?.OpenDevToolsWindow(); e.Handled = true; break;
+            case Keys.Q when e.Control: ExitApplication(); e.Handled = true; break;
+            case Keys.P when e.Control: PrintPage(); e.Handled = true; break;
+            case Keys.F5: webView?.CoreWebView2?.Reload(); e.Handled = true; break;
         }
     }
-
     #endregion
 
     #region Window Management
-
     private void ToggleFullscreen()
     {
-        if (isFullscreen)
-        {
-            // Restore
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = previousWindowState;
-            titleBar.Visible = true;
-            isFullscreen = false;
-        }
-        else
-        {
-            // Fullscreen
-            previousWindowState = this.WindowState;
-            previousBorderStyle = this.FormBorderStyle;
-            titleBar.Visible = false;
-            this.WindowState = FormWindowState.Normal;
-            this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = FormWindowState.Maximized;
-            isFullscreen = true;
-        }
+        if (isFullscreen) { titleBar.Visible = true; this.WindowState = previousWindowState; isFullscreen = false; }
+        else { previousWindowState = this.WindowState; titleBar.Visible = false; this.WindowState = FormWindowState.Maximized; isFullscreen = true; }
     }
-
-    private void ToggleMaximize()
-    {
-        if (this.WindowState == FormWindowState.Maximized)
-        {
-            this.WindowState = FormWindowState.Normal;
-            btnMaximize.Text = "□";
-        }
-        else
-        {
-            this.WindowState = FormWindowState.Maximized;
-            btnMaximize.Text = "❐";
-        }
-    }
-
-    public void HideToTray()
-    {
-        this.Hide();
-        trayManager?.ShowBalloon("M-Finlogs", "Application minimized to system tray.");
-    }
-
-    public void ShowFromTray()
-    {
-        this.Show();
-        this.WindowState = FormWindowState.Normal;
-        this.BringToFront();
-        this.Activate();
-    }
-
-    public void ExitApplication()
-    {
-        SaveWindowState();
-        Program.Shutdown();
-        trayManager?.Dispose();
-        Application.Exit();
-    }
-
+    private void ToggleMaximize() { this.WindowState = this.WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; }
+    public void HideToTray() { this.Hide(); trayManager?.ShowBalloon("M-Finlogs", "Minimized to tray."); }
+    public void ShowFromTray() { this.Show(); this.WindowState = FormWindowState.Normal; this.BringToFront(); this.Activate(); }
+    public void ExitApplication() { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); Application.Exit(); }
     private void SaveWindowState()
     {
-        var config = Program.Config;
-        config.IsMaximized = this.WindowState == FormWindowState.Maximized;
-
-        if (this.WindowState == FormWindowState.Normal)
-        {
-            config.WindowWidth = this.Width;
-            config.WindowHeight = this.Height;
-            config.WindowX = this.Location.X;
-            config.WindowY = this.Location.Y;
-        }
-
-        config.Save();
+        var c = Program.Config; c.IsMaximized = this.WindowState == FormWindowState.Maximized;
+        if (this.WindowState == FormWindowState.Normal) { c.WindowWidth = this.Width; c.WindowHeight = this.Height; c.WindowX = this.Location.X; c.WindowY = this.Location.Y; }
+        c.Save();
     }
-
-    private void MainForm_Resize(object? sender, EventArgs e)
-    {
-        if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray)
-        {
-            HideToTray();
-        }
-
-        // Update maximize button text
-        if (btnMaximize != null)
-        {
-            btnMaximize.Text = this.WindowState == FormWindowState.Maximized ? "❐" : "□";
-        }
-    }
-
+    private void MainForm_Resize(object? sender, EventArgs e) { if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray) HideToTray(); }
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (e.CloseReason == CloseReason.UserClosing && Program.Config.MinimizeToTray)
-        {
-            e.Cancel = true;
-            HideToTray();
-        }
-        else
-        {
-            SaveWindowState();
-            Program.Shutdown();
-            trayManager?.Dispose();
-        }
+        if (e.CloseReason == CloseReason.UserClosing && Program.Config.MinimizeToTray) { e.Cancel = true; HideToTray(); }
+        else { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); }
     }
-
     #endregion
+
 
     #region Title Bar Drag
-
-    private void TitleBar_MouseDown(object? sender, MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left)
-        {
-            isDragging = true;
-            dragStart = new Point(e.X, e.Y);
-        }
-    }
-
+    private void TitleBar_MouseDown(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { isDragging = true; dragStart = new Point(e.X, e.Y); } }
     private void TitleBar_MouseMove(object? sender, MouseEventArgs e)
     {
-        if (isDragging)
+        if (!isDragging) return;
+        if (this.WindowState == FormWindowState.Maximized)
         {
-            if (this.WindowState == FormWindowState.Maximized)
-            {
-                // Restore before dragging
-                var mouseX = MousePosition.X;
-                var proportion = (double)mouseX / Screen.PrimaryScreen!.WorkingArea.Width;
-                this.WindowState = FormWindowState.Normal;
-                this.Location = new Point(
-                    (int)(mouseX - this.Width * proportion),
-                    MousePosition.Y - dragStart.Y);
-                btnMaximize.Text = "□";
-            }
-            else
-            {
-                this.Location = new Point(
-                    this.Location.X + e.X - dragStart.X,
-                    this.Location.Y + e.Y - dragStart.Y);
-            }
+            var mx = MousePosition.X; var p = (double)mx / Screen.PrimaryScreen!.WorkingArea.Width;
+            this.WindowState = FormWindowState.Normal;
+            this.Location = new Point((int)(mx - this.Width * p), MousePosition.Y - dragStart.Y);
         }
+        else this.Location = new Point(this.Location.X + e.X - dragStart.X, this.Location.Y + e.Y - dragStart.Y);
     }
-
-    private void TitleBar_MouseUp(object? sender, MouseEventArgs e)
-    {
-        isDragging = false;
-    }
-
+    private void TitleBar_MouseUp(object? sender, MouseEventArgs e) { isDragging = false; }
     #endregion
 
-    #region Print Support
-
-    private async void PrintPage()
-    {
-        try
-        {
-            if (webView?.CoreWebView2 != null)
-            {
-                // Use WebView2 built-in print dialog
-                await webView.CoreWebView2.ExecuteScriptAsync("window.print()");
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Print error: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Save page as PDF
-    /// </summary>
+    #region Print & PDF
+    private async void PrintPage() { try { if (webView?.CoreWebView2 != null) await webView.CoreWebView2.ExecuteScriptAsync("window.print()"); } catch { } }
     public async Task SaveAsPdfAsync()
     {
-        try
-        {
-            if (webView?.CoreWebView2 == null) return;
-
-            using var saveDialog = new SaveFileDialog
-            {
-                Filter = "PDF files (*.pdf)|*.pdf",
-                DefaultExt = "pdf",
-                FileName = $"MFinlogs_Report_{DateTime.Now:yyyyMMdd_HHmmss}.pdf"
-            };
-
-            if (saveDialog.ShowDialog() == DialogResult.OK)
-            {
-                await webView.CoreWebView2.PrintToPdfAsync(saveDialog.FileName);
-                MessageBox.Show("PDF saved successfully!", "M-Finlogs", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Failed to save PDF: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+        if (webView?.CoreWebView2 == null) return;
+        using var dlg = new SaveFileDialog { Filter = "PDF|*.pdf", FileName = $"MFinlogs_{DateTime.Now:yyyyMMdd_HHmmss}.pdf" };
+        if (dlg.ShowDialog() == DialogResult.OK) { await webView.CoreWebView2.PrintToPdfAsync(dlg.FileName); MessageBox.Show("PDF saved!", "M-Finlogs"); }
     }
-
     #endregion
 
-    #region Theme Support
 
-    private Color GetThemeTitleBarColor()
+    #region Theme Colors
+    private Color GetThemeTitleBarColor() => Program.Config.Theme?.ToLower() switch
     {
-        return Program.Config.Theme?.ToLower() switch
-        {
-            "dark" => Color.FromArgb(30, 30, 30),
-            "deep blue" or "deepblue" => Color.FromArgb(15, 23, 42),
-            "warm" => Color.FromArgb(69, 47, 36),
-            _ => Color.FromArgb(249, 250, 251) // light
-        };
-    }
-
-    private Color GetThemeTitleForeColor()
+        "dark" => Color.FromArgb(28, 28, 30),
+        "deep blue" or "deepblue" => Color.FromArgb(15, 23, 42),
+        "warm" => Color.FromArgb(55, 38, 29),
+        _ => Color.FromArgb(246, 246, 248)
+    };
+    private Color GetThemeTitleForeColor() => Program.Config.Theme?.ToLower() switch
     {
-        return Program.Config.Theme?.ToLower() switch
-        {
-            "dark" => Color.FromArgb(229, 231, 235),
-            "deep blue" or "deepblue" => Color.FromArgb(203, 213, 225),
-            "warm" => Color.FromArgb(245, 236, 228),
-            _ => Color.FromArgb(17, 24, 39) // light
-        };
-    }
-
-    private Color GetThemeBackColor()
+        "dark" => Color.FromArgb(210, 210, 215),
+        "deep blue" or "deepblue" => Color.FromArgb(190, 200, 220),
+        "warm" => Color.FromArgb(235, 225, 215),
+        _ => Color.FromArgb(60, 60, 67)
+    };
+    private Color GetThemeBackColor() => Program.Config.Theme?.ToLower() switch
     {
-        return Program.Config.Theme?.ToLower() switch
-        {
-            "dark" => Color.FromArgb(17, 17, 17),
-            "deep blue" or "deepblue" => Color.FromArgb(2, 6, 23),
-            "warm" => Color.FromArgb(44, 30, 23),
-            _ => Color.White // light
-        };
-    }
-
-    /// <summary>
-    /// Update theme from web app notification
-    /// </summary>
+        "dark" => Color.FromArgb(0, 0, 0),
+        "deep blue" or "deepblue" => Color.FromArgb(2, 6, 23),
+        "warm" => Color.FromArgb(40, 26, 20),
+        _ => Color.White
+    };
     public void UpdateTheme(string theme)
     {
-        Program.Config.Theme = theme;
-        Program.Config.Save();
-
-        this.Invoke(() =>
-        {
-            titleBar.BackColor = GetThemeTitleBarColor();
-            titleLabel.ForeColor = GetThemeTitleForeColor();
-            btnClose.ForeColor = GetThemeTitleForeColor();
-            btnMaximize.ForeColor = GetThemeTitleForeColor();
-            btnMinimize.ForeColor = GetThemeTitleForeColor();
-            this.BackColor = GetThemeBackColor();
-        });
+        Program.Config.Theme = theme; Program.Config.Save();
+        this.Invoke(() => { titleBar.BackColor = GetThemeTitleBarColor(); titleLabel.ForeColor = GetThemeTitleForeColor(); this.BackColor = GetThemeBackColor(); titleBar.Invalidate(); });
     }
-
     #endregion
 
-    #region Public Methods
-
-    /// <summary>
-    /// Switch between online, offline, and hybrid modes
-    /// </summary>
+    #region Mode
     public void SwitchMode(string mode)
     {
-        Program.Config.Mode = mode;
-        Program.Config.Save();
-
-        lblMode.Invoke(() =>
-        {
-            lblMode.Text = GetModeLabel();
-            lblMode.ForeColor = GetModeLabelColor();
-        });
-
-        // Reload to new URL
+        Program.Config.Mode = mode; Program.Config.Save();
+        lblMode.Invoke(() => { lblMode.Text = GetModeLabel(); lblMode.ForeColor = GetModeLabelColor(); });
         webView?.CoreWebView2?.Navigate(Program.Config.ActiveUrl);
     }
-
-    private static string GetModeLabel()
+    private static string GetModeLabel() => Program.Config.Mode?.ToLower() switch { "online" => "Online", "offline" => "Offline", "hybrid" => "Hybrid", _ => "Online" };
+    private static Color GetModeLabelColor() => Program.Config.Mode?.ToLower() switch
     {
-        return Program.Config.Mode?.ToLower() switch
-        {
-            "online" => "● Online",
-            "offline" => "● Offline",
-            "hybrid" => "● Hybrid",
-            _ => "● Online"
-        };
-    }
-
-    private static Color GetModeLabelColor()
-    {
-        return Program.Config.Mode?.ToLower() switch
-        {
-            "online" => Color.FromArgb(34, 197, 94),   // green
-            "offline" => Color.FromArgb(251, 146, 60), // orange
-            "hybrid" => Color.FromArgb(99, 102, 241),  // indigo
-            _ => Color.FromArgb(34, 197, 94)
-        };
-    }
-
-    /// <summary>
-    /// Navigate WebView to a specific URL
-    /// </summary>
-    public void NavigateTo(string url)
-    {
-        webView?.CoreWebView2?.Navigate(url);
-    }
-
+        "online" => Color.FromArgb(48, 209, 88),
+        "offline" => Color.FromArgb(255, 159, 10),
+        "hybrid" => Color.FromArgb(94, 92, 230),
+        _ => Color.FromArgb(48, 209, 88)
+    };
+    public void NavigateTo(string url) { webView?.CoreWebView2?.Navigate(url); }
     #endregion
 
-    // Override WndProc for window resize handles (borderless form)
+
+    #region WndProc Resize Handles
     protected override void WndProc(ref Message m)
     {
         const int WM_NCHITTEST = 0x84;
-        const int HTLEFT = 10;
-        const int HTRIGHT = 11;
-        const int HTTOP = 12;
-        const int HTTOPLEFT = 13;
-        const int HTTOPRIGHT = 14;
-        const int HTBOTTOM = 15;
-        const int HTBOTTOMLEFT = 16;
-        const int HTBOTTOMRIGHT = 17;
-
         if (m.Msg == WM_NCHITTEST)
         {
             base.WndProc(ref m);
-
-            var cursor = this.PointToClient(Cursor.Position);
-            const int grip = 8;
-
-            if (cursor.Y < grip)
-            {
-                if (cursor.X < grip) m.Result = (IntPtr)HTTOPLEFT;
-                else if (cursor.X > this.Width - grip) m.Result = (IntPtr)HTTOPRIGHT;
-                else m.Result = (IntPtr)HTTOP;
-            }
-            else if (cursor.Y > this.Height - grip)
-            {
-                if (cursor.X < grip) m.Result = (IntPtr)HTBOTTOMLEFT;
-                else if (cursor.X > this.Width - grip) m.Result = (IntPtr)HTBOTTOMRIGHT;
-                else m.Result = (IntPtr)HTBOTTOM;
-            }
-            else if (cursor.X < grip) m.Result = (IntPtr)HTLEFT;
-            else if (cursor.X > this.Width - grip) m.Result = (IntPtr)HTRIGHT;
-
-            return;
+            var c = this.PointToClient(Cursor.Position);
+            const int g = 6;
+            if (c.Y < g) { m.Result = c.X < g ? (IntPtr)13 : c.X > Width - g ? (IntPtr)14 : (IntPtr)12; return; }
+            if (c.Y > Height - g) { m.Result = c.X < g ? (IntPtr)16 : c.X > Width - g ? (IntPtr)17 : (IntPtr)15; return; }
+            if (c.X < g) { m.Result = (IntPtr)10; return; }
+            if (c.X > Width - g) { m.Result = (IntPtr)11; return; }
         }
-
         base.WndProc(ref m);
     }
+    #endregion
 }
