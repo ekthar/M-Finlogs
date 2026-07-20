@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>Assets\finlogs.ico</ApplicationIcon>
+    <AssemblyName>MFinlogs.Desktop</AssemblyName>
+    <RootNamespace>MFinlogs.Desktop</RootNamespace>
+    <Version>1.0.0</Version>
+    <Authors>M-Finlogs</Authors>
+    <Description>M-Finlogs Desktop - Accounting Management Application</Description>
+    <Company>M-Finlogs</Company>
+    <Product>M-Finlogs Desktop</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2478.35" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="System.Text.Json" Version="8.0.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\finlogs.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\InterTight-Regular.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\InterTight-Bold.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\splash.png" CopyToOutputDirectory="PreserveNewest" Condition="Exists('Assets\splash.png')" />
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
