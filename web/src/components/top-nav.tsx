@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NotificationBell } from "@/components/notification-bell";
+import { PresenceIndicator } from "@/components/presence-indicator";
 import {
   LayoutDashboard, PenLine, BookOpen, CalendarDays, FileBarChart,
   Receipt, ArrowLeftRight, TrendingUp, Package, Users, ScrollText,
@@ -218,6 +219,9 @@ export function TopNav() {
             >
               {fyOptions.map(fy => <option key={fy} value={fy}>FY {fy.replace("-", "-")}</option>)}
             </select>
+
+            {/* Presence */}
+            <PresenceIndicator />
 
             {/* Notifications */}
             <NotificationBell />

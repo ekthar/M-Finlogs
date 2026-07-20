@@ -139,10 +139,12 @@ export default function DailyEntryPage() {
 
   const handleDelete = async () => {
     if (deleteId === null) return;
-    setTransactions(prev => prev.filter(t => t.txnId !== deleteId));
-    setTotal(t => t - 1);
-    try { await fetch(`/api/transactions/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); } catch { toast.error("Failed"); }
+    const id = deleteId;
     setDeleteId(null);
+    setTransactions(prev => prev.filter(t => t.txnId !== id));
+    setTotal(t => t - 1);
+    toast("Transaction deleted", { description: "Permanent in 10 seconds", duration: 10000, action: { label: "⟲ Undo", onClick: () => { loadTransactions(page); } } });
+    setTimeout(async () => { try { await fetch(`/api/transactions/${id}`, { method: "DELETE" }); } catch {} }, 10000);
   };
 
   const filtered = search ? transactions.filter(t => t.party.name.toLowerCase().includes(search.toLowerCase()) || (t.billNo||"").toLowerCase().includes(search.toLowerCase())) : transactions;
