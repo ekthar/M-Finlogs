@@ -1,6 +1,7 @@
 using MFinlogs.Desktop;
 using MFinlogs.Desktop.Config;
 using MFinlogs.Desktop.LocalServer;
+using MFinlogs.Desktop.UI;
 
 namespace MFinlogs.Desktop;
 
@@ -16,6 +17,9 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
+
+        // Initialize design system fonts
+        DesignTokens.Typography.Initialize();
 
         // Single instance check
         using var mutex = new Mutex(true, "MFinlogs_SingleInstance", out bool isNew);
