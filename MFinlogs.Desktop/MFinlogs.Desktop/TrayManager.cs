@@ -91,6 +91,15 @@ public class TrayManager : IDisposable
             await mainForm.SaveAsPdfAsync();
         };
 
+        var settingsItem = new ToolStripMenuItem("&Settings");
+        settingsItem.Click += (s, e) =>
+        {
+            mainForm.ShowFromTray();
+            Program.OpenSettings(mainForm);
+            // Reload in case URL changed
+            mainForm.NavigateTo(Program.Config.ActiveUrl);
+        };
+
         var separator3 = new ToolStripSeparator();
 
         var exitItem = new ToolStripMenuItem("E&xit");
@@ -104,6 +113,7 @@ public class TrayManager : IDisposable
             pdfItem,
             separator2,
             updateItem,
+            settingsItem,
             separator3,
             exitItem
         });

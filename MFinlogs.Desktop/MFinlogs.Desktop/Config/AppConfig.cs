@@ -85,6 +85,19 @@ public class AppConfig
     [JsonIgnore]
     public string ActiveUrl => IsOfflineMode ? LocalServerUrl : OnlineUrl;
 
+    /// <summary>
+    /// True if no user config file exists yet (first launch).
+    /// The setup wizard should be shown.
+    /// </summary>
+    [JsonIgnore]
+    public static bool IsFirstRun => !File.Exists(Path.Combine(AppDataDir, "appsettings.json"));
+
+    /// <summary>
+    /// True if the user hasn't configured a URL yet.
+    /// </summary>
+    [JsonIgnore]
+    public bool NeedsSetup => string.IsNullOrWhiteSpace(OnlineUrl);
+
     [JsonIgnore]
     public string DatabasePath => Path.Combine(AppDataDir, "finlogs.db");
 
