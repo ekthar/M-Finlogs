@@ -10,16 +10,24 @@ import { ShortcutsPanel } from "@/components/shortcuts-panel";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { OnlineStatus } from "@/components/online-status";
 import { AppProvider } from "@/lib/app-context";
-import { applyTheme, getStoredTheme } from "@/lib/themes";
+import { applyTheme, getStoredTheme, getScheduledTheme } from "@/lib/themes";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Apply stored theme on mount
+  // Apply stored theme on mount (with schedule support)
   useEffect(() => {
-    applyTheme(getStoredTheme());
+    const scheduled = getScheduledTheme();
+    applyTheme(scheduled || getStoredTheme());
+
+    // Check every minute for theme schedule changes
+    const interval = setInterval(() => {
+      const next = getScheduledTheme();
+      if (next) applyTheme(next);
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   return (

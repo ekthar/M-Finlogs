@@ -60,3 +60,38 @@ export function getStoredTheme(): string {
   if (typeof window === "undefined") return "light";
   return localStorage.getItem("mfinlogs_theme") || "light";
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Dark Mode Auto-Schedule (#10)
+ * Automatically switches between dark/light themes based on time of day.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+export interface ThemeSchedule {
+  enabled: boolean;
+  darkStart: number; // hour 0-23
+  darkEnd: number; // hour 0-23
+}
+
+export function getThemeSchedule(): ThemeSchedule {
+  if (typeof window === "undefined") return { enabled: false, darkStart: 19, darkEnd: 7 };
+  try {
+    const stored = localStorage.getItem("mfinlogs_theme_schedule");
+    return stored ? JSON.parse(stored) : { enabled: false, darkStart: 19, darkEnd: 7 };
+  } catch { return { enabled: false, darkStart: 19, darkEnd: 7 }; }
+}
+
+export function setThemeSchedule(schedule: ThemeSchedule) {
+  localStorage.setItem("mfinlogs_theme_schedule", JSON.stringify(schedule));
+}
+
+export function getScheduledTheme(): string | null {
+  const schedule = getThemeSchedule();
+  if (!schedule.enabled) return null;
+  const hour = new Date().getHours();
+  const { darkStart, darkEnd } = schedule;
+  // Handle overnight range (e.g., 19-7 = dark from 7pm to 7am)
+  if (darkStart > darkEnd) {
+    return (hour >= darkStart || hour < darkEnd) ? "dark" : "light";
+  }
+  return (hour >= darkStart && hour < darkEnd) ? "dark" : "light";
+}
