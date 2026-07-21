@@ -7,8 +7,8 @@
  * - Offline: show cached pages, queue mutations for later sync
  */
 
-const CACHE_NAME = "mfinlogs-v1";
-const STATIC_CACHE = "mfinlogs-static-v1";
+const CACHE_NAME = "mfinlogs-v2";
+const STATIC_CACHE = "mfinlogs-static-v2";
 
 const STATIC_URLS = [
   "/",
@@ -42,6 +42,9 @@ self.addEventListener("fetch", (event) => {
 
   // Skip non-GET requests (mutations go through offline queue)
   if (request.method !== "GET") return;
+
+  // Skip navigation requests — let the browser handle redirects from middleware
+  if (request.mode === "navigate") return;
 
   // API calls: network first, cache fallback
   if (url.pathname.startsWith("/api/")) {
