@@ -96,7 +96,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: MFinlogs-Desktop-win-x64
-          path: ./publish
+          path: ./MFinlogs.Desktop/publish
 
       - name: Download WebView2 Bootstrapper
         run: |
