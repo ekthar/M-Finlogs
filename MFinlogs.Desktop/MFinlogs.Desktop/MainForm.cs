@@ -14,18 +14,17 @@ public partial class MainForm : Form
     private AutoUpdater? autoUpdater;
     private bool isFullscreen = false;
     private FormWindowState previousWindowState;
-    private FormBorderStyle previousBorderStyle;
 
-    // Layout - proper dock order prevents overlap
+    // Layout
     private Panel titleBar = null!;
     private Panel webViewContainer = null!;
 
     // Title bar controls
     private Label titleLabel = null!;
     private Label lblMode = null!;
-    private Panel btnClose = null!;
-    private Panel btnMinimize = null!;
-    private Panel btnMaximize = null!;
+    private Button btnClose = null!;
+    private Button btnMaximize = null!;
+    private Button btnMinimize = null!;
 
     // Drag
     private bool isDragging = false;
@@ -34,6 +33,7 @@ public partial class MainForm : Form
     // Fonts
     private Font appFont = null!;
     private Font appFontBold = null!;
+    private Font btnFont = null!;
 
     public MainForm()
     {
@@ -53,7 +53,6 @@ public partial class MainForm : Form
         await InitializeWebViewAsync();
     }
 
-
     private void LoadFonts()
     {
         try
@@ -65,14 +64,16 @@ public partial class MainForm : Form
             if (File.Exists(bold)) pfc.AddFontFile(bold);
             if (pfc.Families.Length > 0)
             {
-                appFont = new Font(pfc.Families[0], 9f, FontStyle.Regular);
-                appFontBold = new Font(pfc.Families[0], 9.5f, FontStyle.Bold);
+                appFont = new Font(pfc.Families[0], 8.5f, FontStyle.Regular);
+                appFontBold = new Font(pfc.Families[0], 9f, FontStyle.Bold);
+                btnFont = new Font("Segoe MDL2 Assets", 10f, FontStyle.Regular);
                 return;
             }
         }
         catch { }
-        appFont = new Font("Segoe UI", 9f, FontStyle.Regular);
-        appFontBold = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        appFont = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+        appFontBold = new Font("Segoe UI", 9f, FontStyle.Bold);
+        btnFont = new Font("Segoe MDL2 Assets", 10f, FontStyle.Regular);
     }
 
     private void SetupForm()
@@ -104,39 +105,64 @@ public partial class MainForm : Form
         this.KeyDown += MainForm_KeyDown;
     }
 
-
     private void SetupTitleBar()
     {
+        // Title bar: 30px height, clean Windows 11 style
         titleBar = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 32,
-            BackColor = GetThemeTitleBarColor(),
-            Padding = Padding.Empty
+            Height = 30,
+            BackColor = GetThemeTitleBarColor()
         };
         titleBar.Paint += TitleBar_Paint;
 
-        // macOS traffic lights (left)
-        btnClose = MakeCircleBtn(Color.FromArgb(255, 95, 87), 12, 9);
-        btnMinimize = MakeCircleBtn(Color.FromArgb(255, 189, 46), 34, 9);
-        btnMaximize = MakeCircleBtn(Color.FromArgb(39, 201, 63), 56, 9);
-        btnClose.Click += (s, e) => { if (Program.Config.MinimizeToTray) HideToTray(); else ExitApplication(); };
-        btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
-        btnMaximize.Click += (s, e) => ToggleMaximize();
+        // === LEFT: App icon + title ===
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "finlogs.ico");
+        var iconBox = new PictureBox
+        {
+            Size = new Size(16, 16),
+            Location = new Point(10, 7),
+            SizeMode = PictureBoxSizeMode.StretchImage,
+            BackColor = Color.Transparent
+        };
+        if (File.Exists(iconPath))
+        {
+            try { iconBox.Image = new Icon(iconPath, 16, 16).ToBitmap(); } catch { }
+        }
 
-        // Centered title
         titleLabel = new Label
         {
             Text = "M-Finlogs",
             Font = appFontBold,
             ForeColor = GetThemeTitleForeColor(),
-            AutoSize = false,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Dock = DockStyle.Fill,
+            AutoSize = true,
+            Location = new Point(30, 7),
             BackColor = Color.Transparent
         };
 
-        // Mode pill (right)
+        // === RIGHT: Mode label + window buttons ===
+        // Window buttons (Windows 11 style): minimize, maximize, close
+        int btnW = 46, btnH = 30;
+
+        btnClose = MakeWinButton("\uE8BB", btnW, btnH); // X icon (Segoe MDL2)
+        btnClose.Dock = DockStyle.Right;
+        btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(232, 17, 35);
+        btnClose.FlatAppearance.MouseDownBackColor = Color.FromArgb(196, 13, 28);
+        btnClose.Click += (s, e) =>
+        {
+            if (Program.Config.MinimizeToTray) HideToTray();
+            else ExitApplication();
+        };
+
+        btnMaximize = MakeWinButton("\uE922", btnW, btnH); // Maximize icon
+        btnMaximize.Dock = DockStyle.Right;
+        btnMaximize.Click += (s, e) => ToggleMaximize();
+
+        btnMinimize = MakeWinButton("\uE921", btnW, btnH); // Minimize icon
+        btnMinimize.Dock = DockStyle.Right;
+        btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
+
+        // Mode indicator (before buttons)
         lblMode = new Label
         {
             Text = GetModeLabel(),
@@ -144,21 +170,27 @@ public partial class MainForm : Form
             ForeColor = GetModeLabelColor(),
             AutoSize = true,
             BackColor = Color.Transparent,
-            Padding = new Padding(6, 2, 6, 2)
+            Padding = new Padding(4, 0, 4, 0)
         };
-        var rightPanel = new Panel { Dock = DockStyle.Right, Width = 100, BackColor = Color.Transparent };
-        rightPanel.Controls.Add(lblMode);
-        rightPanel.Resize += (s, e) => lblMode.Location = new Point(rightPanel.Width - lblMode.Width - 12, 7);
+        var modePanel = new Panel
+        {
+            Dock = DockStyle.Right,
+            Width = 70,
+            BackColor = Color.Transparent
+        };
+        modePanel.Controls.Add(lblMode);
+        modePanel.Resize += (s, e) => lblMode.Location = new Point(
+            (modePanel.Width - lblMode.Width) / 2, 8);
 
+        // Add controls to title bar
+        titleBar.Controls.Add(iconBox);
         titleBar.Controls.Add(titleLabel);
         titleBar.Controls.Add(btnClose);
-        titleBar.Controls.Add(btnMinimize);
         titleBar.Controls.Add(btnMaximize);
-        titleBar.Controls.Add(rightPanel);
-        btnClose.BringToFront(); btnMinimize.BringToFront(); btnMaximize.BringToFront();
-        rightPanel.BringToFront();
+        titleBar.Controls.Add(btnMinimize);
+        titleBar.Controls.Add(modePanel);
 
-        // Drag
+        // Drag support on title bar + title label
         titleBar.MouseDown += TitleBar_MouseDown;
         titleBar.MouseMove += TitleBar_MouseMove;
         titleBar.MouseUp += TitleBar_MouseUp;
@@ -171,30 +203,42 @@ public partial class MainForm : Form
         this.Controls.Add(titleBar);
     }
 
-    private Panel MakeCircleBtn(Color c, int x, int y)
+    /// <summary>
+    /// Create a Windows 11-style window button with Segoe MDL2 Assets icon
+    /// </summary>
+    private Button MakeWinButton(string icon, int w, int h)
     {
-        var p = new Panel { Size = new Size(14, 14), Location = new Point(x, y), BackColor = c, Cursor = Cursors.Hand };
-        var path = new GraphicsPath(); path.AddEllipse(0, 0, 14, 14);
-        p.Region = new Region(path);
-        p.MouseEnter += (s, e) => p.BackColor = ControlPaint.Light(c, 0.2f);
-        p.MouseLeave += (s, e) => p.BackColor = c;
-        return p;
+        var btn = new Button
+        {
+            Text = icon,
+            Font = btnFont,
+            Size = new Size(w, h),
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = GetThemeTitleForeColor(),
+            BackColor = Color.Transparent,
+            Cursor = Cursors.Default,
+            TabStop = false
+        };
+        btn.FlatAppearance.BorderSize = 0;
+        btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 128, 128, 128);
+        btn.FlatAppearance.MouseDownBackColor = Color.FromArgb(50, 128, 128, 128);
+        return btn;
     }
 
     private void TitleBar_Paint(object? sender, PaintEventArgs e)
     {
+        // Subtle 1px bottom border
         var sepColor = Program.Config.Theme?.ToLower() switch
         {
-            "dark" or "deep blue" or "deepblue" or "warm" => Color.FromArgb(25, 255, 255, 255),
-            _ => Color.FromArgb(15, 0, 0, 0)
+            "dark" or "deep blue" or "deepblue" or "warm" => Color.FromArgb(20, 255, 255, 255),
+            _ => Color.FromArgb(12, 0, 0, 0)
         };
         using var pen = new Pen(sepColor, 1f);
         e.Graphics.DrawLine(pen, 0, titleBar.Height - 1, titleBar.Width, titleBar.Height - 1);
     }
 
-
     /// <summary>
-    /// WebView container fills space BELOW title bar - prevents overlap
+    /// WebView container fills the space BELOW the title bar — prevents overlap
     /// </summary>
     private void SetupWebViewContainer()
     {
@@ -206,9 +250,10 @@ public partial class MainForm : Form
             BackColor = GetThemeBackColor()
         };
         this.Controls.Add(webViewContainer);
-        // Dock order: titleBar added last so it docks on top; container fills remainder
+        // Ensure titleBar stays on top (dock order matters)
         titleBar.BringToFront();
     }
+
 
     private async Task InitializeWebViewAsync()
     {
@@ -243,7 +288,7 @@ public partial class MainForm : Form
             try { await webView.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.ServiceWorkers); } catch { }
 
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
-            webView.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; webView.CoreWebView2.Navigate(e.Uri); };
+            webView.CoreWebView2.NewWindowRequested += (s, ev) => { ev.Handled = true; webView.CoreWebView2.Navigate(ev.Uri); };
 
             if (Program.Config.IsHybridMode) SetupHybridApiInterception();
 
@@ -253,11 +298,9 @@ public partial class MainForm : Form
         catch (WebView2RuntimeNotFoundException) { ShowWebView2InstallPrompt(); }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
-                "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Failed to initialize WebView2:\n{ex.Message}", "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
-
 
     private void ShowWebView2InstallPrompt()
     {
@@ -326,7 +369,13 @@ public partial class MainForm : Form
         if (isFullscreen) { titleBar.Visible = true; this.WindowState = previousWindowState; isFullscreen = false; }
         else { previousWindowState = this.WindowState; titleBar.Visible = false; this.WindowState = FormWindowState.Maximized; isFullscreen = true; }
     }
-    private void ToggleMaximize() { this.WindowState = this.WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; }
+    private void ToggleMaximize()
+    {
+        this.WindowState = this.WindowState == FormWindowState.Maximized
+            ? FormWindowState.Normal : FormWindowState.Maximized;
+        // Update maximize button icon
+        btnMaximize.Text = this.WindowState == FormWindowState.Maximized ? "\uE923" : "\uE922";
+    }
     public void HideToTray() { this.Hide(); trayManager?.ShowBalloon("M-Finlogs", "Minimized to tray."); }
     public void ShowFromTray() { this.Show(); this.WindowState = FormWindowState.Normal; this.BringToFront(); this.Activate(); }
     public void ExitApplication() { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); Application.Exit(); }
@@ -336,14 +385,17 @@ public partial class MainForm : Form
         if (this.WindowState == FormWindowState.Normal) { c.WindowWidth = this.Width; c.WindowHeight = this.Height; c.WindowX = this.Location.X; c.WindowY = this.Location.Y; }
         c.Save();
     }
-    private void MainForm_Resize(object? sender, EventArgs e) { if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray) HideToTray(); }
+    private void MainForm_Resize(object? sender, EventArgs e)
+    {
+        if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray) HideToTray();
+        if (btnMaximize != null) btnMaximize.Text = this.WindowState == FormWindowState.Maximized ? "\uE923" : "\uE922";
+    }
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
         if (e.CloseReason == CloseReason.UserClosing && Program.Config.MinimizeToTray) { e.Cancel = true; HideToTray(); }
         else { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); }
     }
     #endregion
-
 
     #region Title Bar Drag
     private void TitleBar_MouseDown(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { isDragging = true; dragStart = new Point(e.X, e.Y); } }
@@ -375,17 +427,17 @@ public partial class MainForm : Form
     #region Theme Colors
     private Color GetThemeTitleBarColor() => Program.Config.Theme?.ToLower() switch
     {
-        "dark" => Color.FromArgb(28, 28, 30),
+        "dark" => Color.FromArgb(32, 32, 32),
         "deep blue" or "deepblue" => Color.FromArgb(15, 23, 42),
         "warm" => Color.FromArgb(55, 38, 29),
-        _ => Color.FromArgb(246, 246, 248)
+        _ => Color.FromArgb(243, 243, 243)
     };
     private Color GetThemeTitleForeColor() => Program.Config.Theme?.ToLower() switch
     {
-        "dark" => Color.FromArgb(210, 210, 215),
-        "deep blue" or "deepblue" => Color.FromArgb(190, 200, 220),
-        "warm" => Color.FromArgb(235, 225, 215),
-        _ => Color.FromArgb(60, 60, 67)
+        "dark" => Color.FromArgb(255, 255, 255),
+        "deep blue" or "deepblue" => Color.FromArgb(226, 232, 240),
+        "warm" => Color.FromArgb(245, 236, 228),
+        _ => Color.FromArgb(23, 23, 23)
     };
     private Color GetThemeBackColor() => Program.Config.Theme?.ToLower() switch
     {
@@ -397,7 +449,16 @@ public partial class MainForm : Form
     public void UpdateTheme(string theme)
     {
         Program.Config.Theme = theme; Program.Config.Save();
-        this.Invoke(() => { titleBar.BackColor = GetThemeTitleBarColor(); titleLabel.ForeColor = GetThemeTitleForeColor(); this.BackColor = GetThemeBackColor(); titleBar.Invalidate(); });
+        this.Invoke(() =>
+        {
+            titleBar.BackColor = GetThemeTitleBarColor();
+            titleLabel.ForeColor = GetThemeTitleForeColor();
+            btnClose.ForeColor = GetThemeTitleForeColor();
+            btnMaximize.ForeColor = GetThemeTitleForeColor();
+            btnMinimize.ForeColor = GetThemeTitleForeColor();
+            this.BackColor = GetThemeBackColor();
+            titleBar.Invalidate();
+        });
     }
     #endregion
 
@@ -408,17 +469,22 @@ public partial class MainForm : Form
         lblMode.Invoke(() => { lblMode.Text = GetModeLabel(); lblMode.ForeColor = GetModeLabelColor(); });
         webView?.CoreWebView2?.Navigate(Program.Config.ActiveUrl);
     }
-    private static string GetModeLabel() => Program.Config.Mode?.ToLower() switch { "online" => "Online", "offline" => "Offline", "hybrid" => "Hybrid", _ => "Online" };
+    private static string GetModeLabel() => Program.Config.Mode?.ToLower() switch
+    {
+        "online" => "Online",
+        "offline" => "Offline",
+        "hybrid" => "Hybrid",
+        _ => "Online"
+    };
     private static Color GetModeLabelColor() => Program.Config.Mode?.ToLower() switch
     {
-        "online" => Color.FromArgb(48, 209, 88),
-        "offline" => Color.FromArgb(255, 159, 10),
-        "hybrid" => Color.FromArgb(94, 92, 230),
-        _ => Color.FromArgb(48, 209, 88)
+        "online" => Color.FromArgb(34, 197, 94),
+        "offline" => Color.FromArgb(251, 146, 60),
+        "hybrid" => Color.FromArgb(99, 102, 241),
+        _ => Color.FromArgb(34, 197, 94)
     };
     public void NavigateTo(string url) { webView?.CoreWebView2?.Navigate(url); }
     #endregion
-
 
     #region WndProc Resize Handles
     protected override void WndProc(ref Message m)
@@ -428,7 +494,7 @@ public partial class MainForm : Form
         {
             base.WndProc(ref m);
             var c = this.PointToClient(Cursor.Position);
-            const int g = 6;
+            const int g = 5;
             if (c.Y < g) { m.Result = c.X < g ? (IntPtr)13 : c.X > Width - g ? (IntPtr)14 : (IntPtr)12; return; }
             if (c.Y > Height - g) { m.Result = c.X < g ? (IntPtr)16 : c.X > Width - g ? (IntPtr)17 : (IntPtr)15; return; }
             if (c.X < g) { m.Result = (IntPtr)10; return; }

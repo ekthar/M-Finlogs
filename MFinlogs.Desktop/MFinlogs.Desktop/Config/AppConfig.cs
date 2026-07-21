@@ -12,7 +12,7 @@ public class AppConfig
     public string Mode { get; set; } = "online"; // "online", "offline", or "hybrid"
 
     [JsonPropertyName("onlineUrl")]
-    public string OnlineUrl { get; set; } = "https://mfinlogs.pages.dev";
+    public string OnlineUrl { get; set; } = "https://m-finlogs.vercel.app";
 
     [JsonPropertyName("localPort")]
     public int LocalPort { get; set; } = 8080;
