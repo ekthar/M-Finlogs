@@ -6,9 +6,8 @@ using System.Runtime.InteropServices;
 namespace MFinlogs.Desktop;
 
 /// <summary>
-/// Main application window using native Windows title bar + WebView2.
-/// No custom title bar = no overlap with web app navigation.
-/// WebView2 fills 100% of the client area.
+/// Main form: native Windows title bar + WebView2 filling 100% client area.
+/// No custom chrome = no overlap with web app navigation.
 /// </summary>
 public partial class MainForm : Form
 {
@@ -30,21 +29,21 @@ public partial class MainForm : Form
     {
         this.Shown -= MainForm_Shown;
         RegisterGlobalHotkey();
-        RegisterProtocolIfNeeded();
+        ProtocolHandler.Register();
         await InitializeWebViewAsync();
 
         // Handle --url argument (deep link)
         var args = Environment.GetCommandLineArgs();
-        var urlArg = args.SkipWhile(a => a != "--url").Skip(1).FirstOrDefault();
-        if (!string.IsNullOrEmpty(urlArg))
-            HandleDeepLink(urlArg);
+        var urlIdx = Array.IndexOf(args, "--url");
+        if (urlIdx >= 0 && urlIdx + 1 < args.Length)
+            HandleDeepLink(args[urlIdx + 1]);
     }
 
     private void SetupForm()
     {
         var config = Program.Config;
 
-        // Native Windows title bar — no overlap, OS handles min/max/close
+        // Native Windows title bar — zero overlap, OS handles min/max/close
         this.Text = "M-Finlogs";
         this.FormBorderStyle = FormBorderStyle.Sizable;
         this.MinimumSize = new Size(1024, 600);
@@ -52,12 +51,12 @@ public partial class MainForm : Form
         this.BackColor = Color.White;
         this.DoubleBuffered = true;
 
-        // Set icon
+        // Icon
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "finlogs.ico");
         if (File.Exists(iconPath))
             try { this.Icon = new Icon(iconPath); } catch { }
 
-        // Restore window size/position
+        // Restore window state
         if (config.WindowWidth > 0 && config.WindowHeight > 0)
             this.Size = new Size(config.WindowWidth, config.WindowHeight);
         else
@@ -71,7 +70,7 @@ public partial class MainForm : Form
         if (config.IsMaximized)
             this.WindowState = FormWindowState.Maximized;
 
-        // WebView2 fills entire client area
+        // WebView fills 100% of client area
         webView = new WebView2 { Dock = DockStyle.Fill };
         this.Controls.Add(webView);
 
@@ -106,52 +105,35 @@ public partial class MainForm : Form
 
             await webView.EnsureCoreWebView2Async(env);
 
-            // Settings
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
-            // Clear stale service workers
             try { await webView.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.ServiceWorkers); } catch { }
 
-            // Navigation events
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
             webView.CoreWebView2.NewWindowRequested += (s, ev) => { ev.Handled = true; webView.CoreWebView2.Navigate(ev.Uri); };
 
-            // Hybrid mode API interception
             if (Program.Config.IsHybridMode) SetupHybridApiInterception();
 
-            // Navigate
             webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
         }
-        catch (COMException comEx) when ((uint)comEx.HResult == 0x8007139F)
-        {
-            ShowWebView2InstallPrompt();
-        }
-        catch (WebView2RuntimeNotFoundException)
-        {
-            ShowWebView2InstallPrompt();
-        }
+        catch (COMException comEx) when ((uint)comEx.HResult == 0x8007139F) { ShowWebView2InstallPrompt(); }
+        catch (WebView2RuntimeNotFoundException) { ShowWebView2InstallPrompt(); }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                $"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
-                "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Failed to initialize WebView2:\n{ex.Message}", "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
     private void ShowWebView2InstallPrompt()
     {
-        if (MessageBox.Show(
-            "WebView2 Runtime is required to run M-Finlogs.\n\nWould you like to download it now?",
-            "M-Finlogs", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+        if (MessageBox.Show("WebView2 Runtime is required.\nDownload now?", "M-Finlogs",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
         {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                { FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703", UseShellExecute = true });
-            }
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703", UseShellExecute = true }); }
             catch { }
         }
     }
@@ -161,7 +143,6 @@ public partial class MainForm : Form
         if (!e.IsSuccess && (e.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown ||
             e.WebErrorStatus == CoreWebView2WebErrorStatus.ConnectionAborted))
         {
-            // Service worker redirect fix — clear and retry
             try
             {
                 webView.CoreWebView2.Navigate("about:blank");
@@ -178,9 +159,9 @@ public partial class MainForm : Form
 
     private void SetupHybridApiInterception()
     {
-        var localUrl = Program.Config.LocalServerUrl;
+        var u = Program.Config.LocalServerUrl;
         webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($@"(function(){{
-            const L='{localUrl}';const F=window.fetch;
+            const L='{u}';const F=window.fetch;
             window.fetch=function(i,o){{let url=(typeof i==='string')?i:i.url;
             if(url.startsWith('/api/')||url.includes('/api/')){{url=L+'/api/'+url.split('/api/')[1];i=(typeof i==='string')?url:new Request(url,i);}}
             return F.call(this,i,o);}};
@@ -189,37 +170,17 @@ public partial class MainForm : Form
         }})();");
     }
 
-    #region Tray & Updater
+    #region Setup & Integrations
     private void SetupTrayManager() { trayManager = new TrayManager(this); }
     private void SetupAutoUpdater() { autoUpdater = new AutoUpdater(); _ = autoUpdater.CheckForUpdatesAsync(silent: true); }
+    private void RegisterGlobalHotkey() { globalHotkey = new GlobalHotkey(this); }
 
-    /// <summary>
-    /// Register global hotkey (Ctrl+Shift+F) after form handle is created
-    /// </summary>
-    private void RegisterGlobalHotkey()
-    {
-        globalHotkey = new GlobalHotkey(this);
-    }
-
-    /// <summary>
-    /// Register mfinlogs:// protocol on first launch
-    /// </summary>
-    private void RegisterProtocolIfNeeded()
-    {
-        if (!ProtocolHandler.IsRegistered())
-            ProtocolHandler.Register();
-    }
-
-    /// <summary>
-    /// Handle deep link navigation (called from protocol handler or command line)
-    /// </summary>
     public void HandleDeepLink(string url)
     {
         var path = ProtocolHandler.ParseUrl(url);
         if (path != null)
         {
-            var fullUrl = Program.Config.OnlineUrl.TrimEnd('/') + path;
-            NavigateTo(fullUrl);
+            NavigateTo(Program.Config.OnlineUrl.TrimEnd('/') + path);
             ShowFromTray();
         }
     }
@@ -230,24 +191,16 @@ public partial class MainForm : Form
     {
         switch (e.KeyCode)
         {
-            case Keys.F11:
-                ToggleFullscreen();
-                e.Handled = true;
-                break;
-            case Keys.D when e.Control && e.Shift:
-                webView?.CoreWebView2?.OpenDevToolsWindow();
-                e.Handled = true;
-                break;
-            case Keys.Q when e.Control:
-                ExitApplication();
-                e.Handled = true;
-                break;
-            case Keys.P when e.Control:
-                PrintPage();
-                e.Handled = true;
-                break;
-            case Keys.F5:
-                webView?.CoreWebView2?.Reload();
+            case Keys.F11: ToggleFullscreen(); e.Handled = true; break;
+            case Keys.D when e.Control && e.Shift: webView?.CoreWebView2?.OpenDevToolsWindow(); e.Handled = true; break;
+            case Keys.Q when e.Control: ExitApplication(); e.Handled = true; break;
+            case Keys.P when e.Control: PrintPage(); e.Handled = true; break;
+            case Keys.F5: webView?.CoreWebView2?.Reload(); e.Handled = true; break;
+            // Ctrl+, = Open Settings
+            case Keys.Oemcomma when e.Control:
+                Program.OpenSettings(this);
+                // Reload URL in case it changed
+                webView?.CoreWebView2?.Navigate(Program.Config.ActiveUrl);
                 e.Handled = true;
                 break;
         }
@@ -295,6 +248,7 @@ public partial class MainForm : Form
     {
         SaveWindowState();
         Program.Shutdown();
+        globalHotkey?.Dispose();
         trayManager?.Dispose();
         Application.Exit();
     }
@@ -330,6 +284,7 @@ public partial class MainForm : Form
         {
             SaveWindowState();
             Program.Shutdown();
+            globalHotkey?.Dispose();
             trayManager?.Dispose();
         }
     }
@@ -349,12 +304,12 @@ public partial class MainForm : Form
         if (dlg.ShowDialog() == DialogResult.OK)
         {
             await webView.CoreWebView2.PrintToPdfAsync(dlg.FileName);
-            MessageBox.Show("PDF saved successfully!", "M-Finlogs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("PDF saved!", "M-Finlogs", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
     #endregion
 
-    #region Mode
+    #region Public API
     public void SwitchMode(string mode)
     {
         Program.Config.Mode = mode;
@@ -365,30 +320,20 @@ public partial class MainForm : Form
     public void NavigateTo(string url) { webView?.CoreWebView2?.Navigate(url); }
     #endregion
 
-    #region WndProc — Global hotkey + single instance activation
+    #region WndProc — Global hotkey + single-instance activation
     protected override void WndProc(ref Message m)
     {
-        // Global hotkey (Ctrl+Shift+F)
         if (globalHotkey != null && globalHotkey.IsOurHotkey(m))
         {
             ShowFromTray();
             return;
         }
-
-        // Single-instance activation message from another launched instance
         if (m.Msg == NativeMethods.ActivateMessage)
         {
             ShowFromTray();
             return;
         }
-
         base.WndProc(ref m);
-    }
-
-    protected override void OnFormClosed(FormClosedEventArgs e)
-    {
-        globalHotkey?.Dispose();
-        base.OnFormClosed(e);
     }
     #endregion
 }

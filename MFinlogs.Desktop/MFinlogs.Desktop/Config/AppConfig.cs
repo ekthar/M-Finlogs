@@ -12,7 +12,7 @@ public class AppConfig
     public string Mode { get; set; } = "online"; // "online", "offline", or "hybrid"
 
     [JsonPropertyName("onlineUrl")]
-    public string OnlineUrl { get; set; } = "https://m-finlogs.vercel.app";
+    public string OnlineUrl { get; set; } = "https://mfinlogs.pages.dev";
 
     [JsonPropertyName("localPort")]
     public int LocalPort { get; set; } = 8080;
@@ -84,6 +84,19 @@ public class AppConfig
     /// </summary>
     [JsonIgnore]
     public string ActiveUrl => IsOfflineMode ? LocalServerUrl : OnlineUrl;
+
+    /// <summary>
+    /// True if no user config file exists yet (first launch).
+    /// The setup wizard should be shown.
+    /// </summary>
+    [JsonIgnore]
+    public static bool IsFirstRun => !File.Exists(Path.Combine(AppDataDir, "appsettings.json"));
+
+    /// <summary>
+    /// True if the user hasn't configured a URL yet.
+    /// </summary>
+    [JsonIgnore]
+    public bool NeedsSetup => string.IsNullOrWhiteSpace(OnlineUrl);
 
     [JsonIgnore]
     public string DatabasePath => Path.Combine(AppDataDir, "finlogs.db");

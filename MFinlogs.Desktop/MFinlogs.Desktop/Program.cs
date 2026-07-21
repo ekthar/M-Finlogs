@@ -8,7 +8,6 @@ internal static class Program
 {
     public static AppConfig Config { get; private set; } = null!;
     public static LocalApiServer? LocalServer { get; private set; }
-    private static SplashForm? splash;
 
     [STAThread]
     static void Main(string[] args)
@@ -18,11 +17,10 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        // Single instance check (prevent multiple windows)
+        // Single instance check
         using var mutex = new Mutex(true, "MFinlogs_SingleInstance", out bool isNew);
         if (!isNew)
         {
-            // Another instance is running — activate it instead
             NativeMethods.BroadcastActivateMessage();
             return;
         }
@@ -33,11 +31,11 @@ internal static class Program
         // Handle --minimized flag (auto-start in tray)
         bool startMinimized = args.Contains("--minimized");
 
-        // Handle --restore flag (restore backup from file association)
-        var restoreFile = args.FirstOrDefault(a => a.StartsWith("--restore"));
-        if (restoreFile != null)
+        // Handle --restore flag (backup file association)
+        var restoreIdx = Array.IndexOf(args, "--restore");
+        if (restoreIdx >= 0 && restoreIdx + 1 < args.Length)
         {
-            var path = args.SkipWhile(a => a == "--restore").FirstOrDefault() ?? "";
+            var path = args[restoreIdx + 1];
             if (File.Exists(path))
             {
                 try { SqliteDb.Initialize(Config.DatabasePath); SqliteDb.Restore(path); }
@@ -45,7 +43,25 @@ internal static class Program
             }
         }
 
-        // Show splash screen (unless starting minimized)
+        // === FIRST-RUN SETUP ===
+        // Show setup wizard if URL is empty (first time or reset)
+        if (Config.NeedsSetup)
+        {
+            var setup = new SetupForm(isFirstRun: true);
+            Application.Run(setup);
+
+            if (!setup.Completed)
+            {
+                // User closed without completing — exit
+                return;
+            }
+
+            // Reload config after setup saved it
+            Config = AppConfig.Load();
+        }
+
+        // === FULLSCREEN SPLASH ===
+        SplashForm? splash = null;
         if (!startMinimized)
         {
             splash = new SplashForm();
@@ -53,7 +69,7 @@ internal static class Program
             Application.DoEvents();
         }
 
-        // Initialize local server for offline/hybrid mode
+        // === INITIALIZE LOCAL SERVER (offline/hybrid) ===
         if (Config.NeedsLocalServer)
         {
             try
@@ -72,6 +88,7 @@ internal static class Program
                 LocalServer.Start();
 
                 splash?.SetProgress(0.8f);
+                Application.DoEvents();
             }
             catch (Exception ex)
             {
@@ -79,17 +96,26 @@ internal static class Program
                     $"Failed to start local server:\n{ex.Message}\n\nSwitching to online mode.",
                     "M-Finlogs", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 Config.Mode = "online";
+                Config.Save();
             }
         }
+        else
+        {
+            // Online mode — just simulate progress for splash visual
+            splash?.UpdateStatus("Connecting");
+            splash?.SetProgress(0.6f);
+            Application.DoEvents();
+            Thread.Sleep(600);
+            splash?.SetProgress(0.9f);
+            Application.DoEvents();
+        }
 
-        splash?.UpdateStatus("Loading");
-        splash?.SetProgress(0.9f);
+        // === CREATE MAIN FORM ===
+        splash?.UpdateStatus("Ready");
+        splash?.SetProgress(1.0f);
         Application.DoEvents();
+        Thread.Sleep(400);
 
-        // Brief pause so splash is visible
-        Thread.Sleep(800);
-
-        // Create main form
         var mainForm = new MainForm();
 
         if (startMinimized)
@@ -99,12 +125,11 @@ internal static class Program
             mainForm.Visible = false;
         }
 
-        // Fade out splash
+        // === FADE OUT SPLASH ===
         if (splash != null)
         {
-            splash.SetProgress(1.0f);
             splash.FadeOutAndClose();
-            // Wait for fade to complete
+            // Wait for fade to finish
             while (splash.Visible)
             {
                 Application.DoEvents();
@@ -114,7 +139,23 @@ internal static class Program
             splash = null;
         }
 
+        // === RUN APP ===
         Application.Run(mainForm);
+    }
+
+    /// <summary>
+    /// Open the settings dialog (called from tray menu or Ctrl+,)
+    /// </summary>
+    public static void OpenSettings(Form owner)
+    {
+        var setup = new SetupForm(isFirstRun: false);
+        setup.ShowDialog(owner);
+
+        if (setup.Completed)
+        {
+            // Reload config
+            Config = AppConfig.Load();
+        }
     }
 
     /// <summary>

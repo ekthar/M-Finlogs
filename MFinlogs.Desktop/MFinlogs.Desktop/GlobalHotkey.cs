@@ -13,7 +13,6 @@ public class GlobalHotkey : IDisposable
     private bool registered = false;
     private bool disposed = false;
 
-    // Hotkey: Ctrl+Shift+F
     private const int MOD_CONTROL = 0x0002;
     private const int MOD_SHIFT = 0x0004;
     private const int VK_F = 0x46;
@@ -28,7 +27,7 @@ public class GlobalHotkey : IDisposable
     public GlobalHotkey(Form owner)
     {
         ownerForm = owner;
-        hotkeyId = owner.GetHashCode(); // Unique ID per form
+        hotkeyId = owner.GetHashCode();
         Register();
     }
 
@@ -37,18 +36,10 @@ public class GlobalHotkey : IDisposable
         try
         {
             registered = RegisterHotKey(ownerForm.Handle, hotkeyId, MOD_CONTROL | MOD_SHIFT, VK_F);
-            if (!registered)
-                System.Diagnostics.Debug.WriteLine("Global hotkey Ctrl+Shift+F registration failed (may be in use by another app).");
         }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Hotkey registration error: {ex.Message}");
-        }
+        catch { }
     }
 
-    /// <summary>
-    /// Call this from the form's WndProc when WM_HOTKEY is received
-    /// </summary>
     public bool IsOurHotkey(Message m)
     {
         return m.Msg == WM_HOTKEY && (int)m.WParam == hotkeyId;
@@ -59,10 +50,7 @@ public class GlobalHotkey : IDisposable
         if (!disposed)
         {
             if (registered)
-            {
                 UnregisterHotKey(ownerForm.Handle, hotkeyId);
-                registered = false;
-            }
             disposed = true;
         }
         GC.SuppressFinalize(this);
