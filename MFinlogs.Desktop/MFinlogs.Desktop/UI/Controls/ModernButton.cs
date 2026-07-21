@@ -36,7 +36,7 @@ public class ModernButton : Control
         set { _variant = value; Invalidate(); }
     }
 
-    public ButtonSize Size
+    public ButtonSize SizeMode
     {
         get => _size;
         set { _size = value; UpdateSize(); Invalidate(); }

@@ -9,8 +9,6 @@ namespace MFinlogs.Desktop.UI.Controls;
 /// </summary>
 public class ModernContextMenu : ToolStripRenderer
 {
-    private readonly int _itemHeight = DesignTokens.Sizes.TrayMenuItemHeight;
-    private readonly int _separatorHeight = 9;
     private readonly float _radius = DesignTokens.Radius.LG;
 
     public ModernContextMenu()

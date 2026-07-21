@@ -51,7 +51,7 @@ public class ModernTextBox : UserControl
     public override string Text
     {
         get => _innerBox.Text;
-        set => _innerBox.Text = value;
+        set => _innerBox.Text = value ?? "";
     }
 
     public bool UsePasswordChar
