@@ -31,6 +31,9 @@ export async function POST(request: Request) {
 
     const normalizedName = normalizePartyKey(name.trim());
 
+    // Disallow credit for parties named "customer" (case-insensitive)
+    const finalCreditAllowed = normalizedName === "customer" ? false : creditAllowed;
+
     // Check for only one Bank
     if (type === "Bank") {
       const existing = await prisma.party.count({ where: { type: "Bank", companyId } });
@@ -52,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     const party = await prisma.party.create({
-      data: { name: name.trim(), normalizedName, type, creditAllowed, companyId },
+      data: { name: name.trim(), normalizedName, type, creditAllowed: finalCreditAllowed, companyId },
     });
 
     return NextResponse.json({ status: "Party Created", party }, { status: 201 });

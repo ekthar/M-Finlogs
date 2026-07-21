@@ -130,57 +130,81 @@ export default function LedgerPage() {
         </motion.div>
       )}
 
-      {/* Table */}
+      {/* Tabular Grid Ledger */}
       <motion.div {...fadeUp}>
         {loading ? <TableSkeleton rows={8} cols={7} /> : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead className="hidden sm:table-cell">Bill</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="hidden md:table-cell">Mode</TableHead>
-                <TableHead className="text-right">Debit</TableHead>
-                <TableHead className="text-right">Credit</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
-              <TableHead className="w-16 text-center">Edit</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ledger.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="h-32 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="text-3xl">📖</div>
-                      <p className="text-sm text-zinc-500">Select a party and click "Show Ledger"</p>
-                      <p className="text-xs text-zinc-400">Start typing in the Party field to see suggestions</p>
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+            {ledger.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16">
+                <div className="text-3xl">📖</div>
+                <p className="text-sm text-zinc-500">Select a party and click &quot;Show Ledger&quot;</p>
+                <p className="text-xs text-zinc-400">Start typing in the Party field to see suggestions</p>
+              </div>
+            ) : (
+              <div className="font-mono text-[13px]">
+                {/* Header Row */}
+                <div className="grid grid-cols-[100px_80px_90px_90px_1fr_1fr_1fr_56px] md:grid-cols-[110px_90px_100px_100px_1fr_1fr_1fr_56px] bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  <span>Date</span>
+                  <span className="hidden sm:block">Bill No</span>
+                  <span>Type</span>
+                  <span className="hidden md:block">Mode</span>
+                  <span className="text-right">Debit</span>
+                  <span className="text-right">Credit</span>
+                  <span className="text-right">Balance</span>
+                  <span className="text-center">Act</span>
+                </div>
+
+                {/* Data Rows */}
+                <div className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                  {ledger.map((e, i) => (
+                    <div
+                      key={i}
+                      className="grid grid-cols-[100px_80px_90px_90px_1fr_1fr_1fr_56px] md:grid-cols-[110px_90px_100px_100px_1fr_1fr_1fr_56px] px-3 py-2 items-center hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30 transition-colors"
+                    >
+                      <span className="text-zinc-600 dark:text-zinc-400 tabular-nums">
+                        {new Date(e.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}
+                      </span>
+                      <span className="hidden sm:block text-zinc-500 truncate">{e.billNo || "—"}</span>
+                      <span>
+                        <Badge variant={e.txnType === "Sale" ? "success" : e.txnType === "Expense" ? "danger" : e.txnType === "Receipt" ? "info" : "default"} className="text-[10px]">
+                          {e.txnType}
+                        </Badge>
+                      </span>
+                      <span className="hidden md:block text-zinc-500 text-xs">{e.paymentMode}</span>
+                      <span className="text-right tabular-nums text-red-600 dark:text-red-400">
+                        {e.debit > 0 ? `₹${fmt(e.debit)}` : ""}
+                      </span>
+                      <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {e.credit > 0 ? `₹${fmt(e.credit)}` : ""}
+                      </span>
+                      <span className={`text-right tabular-nums font-semibold ${e.balance >= 0 ? "text-zinc-900 dark:text-zinc-100" : "text-emerald-700 dark:text-emerald-300"}`}>
+                        ₹{fmt(Math.abs(e.balance))} {e.balance >= 0 ? "Dr" : "Cr"}
+                      </span>
+                      <span className="flex justify-center gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditTxn({ txnId: e.txnId, txnDate: e.date, billNo: e.billNo, txnType: e.txnType, paymentMode: e.paymentMode, amount: String(e.debit || e.credit), party: { name: partyName } })}>
+                          <Pencil className="h-3 w-3"/>
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => setDeleteId(e.txnId)}>
+                          <Trash2 className="h-3 w-3"/>
+                        </Button>
+                      </span>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ) : ledger.map((e, i) => (
-                <TableRow key={i}>
-                  <TableCell className="text-xs">{new Date(e.date).toLocaleDateString("en-IN")}</TableCell>
-                  <TableCell className="hidden sm:table-cell">{e.billNo || "—"}</TableCell>
-                  <TableCell><Badge variant={e.txnType === "Sale" ? "success" : e.txnType === "Expense" ? "danger" : e.txnType === "Receipt" ? "info" : "default"}>{e.txnType}</Badge></TableCell>
-                  <TableCell className="hidden md:table-cell">{e.paymentMode}</TableCell>
-                  <TableCell className="text-right font-mono text-red-600">{e.debit > 0 ? `₹${fmt(e.debit)}` : ""}</TableCell>
-                  <TableCell className="text-right font-mono text-emerald-600">{e.credit > 0 ? `₹${fmt(e.credit)}` : ""}</TableCell>
-                  <TableCell className="text-right font-mono font-medium">{fmt(e.balance)}</TableCell>
-                <TableCell className="text-center"><div className="flex justify-center gap-0.5"><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditTxn({ txnId: e.txnId, txnDate: e.date, billNo: e.billNo, txnType: e.txnType, paymentMode: e.paymentMode, amount: String(e.debit || e.credit), party: { name: partyName } })}><Pencil className="h-3 w-3"/></Button><Button variant="ghost" size="icon" className="h-6 w-6 text-red-500" onClick={() => setDeleteId(e.txnId)}><Trash2 className="h-3 w-3"/></Button></div></TableCell>
-                </TableRow>
-              ))}
-              {ledger.length > 0 && (
-                <TableRow className="border-t-2 border-zinc-200 dark:border-zinc-700 font-semibold">
-                  <TableCell colSpan={4} className="hidden md:table-cell">Total</TableCell>
-                  <TableCell colSpan={2} className="md:hidden">Total</TableCell>
-                  <TableCell className="text-right font-mono text-red-600">₹{fmt(ledger.reduce((s, e) => s + e.debit, 0))}</TableCell>
-                  <TableCell className="text-right font-mono text-emerald-600">₹{fmt(ledger.reduce((s, e) => s + e.credit, 0))}</TableCell>
-                  <TableCell className="text-right font-mono font-bold">₹{fmt(totalBalance)}</TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                  ))}
+                </div>
+
+                {/* Totals Row */}
+                <div className="grid grid-cols-[100px_80px_90px_90px_1fr_1fr_1fr_56px] md:grid-cols-[110px_90px_100px_100px_1fr_1fr_1fr_56px] px-3 py-3 items-center border-t-2 border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 font-bold">
+                  <span className="col-span-2 sm:col-span-2 md:col-span-4 text-xs uppercase tracking-wider text-zinc-600 dark:text-zinc-400">Total</span>
+                  <span className="hidden sm:block md:hidden"></span>
+                  <span className="hidden md:block"></span>
+                  <span className="text-right tabular-nums text-red-600 dark:text-red-400">₹{fmt(ledger.reduce((s, e) => s + e.debit, 0))}</span>
+                  <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">₹{fmt(ledger.reduce((s, e) => s + e.credit, 0))}</span>
+                  <span className="text-right tabular-nums">₹{fmt(Math.abs(totalBalance))} {totalBalance >= 0 ? "Dr" : "Cr"}</span>
+                  <span></span>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </motion.div>
 
