@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
-    "cf:build": "prisma generate && npx opennextjs-cloudflare build && cp .open-next/worker.js .open-next/assets/_worker.js",
+    "cf:build": "prisma generate && npx opennextjs-cloudflare build",
     "cf:preview": "npm run cf:build && npx wrangler dev",
     "cf:deploy": "npm run cf:build && npx wrangler deploy",
     "cf-typegen": "npx wrangler types",
