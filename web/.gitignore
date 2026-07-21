@@ -44,3 +44,8 @@ next-env.d.ts
 node_modules/
 .next/
 .env
+
+
+# cloudflare
+.open-next/
+.dev.vars
