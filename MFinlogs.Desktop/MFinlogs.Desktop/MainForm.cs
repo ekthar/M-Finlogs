@@ -15,6 +15,7 @@ public partial class MainForm : Form
     private WebView2 webView = null!;
     private TrayManager? trayManager;
     private AutoUpdater? autoUpdater;
+    private GlobalHotkey? globalHotkey;
 
     public MainForm()
     {
@@ -28,7 +29,15 @@ public partial class MainForm : Form
     private async void MainForm_Shown(object? sender, EventArgs e)
     {
         this.Shown -= MainForm_Shown;
+        RegisterGlobalHotkey();
+        RegisterProtocolIfNeeded();
         await InitializeWebViewAsync();
+
+        // Handle --url argument (deep link)
+        var args = Environment.GetCommandLineArgs();
+        var urlArg = args.SkipWhile(a => a != "--url").Skip(1).FirstOrDefault();
+        if (!string.IsNullOrEmpty(urlArg))
+            HandleDeepLink(urlArg);
     }
 
     private void SetupForm()
@@ -183,6 +192,37 @@ public partial class MainForm : Form
     #region Tray & Updater
     private void SetupTrayManager() { trayManager = new TrayManager(this); }
     private void SetupAutoUpdater() { autoUpdater = new AutoUpdater(); _ = autoUpdater.CheckForUpdatesAsync(silent: true); }
+
+    /// <summary>
+    /// Register global hotkey (Ctrl+Shift+F) after form handle is created
+    /// </summary>
+    private void RegisterGlobalHotkey()
+    {
+        globalHotkey = new GlobalHotkey(this);
+    }
+
+    /// <summary>
+    /// Register mfinlogs:// protocol on first launch
+    /// </summary>
+    private void RegisterProtocolIfNeeded()
+    {
+        if (!ProtocolHandler.IsRegistered())
+            ProtocolHandler.Register();
+    }
+
+    /// <summary>
+    /// Handle deep link navigation (called from protocol handler or command line)
+    /// </summary>
+    public void HandleDeepLink(string url)
+    {
+        var path = ProtocolHandler.ParseUrl(url);
+        if (path != null)
+        {
+            var fullUrl = Program.Config.OnlineUrl.TrimEnd('/') + path;
+            NavigateTo(fullUrl);
+            ShowFromTray();
+        }
+    }
     #endregion
 
     #region Keyboard Shortcuts
@@ -323,5 +363,32 @@ public partial class MainForm : Form
     }
 
     public void NavigateTo(string url) { webView?.CoreWebView2?.Navigate(url); }
+    #endregion
+
+    #region WndProc — Global hotkey + single instance activation
+    protected override void WndProc(ref Message m)
+    {
+        // Global hotkey (Ctrl+Shift+F)
+        if (globalHotkey != null && globalHotkey.IsOurHotkey(m))
+        {
+            ShowFromTray();
+            return;
+        }
+
+        // Single-instance activation message from another launched instance
+        if (m.Msg == NativeMethods.ActivateMessage)
+        {
+            ShowFromTray();
+            return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        globalHotkey?.Dispose();
+        base.OnFormClosed(e);
+    }
     #endregion
 }
