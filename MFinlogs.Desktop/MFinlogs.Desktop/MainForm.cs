@@ -1,47 +1,26 @@
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Web.WebView2.Core;
 using MFinlogs.Desktop.Config;
-using System.Drawing.Drawing2D;
-using System.Drawing.Text;
 using System.Runtime.InteropServices;
 
 namespace MFinlogs.Desktop;
 
+/// <summary>
+/// Main application window using native Windows title bar + WebView2.
+/// No custom title bar = no overlap with web app navigation.
+/// WebView2 fills 100% of the client area.
+/// </summary>
 public partial class MainForm : Form
 {
     private WebView2 webView = null!;
     private TrayManager? trayManager;
     private AutoUpdater? autoUpdater;
-    private bool isFullscreen = false;
-    private FormWindowState previousWindowState;
-    private FormBorderStyle previousBorderStyle;
-
-    // Layout - proper dock order prevents overlap
-    private Panel titleBar = null!;
-    private Panel webViewContainer = null!;
-
-    // Title bar controls
-    private Label titleLabel = null!;
-    private Label lblMode = null!;
-    private Panel btnClose = null!;
-    private Panel btnMinimize = null!;
-    private Panel btnMaximize = null!;
-
-    // Drag
-    private bool isDragging = false;
-    private Point dragStart;
-
-    // Fonts
-    private Font appFont = null!;
-    private Font appFontBold = null!;
+    private GlobalHotkey? globalHotkey;
 
     public MainForm()
     {
         InitializeComponent();
-        LoadFonts();
         SetupForm();
-        SetupTitleBar();
-        SetupWebViewContainer();
         SetupTrayManager();
         SetupAutoUpdater();
         this.Shown += MainForm_Shown;
@@ -50,41 +29,35 @@ public partial class MainForm : Form
     private async void MainForm_Shown(object? sender, EventArgs e)
     {
         this.Shown -= MainForm_Shown;
+        RegisterGlobalHotkey();
+        RegisterProtocolIfNeeded();
         await InitializeWebViewAsync();
-    }
 
-
-    private void LoadFonts()
-    {
-        try
-        {
-            var pfc = new PrivateFontCollection();
-            var regular = Path.Combine(AppContext.BaseDirectory, "Assets", "InterTight-Regular.ttf");
-            var bold = Path.Combine(AppContext.BaseDirectory, "Assets", "InterTight-Bold.ttf");
-            if (File.Exists(regular)) pfc.AddFontFile(regular);
-            if (File.Exists(bold)) pfc.AddFontFile(bold);
-            if (pfc.Families.Length > 0)
-            {
-                appFont = new Font(pfc.Families[0], 9f, FontStyle.Regular);
-                appFontBold = new Font(pfc.Families[0], 9.5f, FontStyle.Bold);
-                return;
-            }
-        }
-        catch { }
-        appFont = new Font("Segoe UI", 9f, FontStyle.Regular);
-        appFontBold = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+        // Handle --url argument (deep link)
+        var args = Environment.GetCommandLineArgs();
+        var urlArg = args.SkipWhile(a => a != "--url").Skip(1).FirstOrDefault();
+        if (!string.IsNullOrEmpty(urlArg))
+            HandleDeepLink(urlArg);
     }
 
     private void SetupForm()
     {
         var config = Program.Config;
+
+        // Native Windows title bar — no overlap, OS handles min/max/close
         this.Text = "M-Finlogs";
+        this.FormBorderStyle = FormBorderStyle.Sizable;
         this.MinimumSize = new Size(1024, 600);
         this.StartPosition = FormStartPosition.CenterScreen;
-        this.FormBorderStyle = FormBorderStyle.None;
-        this.BackColor = GetThemeBackColor();
+        this.BackColor = Color.White;
         this.DoubleBuffered = true;
 
+        // Set icon
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "finlogs.ico");
+        if (File.Exists(iconPath))
+            try { this.Icon = new Icon(iconPath); } catch { }
+
+        // Restore window size/position
         if (config.WindowWidth > 0 && config.WindowHeight > 0)
             this.Size = new Size(config.WindowWidth, config.WindowHeight);
         else
@@ -98,133 +71,31 @@ public partial class MainForm : Form
         if (config.IsMaximized)
             this.WindowState = FormWindowState.Maximized;
 
-        this.Resize += MainForm_Resize;
+        // WebView2 fills entire client area
+        webView = new WebView2 { Dock = DockStyle.Fill };
+        this.Controls.Add(webView);
+
+        // Events
         this.FormClosing += MainForm_FormClosing;
+        this.Resize += MainForm_Resize;
         this.KeyPreview = true;
         this.KeyDown += MainForm_KeyDown;
     }
 
-
-    private void SetupTitleBar()
-    {
-        titleBar = new Panel
-        {
-            Dock = DockStyle.Top,
-            Height = 32,
-            BackColor = GetThemeTitleBarColor(),
-            Padding = Padding.Empty
-        };
-        titleBar.Paint += TitleBar_Paint;
-
-        // macOS traffic lights (left)
-        btnClose = MakeCircleBtn(Color.FromArgb(255, 95, 87), 12, 9);
-        btnMinimize = MakeCircleBtn(Color.FromArgb(255, 189, 46), 34, 9);
-        btnMaximize = MakeCircleBtn(Color.FromArgb(39, 201, 63), 56, 9);
-        btnClose.Click += (s, e) => { if (Program.Config.MinimizeToTray) HideToTray(); else ExitApplication(); };
-        btnMinimize.Click += (s, e) => this.WindowState = FormWindowState.Minimized;
-        btnMaximize.Click += (s, e) => ToggleMaximize();
-
-        // Centered title
-        titleLabel = new Label
-        {
-            Text = "M-Finlogs",
-            Font = appFontBold,
-            ForeColor = GetThemeTitleForeColor(),
-            AutoSize = false,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Dock = DockStyle.Fill,
-            BackColor = Color.Transparent
-        };
-
-        // Mode pill (right)
-        lblMode = new Label
-        {
-            Text = GetModeLabel(),
-            Font = appFont,
-            ForeColor = GetModeLabelColor(),
-            AutoSize = true,
-            BackColor = Color.Transparent,
-            Padding = new Padding(6, 2, 6, 2)
-        };
-        var rightPanel = new Panel { Dock = DockStyle.Right, Width = 100, BackColor = Color.Transparent };
-        rightPanel.Controls.Add(lblMode);
-        rightPanel.Resize += (s, e) => lblMode.Location = new Point(rightPanel.Width - lblMode.Width - 12, 7);
-
-        titleBar.Controls.Add(titleLabel);
-        titleBar.Controls.Add(btnClose);
-        titleBar.Controls.Add(btnMinimize);
-        titleBar.Controls.Add(btnMaximize);
-        titleBar.Controls.Add(rightPanel);
-        btnClose.BringToFront(); btnMinimize.BringToFront(); btnMaximize.BringToFront();
-        rightPanel.BringToFront();
-
-        // Drag
-        titleBar.MouseDown += TitleBar_MouseDown;
-        titleBar.MouseMove += TitleBar_MouseMove;
-        titleBar.MouseUp += TitleBar_MouseUp;
-        titleBar.DoubleClick += (s, e) => ToggleMaximize();
-        titleLabel.MouseDown += TitleBar_MouseDown;
-        titleLabel.MouseMove += TitleBar_MouseMove;
-        titleLabel.MouseUp += TitleBar_MouseUp;
-        titleLabel.DoubleClick += (s, e) => ToggleMaximize();
-
-        this.Controls.Add(titleBar);
-    }
-
-    private Panel MakeCircleBtn(Color c, int x, int y)
-    {
-        var p = new Panel { Size = new Size(14, 14), Location = new Point(x, y), BackColor = c, Cursor = Cursors.Hand };
-        var path = new GraphicsPath(); path.AddEllipse(0, 0, 14, 14);
-        p.Region = new Region(path);
-        p.MouseEnter += (s, e) => p.BackColor = ControlPaint.Light(c, 0.2f);
-        p.MouseLeave += (s, e) => p.BackColor = c;
-        return p;
-    }
-
-    private void TitleBar_Paint(object? sender, PaintEventArgs e)
-    {
-        var sepColor = Program.Config.Theme?.ToLower() switch
-        {
-            "dark" or "deep blue" or "deepblue" or "warm" => Color.FromArgb(25, 255, 255, 255),
-            _ => Color.FromArgb(15, 0, 0, 0)
-        };
-        using var pen = new Pen(sepColor, 1f);
-        e.Graphics.DrawLine(pen, 0, titleBar.Height - 1, titleBar.Width, titleBar.Height - 1);
-    }
-
-
-    /// <summary>
-    /// WebView container fills space BELOW title bar - prevents overlap
-    /// </summary>
-    private void SetupWebViewContainer()
-    {
-        webViewContainer = new Panel
-        {
-            Dock = DockStyle.Fill,
-            Padding = Padding.Empty,
-            Margin = Padding.Empty,
-            BackColor = GetThemeBackColor()
-        };
-        this.Controls.Add(webViewContainer);
-        // Dock order: titleBar added last so it docks on top; container fills remainder
-        titleBar.BringToFront();
-    }
-
     private async Task InitializeWebViewAsync()
     {
-        webView = new WebView2 { Dock = DockStyle.Fill };
-        webViewContainer.Controls.Add(webView);
-
         if (!webView.IsHandleCreated) webView.CreateControl();
 
         try
         {
             var userDataFolder = Path.Combine(AppConfig.AppDataDir, "WebView2");
             Directory.CreateDirectory(userDataFolder);
+
             var opts = new CoreWebView2EnvironmentOptions
             {
                 AdditionalBrowserArguments = "--disable-features=ServiceWorkerPaymentApps"
             };
+
             CoreWebView2Environment? env = null;
             for (int i = 1; i <= 3; i++)
             {
@@ -235,37 +106,52 @@ public partial class MainForm : Form
 
             await webView.EnsureCoreWebView2Async(env);
 
+            // Settings
             webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
             webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
             webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
 
+            // Clear stale service workers
             try { await webView.CoreWebView2.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.ServiceWorkers); } catch { }
 
+            // Navigation events
             webView.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
-            webView.CoreWebView2.NewWindowRequested += (s, e) => { e.Handled = true; webView.CoreWebView2.Navigate(e.Uri); };
+            webView.CoreWebView2.NewWindowRequested += (s, ev) => { ev.Handled = true; webView.CoreWebView2.Navigate(ev.Uri); };
 
+            // Hybrid mode API interception
             if (Program.Config.IsHybridMode) SetupHybridApiInterception();
 
+            // Navigate
             webView.CoreWebView2.Navigate(Program.Config.ActiveUrl);
         }
-        catch (COMException comEx) when ((uint)comEx.HResult == 0x8007139F) { ShowWebView2InstallPrompt(); }
-        catch (WebView2RuntimeNotFoundException) { ShowWebView2InstallPrompt(); }
+        catch (COMException comEx) when ((uint)comEx.HResult == 0x8007139F)
+        {
+            ShowWebView2InstallPrompt();
+        }
+        catch (WebView2RuntimeNotFoundException)
+        {
+            ShowWebView2InstallPrompt();
+        }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
+            MessageBox.Show(
+                $"Failed to initialize WebView2:\n{ex.Message}\n\nPlease ensure WebView2 Runtime is installed.",
                 "M-Finlogs - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
-
     private void ShowWebView2InstallPrompt()
     {
-        if (MessageBox.Show("WebView2 Runtime is required.\nDownload now?", "M-Finlogs",
-            MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+        if (MessageBox.Show(
+            "WebView2 Runtime is required to run M-Finlogs.\n\nWould you like to download it now?",
+            "M-Finlogs", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
         {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                { FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703", UseShellExecute = true }); }
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                { FileName = "https://go.microsoft.com/fwlink/p/?LinkId=2124703", UseShellExecute = true });
+            }
             catch { }
         }
     }
@@ -275,6 +161,7 @@ public partial class MainForm : Form
         if (!e.IsSuccess && (e.WebErrorStatus == CoreWebView2WebErrorStatus.Unknown ||
             e.WebErrorStatus == CoreWebView2WebErrorStatus.ConnectionAborted))
         {
+            // Service worker redirect fix — clear and retry
             try
             {
                 webView.CoreWebView2.Navigate("about:blank");
@@ -291,9 +178,9 @@ public partial class MainForm : Form
 
     private void SetupHybridApiInterception()
     {
-        var u = Program.Config.LocalServerUrl;
+        var localUrl = Program.Config.LocalServerUrl;
         webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync($@"(function(){{
-            const L='{u}';const F=window.fetch;
+            const L='{localUrl}';const F=window.fetch;
             window.fetch=function(i,o){{let url=(typeof i==='string')?i:i.url;
             if(url.startsWith('/api/')||url.includes('/api/')){{url=L+'/api/'+url.split('/api/')[1];i=(typeof i==='string')?url:new Request(url,i);}}
             return F.call(this,i,o);}};
@@ -302,139 +189,206 @@ public partial class MainForm : Form
         }})();");
     }
 
+    #region Tray & Updater
     private void SetupTrayManager() { trayManager = new TrayManager(this); }
     private void SetupAutoUpdater() { autoUpdater = new AutoUpdater(); _ = autoUpdater.CheckForUpdatesAsync(silent: true); }
 
+    /// <summary>
+    /// Register global hotkey (Ctrl+Shift+F) after form handle is created
+    /// </summary>
+    private void RegisterGlobalHotkey()
+    {
+        globalHotkey = new GlobalHotkey(this);
+    }
+
+    /// <summary>
+    /// Register mfinlogs:// protocol on first launch
+    /// </summary>
+    private void RegisterProtocolIfNeeded()
+    {
+        if (!ProtocolHandler.IsRegistered())
+            ProtocolHandler.Register();
+    }
+
+    /// <summary>
+    /// Handle deep link navigation (called from protocol handler or command line)
+    /// </summary>
+    public void HandleDeepLink(string url)
+    {
+        var path = ProtocolHandler.ParseUrl(url);
+        if (path != null)
+        {
+            var fullUrl = Program.Config.OnlineUrl.TrimEnd('/') + path;
+            NavigateTo(fullUrl);
+            ShowFromTray();
+        }
+    }
+    #endregion
 
     #region Keyboard Shortcuts
     private void MainForm_KeyDown(object? sender, KeyEventArgs e)
     {
         switch (e.KeyCode)
         {
-            case Keys.F11: ToggleFullscreen(); e.Handled = true; break;
-            case Keys.D when e.Control && e.Shift: webView?.CoreWebView2?.OpenDevToolsWindow(); e.Handled = true; break;
-            case Keys.Q when e.Control: ExitApplication(); e.Handled = true; break;
-            case Keys.P when e.Control: PrintPage(); e.Handled = true; break;
-            case Keys.F5: webView?.CoreWebView2?.Reload(); e.Handled = true; break;
+            case Keys.F11:
+                ToggleFullscreen();
+                e.Handled = true;
+                break;
+            case Keys.D when e.Control && e.Shift:
+                webView?.CoreWebView2?.OpenDevToolsWindow();
+                e.Handled = true;
+                break;
+            case Keys.Q when e.Control:
+                ExitApplication();
+                e.Handled = true;
+                break;
+            case Keys.P when e.Control:
+                PrintPage();
+                e.Handled = true;
+                break;
+            case Keys.F5:
+                webView?.CoreWebView2?.Reload();
+                e.Handled = true;
+                break;
         }
     }
     #endregion
 
     #region Window Management
+    private bool isFullscreen = false;
+    private FormWindowState prevState;
+    private FormBorderStyle prevBorder;
+
     private void ToggleFullscreen()
     {
-        if (isFullscreen) { titleBar.Visible = true; this.WindowState = previousWindowState; isFullscreen = false; }
-        else { previousWindowState = this.WindowState; titleBar.Visible = false; this.WindowState = FormWindowState.Maximized; isFullscreen = true; }
+        if (isFullscreen)
+        {
+            this.FormBorderStyle = prevBorder;
+            this.WindowState = prevState;
+            isFullscreen = false;
+        }
+        else
+        {
+            prevState = this.WindowState;
+            prevBorder = this.FormBorderStyle;
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.WindowState = FormWindowState.Maximized;
+            isFullscreen = true;
+        }
     }
-    private void ToggleMaximize() { this.WindowState = this.WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; }
-    public void HideToTray() { this.Hide(); trayManager?.ShowBalloon("M-Finlogs", "Minimized to tray."); }
-    public void ShowFromTray() { this.Show(); this.WindowState = FormWindowState.Normal; this.BringToFront(); this.Activate(); }
-    public void ExitApplication() { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); Application.Exit(); }
+
+    public void HideToTray()
+    {
+        this.Hide();
+        trayManager?.ShowBalloon("M-Finlogs", "Minimized to system tray.");
+    }
+
+    public void ShowFromTray()
+    {
+        this.Show();
+        this.WindowState = FormWindowState.Normal;
+        this.BringToFront();
+        this.Activate();
+    }
+
+    public void ExitApplication()
+    {
+        SaveWindowState();
+        Program.Shutdown();
+        trayManager?.Dispose();
+        Application.Exit();
+    }
+
     private void SaveWindowState()
     {
-        var c = Program.Config; c.IsMaximized = this.WindowState == FormWindowState.Maximized;
-        if (this.WindowState == FormWindowState.Normal) { c.WindowWidth = this.Width; c.WindowHeight = this.Height; c.WindowX = this.Location.X; c.WindowY = this.Location.Y; }
+        var c = Program.Config;
+        c.IsMaximized = this.WindowState == FormWindowState.Maximized;
+        if (this.WindowState == FormWindowState.Normal)
+        {
+            c.WindowWidth = this.Width;
+            c.WindowHeight = this.Height;
+            c.WindowX = this.Location.X;
+            c.WindowY = this.Location.Y;
+        }
         c.Save();
     }
-    private void MainForm_Resize(object? sender, EventArgs e) { if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray) HideToTray(); }
+
+    private void MainForm_Resize(object? sender, EventArgs e)
+    {
+        if (this.WindowState == FormWindowState.Minimized && Program.Config.MinimizeToTray)
+            HideToTray();
+    }
+
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (e.CloseReason == CloseReason.UserClosing && Program.Config.MinimizeToTray) { e.Cancel = true; HideToTray(); }
-        else { SaveWindowState(); Program.Shutdown(); trayManager?.Dispose(); }
-    }
-    #endregion
-
-
-    #region Title Bar Drag
-    private void TitleBar_MouseDown(object? sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) { isDragging = true; dragStart = new Point(e.X, e.Y); } }
-    private void TitleBar_MouseMove(object? sender, MouseEventArgs e)
-    {
-        if (!isDragging) return;
-        if (this.WindowState == FormWindowState.Maximized)
+        if (e.CloseReason == CloseReason.UserClosing && Program.Config.MinimizeToTray)
         {
-            var mx = MousePosition.X; var p = (double)mx / Screen.PrimaryScreen!.WorkingArea.Width;
-            this.WindowState = FormWindowState.Normal;
-            this.Location = new Point((int)(mx - this.Width * p), MousePosition.Y - dragStart.Y);
+            e.Cancel = true;
+            HideToTray();
         }
-        else this.Location = new Point(this.Location.X + e.X - dragStart.X, this.Location.Y + e.Y - dragStart.Y);
+        else
+        {
+            SaveWindowState();
+            Program.Shutdown();
+            trayManager?.Dispose();
+        }
     }
-    private void TitleBar_MouseUp(object? sender, MouseEventArgs e) { isDragging = false; }
     #endregion
 
     #region Print & PDF
-    private async void PrintPage() { try { if (webView?.CoreWebView2 != null) await webView.CoreWebView2.ExecuteScriptAsync("window.print()"); } catch { } }
+    private async void PrintPage()
+    {
+        try { if (webView?.CoreWebView2 != null) await webView.CoreWebView2.ExecuteScriptAsync("window.print()"); }
+        catch { }
+    }
+
     public async Task SaveAsPdfAsync()
     {
         if (webView?.CoreWebView2 == null) return;
-        using var dlg = new SaveFileDialog { Filter = "PDF|*.pdf", FileName = $"MFinlogs_{DateTime.Now:yyyyMMdd_HHmmss}.pdf" };
-        if (dlg.ShowDialog() == DialogResult.OK) { await webView.CoreWebView2.PrintToPdfAsync(dlg.FileName); MessageBox.Show("PDF saved!", "M-Finlogs"); }
-    }
-    #endregion
-
-
-    #region Theme Colors
-    private Color GetThemeTitleBarColor() => Program.Config.Theme?.ToLower() switch
-    {
-        "dark" => Color.FromArgb(28, 28, 30),
-        "deep blue" or "deepblue" => Color.FromArgb(15, 23, 42),
-        "warm" => Color.FromArgb(55, 38, 29),
-        _ => Color.FromArgb(246, 246, 248)
-    };
-    private Color GetThemeTitleForeColor() => Program.Config.Theme?.ToLower() switch
-    {
-        "dark" => Color.FromArgb(210, 210, 215),
-        "deep blue" or "deepblue" => Color.FromArgb(190, 200, 220),
-        "warm" => Color.FromArgb(235, 225, 215),
-        _ => Color.FromArgb(60, 60, 67)
-    };
-    private Color GetThemeBackColor() => Program.Config.Theme?.ToLower() switch
-    {
-        "dark" => Color.FromArgb(0, 0, 0),
-        "deep blue" or "deepblue" => Color.FromArgb(2, 6, 23),
-        "warm" => Color.FromArgb(40, 26, 20),
-        _ => Color.White
-    };
-    public void UpdateTheme(string theme)
-    {
-        Program.Config.Theme = theme; Program.Config.Save();
-        this.Invoke(() => { titleBar.BackColor = GetThemeTitleBarColor(); titleLabel.ForeColor = GetThemeTitleForeColor(); this.BackColor = GetThemeBackColor(); titleBar.Invalidate(); });
+        using var dlg = new SaveFileDialog { Filter = "PDF files (*.pdf)|*.pdf", FileName = $"MFinlogs_{DateTime.Now:yyyyMMdd_HHmmss}.pdf" };
+        if (dlg.ShowDialog() == DialogResult.OK)
+        {
+            await webView.CoreWebView2.PrintToPdfAsync(dlg.FileName);
+            MessageBox.Show("PDF saved successfully!", "M-Finlogs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
     }
     #endregion
 
     #region Mode
     public void SwitchMode(string mode)
     {
-        Program.Config.Mode = mode; Program.Config.Save();
-        lblMode.Invoke(() => { lblMode.Text = GetModeLabel(); lblMode.ForeColor = GetModeLabelColor(); });
+        Program.Config.Mode = mode;
+        Program.Config.Save();
         webView?.CoreWebView2?.Navigate(Program.Config.ActiveUrl);
     }
-    private static string GetModeLabel() => Program.Config.Mode?.ToLower() switch { "online" => "Online", "offline" => "Offline", "hybrid" => "Hybrid", _ => "Online" };
-    private static Color GetModeLabelColor() => Program.Config.Mode?.ToLower() switch
-    {
-        "online" => Color.FromArgb(48, 209, 88),
-        "offline" => Color.FromArgb(255, 159, 10),
-        "hybrid" => Color.FromArgb(94, 92, 230),
-        _ => Color.FromArgb(48, 209, 88)
-    };
+
     public void NavigateTo(string url) { webView?.CoreWebView2?.Navigate(url); }
     #endregion
 
-
-    #region WndProc Resize Handles
+    #region WndProc — Global hotkey + single instance activation
     protected override void WndProc(ref Message m)
     {
-        const int WM_NCHITTEST = 0x84;
-        if (m.Msg == WM_NCHITTEST)
+        // Global hotkey (Ctrl+Shift+F)
+        if (globalHotkey != null && globalHotkey.IsOurHotkey(m))
         {
-            base.WndProc(ref m);
-            var c = this.PointToClient(Cursor.Position);
-            const int g = 6;
-            if (c.Y < g) { m.Result = c.X < g ? (IntPtr)13 : c.X > Width - g ? (IntPtr)14 : (IntPtr)12; return; }
-            if (c.Y > Height - g) { m.Result = c.X < g ? (IntPtr)16 : c.X > Width - g ? (IntPtr)17 : (IntPtr)15; return; }
-            if (c.X < g) { m.Result = (IntPtr)10; return; }
-            if (c.X > Width - g) { m.Result = (IntPtr)11; return; }
+            ShowFromTray();
+            return;
         }
+
+        // Single-instance activation message from another launched instance
+        if (m.Msg == NativeMethods.ActivateMessage)
+        {
+            ShowFromTray();
+            return;
+        }
+
         base.WndProc(ref m);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        globalHotkey?.Dispose();
+        base.OnFormClosed(e);
     }
     #endregion
 }
