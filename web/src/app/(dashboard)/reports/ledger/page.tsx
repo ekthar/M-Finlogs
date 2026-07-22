@@ -12,7 +12,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { exportLedgerPdf } from "@/lib/export-pdf";
-import { Printer, Pencil, Trash2, FileText, Search, ChevronDown, User } from "lucide-react";
+import { Printer, Pencil, Trash2, FileText, Search, ChevronDown, User, Download } from "lucide-react";
 
 interface LedgerEntry {
   txnId: number;
@@ -205,10 +205,10 @@ export default function LedgerPage() {
       {/* ─── Header ─── */}
       <motion.div {...fadeUp} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
             Party Ledger
           </h1>
-          <p className="mt-0.5 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
             {partyName
               ? `Showing: ${partyName} • Balance: ₹${fmt(totalBalance)}`
               : "Select a party to view statement"}
@@ -228,6 +228,22 @@ export default function LedgerPage() {
             <FileText className="mr-1.5 h-3.5 w-3.5" />
             PDF
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (ledger.length) {
+                const { exportToExcel } = require("@/lib/export-excel");
+                const data = ledger.map(e => ({ Date: new Date(e.date).toLocaleDateString("en-IN"), Bill: e.billNo || "—", Type: e.txnType, Mode: e.paymentMode, Debit: e.debit, Credit: e.credit, Balance: e.balance }));
+                exportToExcel(data, `Ledger_${partyName}`);
+                toast.success("Excel exported");
+              }
+            }}
+            disabled={!ledger.length}
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            Excel
+          </Button>
           <Button variant="outline" size="sm" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-3.5 w-3.5" />
             Print
@@ -240,7 +256,7 @@ export default function LedgerPage() {
         <Card className="p-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[240px]">
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
                 Party
               </label>
               <PartySearchDropdown
@@ -251,13 +267,13 @@ export default function LedgerPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
                 From
               </label>
               <Input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="w-40" />
             </div>
             <div>
-              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+              <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
                 To
               </label>
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="w-40" />
@@ -273,7 +289,7 @@ export default function LedgerPage() {
       {partyName && ledger.length > 0 && (
         <motion.div {...fadeUp}>
           <div className="inline-flex items-center gap-2 rounded-xl bg-zinc-100 px-4 py-2 dark:bg-zinc-800">
-            <span className="text-xs text-zinc-500">Closing Balance:</span>
+            <span className="text-xs text-zinc-600 dark:text-zinc-300">Closing Balance:</span>
             <span className={`text-sm font-semibold ${totalBalance >= 0 ? "text-red-500" : "text-emerald-600"}`}>
               ₹{fmt(Math.abs(totalBalance))} {totalBalance >= 0 ? "Dr" : "Cr"}
             </span>
