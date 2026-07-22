@@ -20,11 +20,11 @@ export default function StockValuePage() {
     <motion.div initial="initial" animate="animate" className="space-y-5">
       <motion.div {...fadeUp} className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">Stock Value Report</h1>
-          <p className="mt-0.5 text-sm text-zinc-500">Daily stock value based on cost price</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">Stock Value Report</h1>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">Daily stock value based on cost price</p>
         </div>
         <div className="flex items-center gap-3">
-          <Select className="h-9 w-44 text-xs">
+          <Select className="h-9 w-44 text-sm">
             <option>July 2026</option>
             <option>June 2026</option>
           </Select>
@@ -33,9 +33,9 @@ export default function StockValuePage() {
       </motion.div>
 
       <motion.div {...fadeUp}>
-        <Card className="p-4 text-center">
-          <p className="text-xs text-zinc-500">Total Stock Value</p>
-          <p className="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">₹0.00</p>
+        <Card className="p-5 text-center">
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">Total Stock Value</p>
+          <p className="mt-1.5 text-3xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">₹0.00</p>
         </Card>
       </motion.div>
 
@@ -53,7 +53,7 @@ export default function StockValuePage() {
               <TableCell colSpan={3} className="h-32 text-center">
                 <div className="flex flex-col items-center gap-2">
                   <div className="text-3xl">📈</div>
-                  <p className="text-sm text-zinc-500">No stock value data available</p>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300">No stock value data available</p>
                 </div>
               </TableCell>
             </TableRow>

@@ -9,6 +9,7 @@
  * - Translucent materials via backdrop-filter
  * - Spring-based motion (handled by Framer Motion)
  * - Reduced motion support
+ * - WCAG AA contrast compliance
  */
 
 :root {
@@ -17,17 +18,28 @@
   --font-mono: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", monospace;
 
   /* Functional colors */
-  --surface: rgba(255, 255, 255, 0.6);
-  --surface-hover: rgba(255, 255, 255, 0.85);
-  --border: rgba(0, 0, 0, 0.06);
-  --overlay: rgba(0, 0, 0, 0.4);
+  --surface: rgba(255, 255, 255, 0.75);
+  --surface-hover: rgba(255, 255, 255, 0.9);
+  --border: rgba(0, 0, 0, 0.08);
+  --overlay: rgba(0, 0, 0, 0.5);
+
+  /* Text colors — WCAG AA compliant */
+  --text-primary: #18181b;
+  --text-secondary: #3f3f46;
+  --text-muted: #52525b;
+  --text-subtle: #71717a;
 }
 
 .dark {
-  --surface: rgba(24, 24, 27, 0.6);
-  --surface-hover: rgba(24, 24, 27, 0.85);
-  --border: rgba(255, 255, 255, 0.06);
-  --overlay: rgba(0, 0, 0, 0.6);
+  --surface: rgba(24, 24, 27, 0.75);
+  --surface-hover: rgba(24, 24, 27, 0.9);
+  --border: rgba(255, 255, 255, 0.08);
+  --overlay: rgba(0, 0, 0, 0.7);
+
+  --text-primary: #fafafa;
+  --text-secondary: #e4e4e7;
+  --text-muted: #d4d4d8;
+  --text-subtle: #a1a1aa;
 }
 
 /* Base reset & defaults */
@@ -39,6 +51,9 @@ html {
 
 body {
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
   background: linear-gradient(135deg, #fafafa 0%, #f4f4f5 100%);
   min-height: 100vh;
 }
@@ -58,30 +73,63 @@ body {
 
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.15);
   border-radius: 3px;
 }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
 .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* Typography: Apple-style size-specific tracking */
 h1, .text-display {
   letter-spacing: -0.025em;
   line-height: 1.1;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 h2 {
   letter-spacing: -0.02em;
   line-height: 1.15;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 h3 {
   letter-spacing: -0.015em;
   line-height: 1.2;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Tabular numerals for financial data */
+.font-mono, .tabular-nums,
+table td, table th {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Full-screen layout mode */
+.layout-fullscreen {
+  max-width: none !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+@media (min-width: 1024px) {
+  .layout-fullscreen {
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+  }
 }
 
 /* Reduced motion */
@@ -121,15 +169,15 @@ table tbody tr {
   transition: background-color 150ms ease-out;
 }
 
-/* Glass panel effect */
+/* Glass panel effect — increased opacity for readability */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 .dark .glass-panel {
-  background: rgba(24, 24, 27, 0.6);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(24, 24, 27, 0.75);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Print styles */
@@ -137,7 +185,14 @@ table tbody tr {
   .no-print {
     display: none !important;
   }
+  nav, .mobile-nav {
+    display: none !important;
+  }
   body {
     background: white !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
   }
 }
