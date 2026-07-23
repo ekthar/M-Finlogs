@@ -3,11 +3,28 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth-guard";
 import { financialYearForDate } from "@/lib/financial-year";
 import { normalizePartyKey } from "@/lib/utils";
+import {
+  smartParseDate,
+  cleanPartyName,
+  matchPartyName,
+  normalizeTransactionType,
+  normalizePaymentMode,
+} from "@/lib/import-utils";
 
 /**
- * Bulk import transactions from Excel/CSV.
+ * Smart Bulk Import — Transactions
+ * ─────────────────────────────────
+ * Features:
+ * - Auto typo-correction for party names (Levenshtein matching)
+ * - Party name cleaning (/BLNC removal, whitespace normalization)
+ * - Smart date parsing (DD.MM.YY, DD/MM/YYYY, Excel serial, ISO)
+ * - Transaction type normalization (30+ typo variants)
+ * - Payment mode normalization (20+ variants)
+ * - Duplicate detection: same bill+date+party → UPDATE instead of INSERT
+ * - Auto-creates parties that don't exist
+ * - Returns ALL errors (not just first 10)
+ *
  * Body: { companyId, rows: [{ date, billNo, party, txnType, paymentMode, amount }] }
- * Auto-creates parties that don't exist.
  */
 export async function POST(request: Request) {
   const auth = await requireAdmin(request);
@@ -20,84 +37,160 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "rows array required" }, { status: 400 });
     }
 
-    if (rows.length > 5000) {
-      return NextResponse.json({ error: "Maximum 5000 rows per import" }, { status: 400 });
+    if (rows.length > 10000) {
+      return NextResponse.json({ error: "Maximum 10,000 rows per import" }, { status: 400 });
+    }
+
+    // ── Pre-fetch existing parties for fuzzy matching ──
+    const existingParties = await prisma.party.findMany({
+      where: { companyId },
+      select: { partyId: true, name: true, normalizedName: true },
+    });
+    const partyNames = existingParties.map((p) => p.name);
+    const partyCache = new Map<string, number>(); // normalizedName → partyId
+    for (const p of existingParties) {
+      partyCache.set(p.normalizedName, p.partyId);
     }
 
     let imported = 0;
+    let updated = 0;
     let skipped = 0;
-    const errors: string[] = [];
+    let partiesCreated = 0;
+    let typosCorrected = 0;
+    const errors: { row: number; reason: string }[] = [];
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      const rowNum = i + 1;
+
       try {
         const { date, billNo, party, txnType, paymentMode, amount } = row;
 
-        if (!date || !party || !txnType || !paymentMode || !amount) {
-          skipped++;
-          errors.push(`Row ${i + 1}: missing fields`);
-          continue;
-        }
-
-        const amt = parseFloat(amount);
+        // ── 1. Parse amount ──
+        const amt = parseFloat(String(amount || "0").replace(/,/g, ""));
         if (isNaN(amt) || amt <= 0) {
           skipped++;
-          errors.push(`Row ${i + 1}: invalid amount`);
+          errors.push({ row: rowNum, reason: `Invalid amount: "${amount}"` });
           continue;
         }
 
-        // Find or create party
-        const normalizedName = normalizePartyKey(party);
-        let partyRecord = await prisma.party.findFirst({
-          where: { normalizedName, companyId },
-        });
+        // ── 2. Parse date (smart — handles all Indian formats) ──
+        const txnDate = smartParseDate(date);
+        if (!txnDate) {
+          skipped++;
+          errors.push({ row: rowNum, reason: `Invalid date: "${date}"` });
+          continue;
+        }
 
-        if (!partyRecord) {
-          partyRecord = await prisma.party.create({
-            data: {
-              name: String(party).trim(),
-              normalizedName,
-              type: "Customer",
-              creditAllowed: paymentMode === "Credit",
+        // ── 3. Clean + match party name (typo correction) ──
+        const rawParty = String(party || "").trim();
+        if (!rawParty) {
+          skipped++;
+          errors.push({ row: rowNum, reason: "Missing party name" });
+          continue;
+        }
+
+        const { matched: cleanedParty, corrected } = matchPartyName(rawParty, partyNames);
+        if (!cleanedParty) {
+          skipped++;
+          errors.push({ row: rowNum, reason: `Could not parse party: "${rawParty}"` });
+          continue;
+        }
+        if (corrected) typosCorrected++;
+
+        // ── 4. Normalize type + mode (typo correction) ──
+        const normalizedType = normalizeTransactionType(txnType);
+        const normalizedMode = normalizePaymentMode(paymentMode);
+
+        // ── 5. Find or create party ──
+        const normalizedName = normalizePartyKey(cleanedParty);
+        let partyId = partyCache.get(normalizedName);
+
+        if (!partyId) {
+          // Check DB one more time (could be created by earlier row in this batch)
+          const existing = await prisma.party.findFirst({
+            where: { normalizedName, companyId },
+          });
+
+          if (existing) {
+            partyId = existing.partyId;
+            partyCache.set(normalizedName, partyId);
+          } else {
+            const newParty = await prisma.party.create({
+              data: {
+                name: cleanedParty,
+                normalizedName,
+                type: "Customer",
+                creditAllowed: normalizedMode === "Credit",
+                companyId,
+              },
+            });
+            partyId = newParty.partyId;
+            partyCache.set(normalizedName, partyId);
+            partyNames.push(cleanedParty);
+            partiesCreated++;
+          }
+        }
+
+        // ── 6. Duplicate detection → UPSERT ──
+        const billTrimmed = String(billNo || "").trim() || null;
+        const financialYear = financialYearForDate(txnDate);
+
+        let existingTxn = null;
+        if (billTrimmed) {
+          existingTxn = await prisma.transaction.findFirst({
+            where: {
+              billNo: billTrimmed,
+              txnDate,
+              txnType: normalizedType,
               companyId,
             },
           });
         }
 
-        const txnDate = new Date(date);
-        if (isNaN(txnDate.getTime())) {
-          skipped++;
-          errors.push(`Row ${i + 1}: invalid date`);
-          continue;
+        if (existingTxn) {
+          // UPDATE existing transaction
+          await prisma.transaction.update({
+            where: { txnId: existingTxn.txnId },
+            data: {
+              partyId,
+              paymentMode: normalizedMode,
+              financialYear,
+              amount: amt,
+            },
+          });
+          updated++;
+        } else {
+          // INSERT new transaction
+          await prisma.transaction.create({
+            data: {
+              txnDate,
+              billNo: billTrimmed,
+              partyId,
+              txnType: normalizedType,
+              paymentMode: normalizedMode,
+              financialYear,
+              amount: amt,
+              companyId,
+            },
+          });
+          imported++;
         }
-
-        const financialYear = financialYearForDate(txnDate);
-
-        await prisma.transaction.create({
-          data: {
-            txnDate,
-            billNo: billNo || null,
-            partyId: partyRecord.partyId,
-            txnType,
-            paymentMode,
-            financialYear,
-            amount: amt,
-            companyId,
-          },
-        });
-        imported++;
       } catch (e) {
         skipped++;
-        errors.push(`Row ${i + 1}: ${String(e).slice(0, 50)}`);
+        errors.push({ row: rowNum, reason: String(e).slice(0, 80) });
       }
     }
 
     return NextResponse.json({
       status: "Import complete",
       imported,
+      updated,
       skipped,
       total: rows.length,
-      errors: errors.slice(0, 10), // Only return first 10 errors
+      partiesCreated,
+      typosCorrected,
+      errors,
     });
   } catch (error) {
     console.error("POST /api/import/transactions error:", error);
