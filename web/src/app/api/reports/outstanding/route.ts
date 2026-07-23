@@ -34,13 +34,8 @@ export async function GET(request: Request) {
       LEFT JOIN transactions t ON t.party_id = p.party_id AND t.company_id = p.company_id
       WHERE p.company_id = ${companyId}
         AND p.credit_allowed = true
+        AND LOWER(TRIM(p.name)) != 'customer'
       GROUP BY p.party_id, p.name
-      HAVING COALESCE(SUM(CASE
-        WHEN t.txn_type = 'Sale' THEN t.amount
-        WHEN t.txn_type = 'Sale Return' THEN -t.amount
-        WHEN t.txn_type = 'Receipt' THEN -t.amount
-        ELSE 0
-      END), 0) > 0
       ORDER BY balance DESC
     `);
 

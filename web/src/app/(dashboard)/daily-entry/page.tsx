@@ -36,9 +36,9 @@ export default function DailyEntryPage() {
   const [endDate, setEndDate] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [billNo, setBillNo] = useState("");
-  const [party, setParty] = useState("Customer");
+  const [party, setParty] = useState("");
   const [txnType, setTxnType] = useState("Sale");
-  const [mode, setMode] = useState("Credit");
+  const [mode, setMode] = useState("Cash");
   const [amount, setAmount] = useState("");
   const [online, setOnline] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
@@ -102,6 +102,22 @@ export default function DailyEntryPage() {
 
   const handleEntryNav = (e: React.KeyboardEvent, next: React.RefObject<HTMLInputElement | HTMLSelectElement | null>) => { if (e.key === "Enter") { e.preventDefault(); next.current?.focus(); } };
 
+  // Block Credit for generic "customer" party
+  const handlePartyChange = (value: string) => {
+    setParty(value);
+    if (value.toLowerCase().trim() === "customer" && mode === "Credit") {
+      setMode("Cash");
+    }
+  };
+
+  const handleModeChange = (value: string) => {
+    if (value === "Credit" && party.toLowerCase().trim() === "customer") {
+      toast.error("Credit not allowed for generic 'Customer'");
+      return;
+    }
+    setMode(value);
+  };
+
   /**
    * INSTANT SAVE — never waits for server.
    * 1. Add to queue (localStorage) → <1ms
@@ -110,7 +126,9 @@ export default function DailyEntryPage() {
    * 4. Server deduplicates by clientId → no duplicates ever
    */
   const handleAdd = () => {
+    if (!party.trim()) { toast.error("Enter a party name"); partyRef.current?.focus(); return; }
     if (!amount || parseFloat(amount) <= 0) { toast.error("Enter a valid amount"); amountRef.current?.focus(); return; }
+    if (mode === "Credit" && party.toLowerCase().trim() === "customer") { toast.error("Credit not allowed for generic 'Customer'"); setMode("Cash"); return; }
     const amt = parseFloat(amount);
 
     // Amount warning for very large values (>₹10 Lakh)
@@ -131,7 +149,20 @@ export default function DailyEntryPage() {
 
     // 3. Feedback + reset form
     toast.success("Saved", { description: `₹${fmt(amt)} • ${party}` });
-    setAmount(""); setBillNo(""); billRef.current?.focus();
+    setAmount("");
+    setParty(""); // Reset party for next entry
+    // Auto-increment bill number
+    if (billNo) {
+      const match = billNo.match(/(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1]) + 1;
+        const prefix = billNo.slice(0, billNo.length - match[1].length);
+        setBillNo(prefix + String(num));
+      } else {
+        setBillNo("");
+      }
+    }
+    amountRef.current?.focus();
 
     // 4. Background sync handles the rest (non-blocking)
     // Queue worker will POST and deduplicate automatically
@@ -169,9 +200,9 @@ export default function DailyEntryPage() {
       <motion.div variants={itemVariants}><Card className="p-4"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end">
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Date</label><Input type="date" value={date} onChange={e => setDate(e.target.value)} onKeyDown={e => handleEntryNav(e, billRef)}/></div>
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Bill/Ref</label><Input ref={billRef} placeholder="Bill No" value={billNo} onChange={e => setBillNo(e.target.value)} onKeyDown={e => handleEntryNav(e, partyRef)}/></div>
-        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Party</label><Input ref={partyRef} value={party} onChange={e => setParty(e.target.value)} list="pdl" onKeyDown={e => handleEntryNav(e, typeRef)} onFocus={e => {if(e.target.value==="Customer") e.target.select();}}/><datalist id="pdl">{parties.map(p=><option key={p.normalizedName} value={p.name}/>)}</datalist></div>
+        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Party</label><Input ref={partyRef} value={party} onChange={e => handlePartyChange(e.target.value)} list="pdl" onKeyDown={e => handleEntryNav(e, typeRef)} placeholder="Party name"/><datalist id="pdl">{parties.map(p=><option key={p.normalizedName} value={p.name}/>)}</datalist></div>
         <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Type</label><Select ref={typeRef} value={txnType} onChange={e => setTxnType(e.target.value)} onKeyDown={e => handleEntryNav(e, modeRef)}><option>Sale</option><option>Sale Return</option><option>Expense</option><option>Receipt</option></Select></div>
-        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Mode</label><Select ref={modeRef} value={mode} onChange={e => setMode(e.target.value)} onKeyDown={e => handleEntryNav(e, amountRef)}><option>Credit</option><option>Cash</option><option>UPI</option><option>Bank</option></Select></div>
+        <div><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Mode</label><Select ref={modeRef} value={mode} onChange={e => handleModeChange(e.target.value)} onKeyDown={e => handleEntryNav(e, amountRef)}><option>Cash</option><option>Credit</option><option>UPI</option><option>Bank</option></Select></div>
         <div className="flex gap-2"><div className="flex-1"><label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-zinc-500">Amount</label><Input ref={amountRef} type="number" placeholder="0.00" min="0" value={amount} onChange={e => setAmount(e.target.value)} onKeyDown={e => {if(e.key==="Enter"){e.preventDefault();handleAdd();}}}/></div><Button className="mt-auto h-9 w-9 p-0" size="icon" onClick={handleAdd}><Plus className="h-4 w-4"/></Button></div>
       </div><p className="mt-2 text-right text-[11px] text-zinc-400">Enter navigates → Enter in Amount saves instantly (works offline)</p></Card></motion.div>
 
