@@ -20,6 +20,7 @@ export async function GET(request: Request) {
         p.name,
         COALESCE(SUM(CASE
           WHEN t.txn_type = 'Sale' THEN t.amount
+          WHEN t.txn_type = 'Purchase' THEN -t.amount
           WHEN t.txn_type = 'Sale Return' THEN -t.amount
           WHEN t.txn_type = 'Receipt' THEN -t.amount
           ELSE 0
@@ -39,16 +40,29 @@ export async function GET(request: Request) {
       ORDER BY balance DESC
     `);
 
+    // Add opening balances from AppSettings
+    const obSettings = await prisma.appSetting.findMany({
+      where: { companyId, settingKey: { startsWith: "opening_balance:" } },
+    });
+    const obMap = new Map<number, number>();
+    for (const s of obSettings) {
+      const pid = parseInt(s.settingKey.replace("opening_balance:", ""));
+      if (!isNaN(pid)) obMap.set(pid, parseFloat(s.settingValue || "0"));
+    }
+
     const outstanding = results.map((r) => {
       const days = Number(r.days_unpaid) || 0;
       let status = "Normal";
       if (days >= 30) status = "Critical";
       else if (days >= 15) status = "High";
 
+      const openingBal = obMap.get(r.party_id) || 0;
+      const totalBalance = Number(r.balance) + openingBal;
+
       return {
         partyId: r.party_id,
         name: r.name,
-        balance: Number(r.balance),
+        balance: totalBalance,
         daysUnpaid: days,
         lastReceipt: r.last_receipt ? new Date(r.last_receipt).toISOString().split("T")[0] : null,
         status,

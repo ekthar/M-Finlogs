@@ -47,8 +47,17 @@ export async function GET(request: Request) {
       orderBy: [{ txnDate: "asc" }, { txnId: "asc" }],
     });
 
-    // ── Calculate opening balance (transactions BEFORE the start date) ──
+    // ── Calculate opening balance ──
+    // 1. Party's stored opening balance (from FY carry-forward)
     let openingBalance = 0;
+    const obSetting = await prisma.appSetting.findFirst({
+      where: { companyId: companyId || undefined, settingKey: `opening_balance:${party.partyId}` },
+    });
+    if (obSetting) {
+      openingBalance = parseFloat(obSetting.settingValue || "0");
+    }
+
+    // 2. Add transactions BEFORE the start date (if date-filtered)
     if (startDate) {
       const priorTransactions = await prisma.transaction.findMany({
         where: {
@@ -60,7 +69,7 @@ export async function GET(request: Request) {
 
       for (const t of priorTransactions) {
         const amt = Number(t.amount);
-        if (t.txnType === "Sale" || t.txnType === "Expense") {
+        if (t.txnType === "Sale" || t.txnType === "Expense" || t.txnType === "Purchase") {
           openingBalance += amt;
         } else {
           openingBalance -= amt;
@@ -75,7 +84,7 @@ export async function GET(request: Request) {
       let debit = 0;
       let credit = 0;
 
-      if (t.txnType === "Sale" || t.txnType === "Expense") {
+      if (t.txnType === "Sale" || t.txnType === "Expense" || t.txnType === "Purchase") {
         debit = amt;
         balance += amt;
       } else {

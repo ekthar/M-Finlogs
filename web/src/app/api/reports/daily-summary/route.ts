@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 
+/**
+ * Daily Summary — Fixed accounting logic:
+ * - Opening cash calculated from last known cashInHand BEFORE the date range
+ * - Purchase expenses counted as cash out
+ * - FY filter support
+ */
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get("start") || "";
     const endDate = searchParams.get("end") || "";
     const companyId = searchParams.get("companyId") || "";
+    const financialYear = searchParams.get("financialYear") || "";
 
     const end = endDate ? new Date(endDate) : new Date();
     const start = startDate ? new Date(startDate) : new Date(end.getTime() - 29 * 86400000);
@@ -15,6 +22,7 @@ export async function GET(request: Request) {
       txnDate: { gte: start, lte: end },
     };
     if (companyId) where.companyId = companyId;
+    if (financialYear) where.financialYear = financialYear;
 
     const transactions = await prisma.transaction.findMany({ where, orderBy: { txnDate: "asc" } });
 
@@ -31,12 +39,12 @@ export async function GET(request: Request) {
         else if (t.paymentMode === "Bank" || t.paymentMode === "UPI") byDate[key].bank += amt;
         else if (t.paymentMode === "Credit") byDate[key].credit += amt;
         byDate[key].totalSales += amt;
-      } else if (t.txnType === "Expense" || t.txnType === "Sale Return") {
+      } else if (t.txnType === "Expense" || t.txnType === "Sale Return" || t.txnType === "Purchase") {
         if (t.paymentMode === "Cash") byDate[key].cashExp += amt;
       }
     }
 
-    // Get opening cash values
+    // Get opening cash values (manual entries)
     const cashRecords = await prisma.dailyCash.findMany({
       where: { cashDate: { gte: start, lte: end }, ...(companyId ? { companyId } : {}) },
     });
@@ -45,8 +53,43 @@ export async function GET(request: Request) {
       cashMap[new Date(c.cashDate).toISOString().split("T")[0]] = Number(c.cashInHand);
     }
 
-    const dates = Object.keys(byDate).sort();
+    // ── FIX #5: Get proper opening cash from BEFORE the start date ──
     let runningCash = 0;
+
+    // Try to get the last recorded cashInHand before start date
+    const lastCashRecord = await prisma.dailyCash.findFirst({
+      where: {
+        cashDate: { lt: start },
+        ...(companyId ? { companyId } : {}),
+      },
+      orderBy: { cashDate: "desc" },
+    });
+
+    if (lastCashRecord) {
+      runningCash = Number(lastCashRecord.cashInHand);
+    } else {
+      // Calculate from all prior cash transactions
+      const priorWhere: Record<string, unknown> = {
+        txnDate: { lt: start },
+      };
+      if (companyId) priorWhere.companyId = companyId;
+
+      const priorTransactions = await prisma.transaction.findMany({
+        where: priorWhere,
+        select: { txnType: true, paymentMode: true, amount: true },
+      });
+
+      for (const t of priorTransactions) {
+        const amt = Number(t.amount);
+        if ((t.txnType === "Sale" || t.txnType === "Receipt") && t.paymentMode === "Cash") {
+          runningCash += amt;
+        } else if ((t.txnType === "Expense" || t.txnType === "Sale Return" || t.txnType === "Purchase") && t.paymentMode === "Cash") {
+          runningCash -= amt;
+        }
+      }
+    }
+
+    const dates = Object.keys(byDate).sort();
 
     const summary = dates.map((date) => {
       const d = byDate[date];
