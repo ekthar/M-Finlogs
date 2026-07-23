@@ -90,14 +90,16 @@ function PartySearchDropdown({
         <ChevronDown className={`h-4 w-4 text-zinc-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </div>
       <AnimatePresence>
-        {open && filtered.length > 0 && (
+        {open && (
           <motion.div
             initial={{ opacity: 0, y: 4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.98 }} transition={{ type: "spring", bounce: 0, duration: 0.2 }}
             className="absolute z-50 mt-1 w-full max-h-[280px] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl"
           >
             <div className="p-1">
-              {filtered.map((p) => (
+              {filtered.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-zinc-500">No parties found</div>
+              ) : filtered.map((p) => (
                 <button key={p.normalizedName} onClick={() => { setSearch(p.name); onChange(p.name); setOpen(false); }}
                   className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors group">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
@@ -238,6 +240,9 @@ export default function LedgerPage() {
               <Input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="w-40" />
             </div>
             <Button size="sm" onClick={load} disabled={loading}>{loading ? "Loading..." : "Show Ledger"}</Button>
+            <Button variant="secondary" size="sm" onClick={() => { const e = new Date(); setStart(new Date(e.getTime() - 29*86400000).toISOString().split("T")[0]); setEnd(e.toISOString().split("T")[0]); }}>30 Days</Button>
+            <Button variant="secondary" size="sm" onClick={() => { const e = new Date(); setStart(new Date(e.getTime() - 89*86400000).toISOString().split("T")[0]); setEnd(e.toISOString().split("T")[0]); }}>90 Days</Button>
+            <Button variant="ghost" size="sm" onClick={() => { setStart(""); setEnd(""); }}>All</Button>
           </div>
         </Card>
       </motion.div>
