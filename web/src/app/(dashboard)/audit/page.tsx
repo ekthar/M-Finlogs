@@ -232,10 +232,13 @@ export default function AuditPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const perPage = 50;
 
   const load = () => {
     setLoading(true);
-    fetch(`/api/audit?companyId=${companyId}&limit=200`)
+    fetch(`/api/audit?companyId=${companyId}&limit=500`)
       .then((r) => r.json())
       .then((d) => setLogs(d.logs || []))
       .catch(() => {})
@@ -246,10 +249,14 @@ export default function AuditPage() {
     load();
   }, [companyId]);
 
-  const filtered =
-    filter === "all"
-      ? logs
-      : logs.filter((l) => l.action.toLowerCase().includes(filter));
+  const filtered = logs.filter((l) => {
+    if (filter !== "all" && !l.action.toLowerCase().includes(filter)) return false;
+    if (search && !l.details?.toLowerCase().includes(search.toLowerCase()) && !l.username.toLowerCase().includes(search.toLowerCase()) && !l.action.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const totalPages = Math.ceil(filtered.length / perPage);
+  const paged = filtered.slice((page - 1) * perPage, page * perPage);
 
   const actions = [...new Set(logs.map((l) => l.action))];
 
@@ -273,9 +280,16 @@ export default function AuditPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search logs..."
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            className="h-8 w-40 rounded-lg border border-zinc-200 bg-white px-3 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          />
           <select
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(e) => { setFilter(e.target.value); setPage(1); }}
             className="h-8 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-medium
                        dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300
                        focus:outline-none focus:ring-2 focus:ring-zinc-900/10 dark:focus:ring-zinc-100/10
@@ -328,11 +342,23 @@ export default function AuditPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((l) => <AuditRow key={l.id} log={l} />)
+              paged.map((l) => <AuditRow key={l.id} log={l} />)
             )}
           </TableBody>
         </Table>
       </motion.div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <motion.div {...fadeUp} className="flex items-center justify-between">
+          <p className="text-xs text-zinc-500">Showing {(page-1)*perPage+1}–{Math.min(page*perPage, filtered.length)} of {filtered.length}</p>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
+            <span className="px-3 text-xs text-zinc-500">{page}/{totalPages}</span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }

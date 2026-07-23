@@ -97,7 +97,10 @@ const inventoryItems: NavItem[] = [
 
 const mgmtItems: NavItem[] = [
   { label: "Parties", href: "/parties", icon: Users },
+  { label: "Statement", href: "/statement", icon: ScrollText },
+  { label: "Journal Entry", href: "/journal", icon: ArrowLeftRight },
   { label: "Import", href: "/import", icon: Package },
+  { label: "Year-End", href: "/year-end", icon: ScrollText },
   { label: "Audit Logs", href: "/audit", icon: ScrollText },
   { label: "Settings", href: "/settings", icon: Settings },
 ];

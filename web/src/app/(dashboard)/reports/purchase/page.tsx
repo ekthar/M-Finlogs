@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
@@ -36,6 +36,9 @@ export default function PurchaseReportPage() {
     } catch { toast.error("Failed"); }
     setLoading(false);
   };
+
+  // Auto-load on mount
+  useEffect(() => { load(); }, [companyId, financialYear]);
 
   return (
     <motion.div initial="initial" animate="animate" className="space-y-5">

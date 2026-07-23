@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
@@ -40,6 +40,9 @@ export default function ShortReportPage() {
     } catch { toast.error("Failed to load"); }
     setLoading(false);
   };
+
+  // Auto-load last 30 days on mount
+  useEffect(() => { load(30); }, [companyId]);
 
   const handleExport = () => {
     if (!rows.length) return;

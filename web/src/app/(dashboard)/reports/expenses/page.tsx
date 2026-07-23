@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
@@ -39,6 +39,18 @@ export default function ExpensesPage() {
     } catch { toast.error("Failed"); }
     setLoading(false);
   };
+
+  // Auto-load last 30 days on mount
+  useEffect(() => {
+    const e = new Date();
+    const s = new Date(e.getTime() - 29 * 86400000);
+    setStart(s.toISOString().split("T")[0]);
+    setEnd(e.toISOString().split("T")[0]);
+  }, []);
+
+  useEffect(() => {
+    if (start && end) load();
+  }, [start, end, companyId, financialYear]);
 
   return (
     <motion.div initial="initial" animate="animate" className="space-y-5">
