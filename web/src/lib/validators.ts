@@ -4,7 +4,7 @@ export const transactionSchema = z.object({
   txnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   billNo: z.string().optional(),
   party: z.string().min(1, "Party is required"),
-  txnType: z.enum(["Sale", "Sale Return", "Expense", "Receipt"]),
+  txnType: z.enum(["Sale", "Sale Return", "Expense", "Receipt", "Purchase"]),
   paymentMode: z.enum(["Cash", "Credit", "UPI", "Bank"]),
   amount: z.number().positive("Amount must be positive"),
 });

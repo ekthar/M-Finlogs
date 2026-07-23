@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { financialYearForDate } from "@/lib/financial-year";
 import { normalizePartyKey } from "@/lib/utils";
 import { requireAuth } from "@/lib/auth-guard";
+import { transactionSchema } from "@/lib/validators";
 
 export async function GET(request: Request) {
   const auth = await requireAuth(request);
@@ -58,6 +59,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { txnDate, billNo, party, txnType, paymentMode, amount, companyId: bodyCompanyId, clientId } = body;
     const companyId = bodyCompanyId || "cm_default_001";
+
+    // Zod validation
+    const validation = transactionSchema.safeParse({
+      txnDate, party, txnType, paymentMode,
+      amount: typeof amount === "string" ? parseFloat(amount) : amount,
+      billNo: billNo || undefined,
+    });
+    if (!validation.success) {
+      const firstError = validation.error.issues[0];
+      return NextResponse.json({ error: firstError.message || "Validation failed" }, { status: 400 });
+    }
 
     if (!txnDate || !party || !txnType || !paymentMode || !amount) {
       return NextResponse.json({ error: "All fields are required" }, { status: 400 });
