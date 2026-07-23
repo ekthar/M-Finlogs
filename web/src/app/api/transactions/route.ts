@@ -79,6 +79,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Amount must be positive" }, { status: 400 });
     }
 
+    // AMOUNT BOUNDS (server-side enforcement)
+    const parsedAmount = parseFloat(amount);
+    if (parsedAmount < 0.50) {
+      return NextResponse.json({ error: "Amount must be at least ₹0.50" }, { status: 400 });
+    }
+    if (parsedAmount > 100_000_000) {
+      return NextResponse.json({ error: "Amount cannot exceed ₹10 Crore" }, { status: 400 });
+    }
+
     // DEDUPLICATION: If clientId provided, check if already saved
     if (clientId) {
       const existing = await prisma.transaction.findFirst({
@@ -107,25 +116,42 @@ export async function POST(request: Request) {
       }
     }
 
-    // DATE VALIDATION: No future dates allowed
+    // DATE VALIDATION: No future dates, no dates before April 2020
     const txnDateObj = new Date(txnDate);
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     if (txnDateObj > today) {
       return NextResponse.json({ error: "Future dates are not allowed" }, { status: 400 });
     }
+    const minDate = new Date("2020-04-01");
+    if (txnDateObj < minDate) {
+      return NextResponse.json({ error: "Date cannot be before April 2020" }, { status: 400 });
+    }
+
+    // PARTY NAME SANITIZATION
+    const sanitizedParty = String(party).trim().replace(/\s+/g, " ");
+    if (!sanitizedParty || sanitizedParty.length < 1) {
+      return NextResponse.json({ error: "Invalid party name" }, { status: 400 });
+    }
+    if (/[;'"\\]|--/.test(sanitizedParty)) {
+      return NextResponse.json({ error: "Party name contains invalid characters" }, { status: 400 });
+    }
+
+    // CREDIT MODE RESTRICTION: Block credit for generic "customer"
+    if (paymentMode === "Credit" && sanitizedParty.toLowerCase() === "customer") {
+      return NextResponse.json({ error: "Credit not allowed for generic 'Customer' party" }, { status: 400 });
+    }
 
     // Find the party — auto-create if not found
-    const normalizedName = normalizePartyKey(party);
+    const normalizedName = normalizePartyKey(sanitizedParty);
     let partyRecord = await prisma.party.findFirst({
       where: { normalizedName, companyId },
     });
 
     if (!partyRecord) {
-      // Auto-create party as Customer (user can change type later)
       partyRecord = await prisma.party.create({
         data: {
-          name: party.trim(),
+          name: sanitizedParty,
           normalizedName,
           type: "Customer",
           creditAllowed: paymentMode === "Credit",
