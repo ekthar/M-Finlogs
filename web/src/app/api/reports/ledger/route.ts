@@ -22,25 +22,54 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Party not found" }, { status: 404 });
     }
 
-    const where: Record<string, unknown> = { partyId: party.partyId };
-    if (startDate && endDate) {
-      where.txnDate = { gte: new Date(startDate), lte: new Date(endDate) };
+    // ── Build date filter ──
+    // Supports: both dates, only start, only end, or no dates (show ALL)
+    const dateFilter: Record<string, unknown> = {};
+    if (startDate) {
+      dateFilter.gte = new Date(startDate);
+    }
+    if (endDate) {
+      // End date should be inclusive (end of day)
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      dateFilter.lte = end;
     }
 
-    // Pagination for large ledgers
-    const page = parseInt(searchParams.get("page") || "1");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "200"), 500);
-    const totalCount = await prisma.transaction.count({ where });
+    const where: Record<string, unknown> = { partyId: party.partyId };
+    if (Object.keys(dateFilter).length > 0) {
+      where.txnDate = dateFilter;
+    }
 
+    // ── NO PAGINATION — return ALL transactions for this party ──
+    // Ledger must show complete history for running balance to be correct
     const transactions = await prisma.transaction.findMany({
       where,
       orderBy: [{ txnDate: "asc" }, { txnId: "asc" }],
-      skip: (page - 1) * limit,
-      take: limit,
     });
 
-    // Build ledger with running balance
-    let balance = 0;
+    // ── Calculate opening balance (transactions BEFORE the start date) ──
+    let openingBalance = 0;
+    if (startDate) {
+      const priorTransactions = await prisma.transaction.findMany({
+        where: {
+          partyId: party.partyId,
+          txnDate: { lt: new Date(startDate) },
+        },
+        select: { txnType: true, amount: true },
+      });
+
+      for (const t of priorTransactions) {
+        const amt = Number(t.amount);
+        if (t.txnType === "Sale" || t.txnType === "Expense") {
+          openingBalance += amt;
+        } else {
+          openingBalance -= amt;
+        }
+      }
+    }
+
+    // ── Build ledger with running balance ──
+    let balance = openingBalance;
     const ledger = transactions.map((t) => {
       const amt = Number(t.amount);
       let debit = 0;
@@ -66,7 +95,13 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({ party: party.name, ledger, totalBalance: balance, totalCount, page, totalPages: Math.ceil(totalCount / limit) });
+    return NextResponse.json({
+      party: party.name,
+      ledger,
+      totalBalance: balance,
+      openingBalance,
+      totalCount: transactions.length,
+    });
   } catch (error) {
     console.error("GET /api/reports/ledger error:", error);
     return NextResponse.json({ error: "Failed to fetch ledger" }, { status: 500 });

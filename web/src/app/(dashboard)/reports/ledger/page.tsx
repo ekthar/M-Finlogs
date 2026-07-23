@@ -151,6 +151,8 @@ export default function LedgerPage() {
   const [loading, setLoading] = useState(false);
   const [partyName, setPartyName] = useState("");
   const [totalBalance, setTotalBalance] = useState(0);
+  const [openingBalance, setOpeningBalance] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [editTxn, setEditTxn] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
@@ -177,6 +179,8 @@ export default function LedgerPage() {
         setLedger(data.ledger || []);
         setPartyName(data.party || party);
         setTotalBalance(data.totalBalance || 0);
+        setOpeningBalance(data.openingBalance || 0);
+        setTotalCount(data.totalCount || 0);
         if ((data.ledger || []).length === 0) toast.info("No transactions found for this party");
       } else {
         toast.error(data.error || "Failed to load ledger");
@@ -210,7 +214,7 @@ export default function LedgerPage() {
           </h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
             {partyName
-              ? `Showing: ${partyName} • Balance: ₹${fmt(totalBalance)}`
+              ? `Showing: ${partyName} • ${totalCount} entries • Balance: ₹${fmt(totalBalance)}`
               : "Select a party to view statement"}
           </p>
         </div>
@@ -288,11 +292,21 @@ export default function LedgerPage() {
       {/* ─── Balance Chip ─── */}
       {partyName && ledger.length > 0 && (
         <motion.div {...fadeUp}>
-          <div className="inline-flex items-center gap-2 rounded-xl bg-zinc-100 px-4 py-2 dark:bg-zinc-800">
-            <span className="text-xs text-zinc-600 dark:text-zinc-300">Closing Balance:</span>
-            <span className={`text-sm font-semibold ${totalBalance >= 0 ? "text-red-500" : "text-emerald-600"}`}>
-              ₹{fmt(Math.abs(totalBalance))} {totalBalance >= 0 ? "Dr" : "Cr"}
-            </span>
+          <div className="flex flex-wrap items-center gap-3">
+            {openingBalance !== 0 && (
+              <div className="inline-flex items-center gap-2 rounded-xl bg-zinc-100 px-4 py-2 dark:bg-zinc-800">
+                <span className="text-xs text-zinc-600 dark:text-zinc-300">Opening Balance:</span>
+                <span className={`text-sm font-semibold ${openingBalance >= 0 ? "text-red-500" : "text-emerald-600"}`}>
+                  ₹{fmt(Math.abs(openingBalance))} {openingBalance >= 0 ? "Dr" : "Cr"}
+                </span>
+              </div>
+            )}
+            <div className="inline-flex items-center gap-2 rounded-xl bg-zinc-100 px-4 py-2 dark:bg-zinc-800">
+              <span className="text-xs text-zinc-600 dark:text-zinc-300">Closing Balance:</span>
+              <span className={`text-sm font-semibold ${totalBalance >= 0 ? "text-red-500" : "text-emerald-600"}`}>
+                ₹{fmt(Math.abs(totalBalance))} {totalBalance >= 0 ? "Dr" : "Cr"}
+              </span>
+            </div>
           </div>
         </motion.div>
       )}
