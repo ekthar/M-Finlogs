@@ -224,8 +224,8 @@ export default function LedgerPage() {
       </motion.div>
 
       {/* ─── Filters ─── */}
-      <motion.div {...fadeUp}>
-        <Card className="p-4">
+      <motion.div {...fadeUp} className="relative z-30">
+        <Card className="p-4 overflow-visible">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[240px]">
               <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-600 dark:text-zinc-300">Party</label>
