@@ -46,9 +46,9 @@ export const transactionSchema = z.object({
     .refine((val) => {
       const trimmed = val.trim();
       if (!trimmed) return false;
-      // Block SQL injection patterns
-      if (/[;'"\\]|--|\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE)\b/i.test(trimmed)) return false;
-      // Must have at least one alphabetic character
+      // Block dangerous SQL injection patterns only
+      if (/--|;.*DROP|;.*DELETE|;.*INSERT|;.*UPDATE|;.*ALTER/i.test(trimmed)) return false;
+      // Must have at least one letter (Latin, Devanagari, Bengali, etc.)
       if (!/[a-zA-Z\u0900-\u097F\u0980-\u09FF]/.test(trimmed)) return false;
       return true;
     }, "Invalid party name"),

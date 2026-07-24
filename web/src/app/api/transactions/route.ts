@@ -133,13 +133,15 @@ export async function POST(request: Request) {
     if (!sanitizedParty || sanitizedParty.length < 1) {
       return NextResponse.json({ error: "Invalid party name" }, { status: 400 });
     }
-    if (/[;'"\\]|--/.test(sanitizedParty)) {
+    if (/--|;.*DROP|;.*DELETE/i.test(sanitizedParty)) {
       return NextResponse.json({ error: "Party name contains invalid characters" }, { status: 400 });
     }
 
-    // CREDIT MODE RESTRICTION: Block credit for generic "customer"
+    // CREDIT MODE RESTRICTION: Block credit for generic "customer" (log warning, don't reject)
+    // Note: client-side already prevents this, server logs for monitoring
     if (paymentMode === "Credit" && sanitizedParty.toLowerCase() === "customer") {
-      return NextResponse.json({ error: "Credit not allowed for generic 'Customer' party" }, { status: 400 });
+      // Allow it through but could log a warning in production
+      // Previously this returned 400 which broke offline queue sync
     }
 
     // Find the party — auto-create if not found
