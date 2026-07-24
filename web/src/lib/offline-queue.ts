@@ -1,25 +1,22 @@
 "use client";
 
 /**
- * Smart Transaction Queue
+ * Smart Transaction Queue — Fixed Sync Logic
  * 
  * Strategy: ALWAYS queue first (instant UI) → sync in background → deduplicate
  * 
- * Flow:
- * 1. User saves → entry added to queue with unique clientId → shown in UI INSTANTLY
- * 2. Sync worker picks up pending entries and POSTs them ONE BY ONE
- * 3. On success → mark as "synced" (remove from queue)
- * 4. On failure → mark as "failed", increment retry count
- * 5. Deduplication: each entry has a unique clientId. Server checks if already processed.
- * 
- * Why this is fast:
- * - handleAdd() returns in <1ms (just localStorage write + setState)
- * - No await on fetch — sync happens in background
- * - Even if user spams Enter, each gets a unique ID
+ * Fixes applied:
+ * - Race condition: syncRequested flag ensures re-trigger after completion
+ * - Batch save: all status updates saved in ONE localStorage write (not per-entry)
+ * - 400/validation errors → permanent "rejected" (no retry loop)
+ * - 401 errors → pause sync (auth expired, user must re-login)
+ * - 409 (duplicate) → mark as synced (already exists on server)
+ * - Auto-sync interval reduced to 10s (was 15s)
+ * - Initial sync after 500ms (was 1000ms)
  */
 
 export interface QueuedTransaction {
-  clientId: string; // Unique per entry — used for deduplication
+  clientId: string;
   txnDate: string;
   billNo?: string;
   party: string;
@@ -28,14 +25,16 @@ export interface QueuedTransaction {
   amount: number;
   companyId: string;
   queuedAt: number;
-  status: "pending" | "syncing" | "synced" | "failed";
+  status: "pending" | "syncing" | "synced" | "failed" | "rejected";
   retries: number;
-  serverTxnId?: number; // Set after successful sync
+  serverTxnId?: number;
+  lastError?: string;
 }
 
 const QUEUE_KEY = "mfinlogs_txn_queue";
-const MAX_RETRIES = 10;
-let isSyncing = false; // Prevent concurrent sync runs
+const MAX_RETRIES = 5;
+let isSyncing = false;
+let syncRequested = false;
 
 function getQueue(): QueuedTransaction[] {
   try {
@@ -61,7 +60,6 @@ export function enqueue(txn: Omit<QueuedTransaction, "clientId" | "queuedAt" | "
   const queue = getQueue();
   queue.push(entry);
   saveQueue(queue);
-  // Trigger sync immediately (non-blocking)
   requestSync();
   return entry;
 }
@@ -77,7 +75,14 @@ export function getPendingCount(): number {
  * Get all pending entries (for showing in UI as "syncing")
  */
 export function getPendingEntries(): QueuedTransaction[] {
-  return getQueue().filter(q => q.status !== "synced");
+  return getQueue().filter(q => q.status !== "synced" && q.status !== "rejected");
+}
+
+/**
+ * Get rejected entries (validation errors — won't be retried)
+ */
+export function getRejectedEntries(): QueuedTransaction[] {
+  return getQueue().filter(q => q.status === "rejected");
 }
 
 /**
@@ -89,6 +94,14 @@ export function cleanupSynced() {
 }
 
 /**
+ * Remove a specific entry by clientId
+ */
+export function removeEntry(clientId: string) {
+  const queue = getQueue().filter(q => q.clientId !== clientId);
+  saveQueue(queue);
+}
+
+/**
  * Clear everything (for debugging / reset)
  */
 export function clearQueue() {
@@ -96,29 +109,36 @@ export function clearQueue() {
 }
 
 /**
- * Non-blocking sync trigger. Runs sync in background.
- * Safe to call multiple times — uses lock to prevent concurrent runs.
+ * Non-blocking sync trigger.
+ * If sync is already running, marks that another sync is needed after.
  */
 function requestSync() {
-  if (isSyncing) return;
+  if (isSyncing) {
+    syncRequested = true;
+    return;
+  }
   setTimeout(() => syncQueue(), 0);
 }
 
 /**
  * Core sync logic — processes queue entries one by one.
- * Uses clientId for server-side deduplication.
+ * Fixed: proper error categorization, batch save, re-trigger on completion.
  */
 async function syncQueue(): Promise<number> {
   if (isSyncing || !navigator.onLine) return 0;
   isSyncing = true;
+  syncRequested = false;
 
   let synced = 0;
+
+  // Read queue ONCE at start
   const queue = getQueue();
-  const toSync = queue.filter(q => (q.status === "pending" || q.status === "failed") && q.retries < MAX_RETRIES);
+  const toSync = queue.filter(q =>
+    (q.status === "pending" || q.status === "failed") && q.retries < MAX_RETRIES
+  );
 
   for (const entry of toSync) {
-    // Mark as syncing
-    updateEntryStatus(entry.clientId, "syncing");
+    entry.status = "syncing";
 
     try {
       const res = await fetch("/api/transactions", {
@@ -132,58 +152,59 @@ async function syncQueue(): Promise<number> {
           paymentMode: entry.paymentMode,
           amount: entry.amount,
           companyId: entry.companyId,
-          clientId: entry.clientId, // Server uses this for dedup
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        markSynced(entry.clientId, data.transaction?.txnId);
+        entry.status = "synced";
+        entry.serverTxnId = data.transaction?.txnId;
         synced++;
       } else if (res.status === 409) {
-        // 409 = already exists (duplicate) — mark as synced
-        markSynced(entry.clientId);
+        // Duplicate — already exists on server (success)
+        entry.status = "synced";
         synced++;
+      } else if (res.status === 400) {
+        // Validation error — permanent rejection (won't retry)
+        const errorData = await res.json().catch(() => ({ error: "Validation failed" }));
+        entry.status = "rejected";
+        entry.lastError = errorData.error || "Validation failed";
+      } else if (res.status === 401) {
+        // Auth expired — stop syncing entirely
+        entry.status = "failed";
+        entry.lastError = "Session expired";
+        break;
       } else {
-        incrementRetry(entry.clientId);
+        // Server error — retry later
+        entry.status = "failed";
+        entry.retries++;
+        entry.lastError = `Server error ${res.status}`;
       }
     } catch {
-      // Network error — will retry later
-      updateEntryStatus(entry.clientId, "failed");
+      entry.status = "failed";
+      entry.lastError = "Network error";
     }
   }
 
+  // Save ALL status updates in ONE write
+  saveQueue(queue);
   isSyncing = false;
 
-  // Notify UI if any synced
+  // Notify UI
   if (synced > 0) {
     window.dispatchEvent(new CustomEvent("mfinlogs:synced", { detail: { synced } }));
+  }
+
+  // Re-trigger if sync was requested while busy, or if pending items remain
+  if (syncRequested || getPendingCount() > 0) {
+    setTimeout(() => requestSync(), 500);
   }
 
   return synced;
 }
 
-function updateEntryStatus(clientId: string, status: QueuedTransaction["status"]) {
-  const queue = getQueue().map(q => q.clientId === clientId ? { ...q, status } : q);
-  saveQueue(queue);
-}
-
-function markSynced(clientId: string, serverTxnId?: number) {
-  const queue = getQueue().map(q =>
-    q.clientId === clientId ? { ...q, status: "synced" as const, serverTxnId } : q
-  );
-  saveQueue(queue);
-}
-
-function incrementRetry(clientId: string) {
-  const queue = getQueue().map(q =>
-    q.clientId === clientId ? { ...q, status: "failed" as const, retries: q.retries + 1 } : q
-  );
-  saveQueue(queue);
-}
-
 /**
- * Start auto-sync: retries every 15s + on reconnect.
+ * Start auto-sync: retries every 10s + on reconnect.
  * Call once on app mount.
  */
 export function startAutoSync() {
@@ -196,10 +217,10 @@ export function startAutoSync() {
     if (navigator.onLine && getPendingCount() > 0) {
       requestSync();
     }
-  }, 15000);
+  }, 10000);
 
-  // Initial sync after 1s
-  setTimeout(requestSync, 1000);
+  // Initial sync after 500ms
+  setTimeout(requestSync, 500);
 
   return () => {
     window.removeEventListener("online", onOnline);
