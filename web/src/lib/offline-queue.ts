@@ -65,10 +65,15 @@ export function enqueue(txn: Omit<QueuedTransaction, "clientId" | "queuedAt" | "
 }
 
 /**
- * Get count of entries not yet confirmed by server
+ * Get count of entries not yet confirmed by server.
+ * Only counts entries that are actively pending or failed with retries remaining.
  */
 export function getPendingCount(): number {
-  return getQueue().filter(q => q.status === "pending" || q.status === "syncing" || q.status === "failed").length;
+  return getQueue().filter(q => 
+    q.status === "pending" || 
+    q.status === "syncing" || 
+    (q.status === "failed" && q.retries < MAX_RETRIES)
+  ).length;
 }
 
 /**
@@ -86,10 +91,21 @@ export function getRejectedEntries(): QueuedTransaction[] {
 }
 
 /**
- * Clear all synced entries from queue (cleanup)
+ * Clear all synced entries from queue (cleanup).
+ * Also removes entries older than 24 hours that have permanently failed.
  */
 export function cleanupSynced() {
-  const queue = getQueue().filter(q => q.status !== "synced");
+  const now = Date.now();
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  const queue = getQueue().filter(q => {
+    // Remove synced entries
+    if (q.status === "synced") return false;
+    // Remove rejected entries (permanent failures)
+    if (q.status === "rejected") return false;
+    // Remove failed entries older than 24 hours with max retries exhausted
+    if (q.status === "failed" && q.retries >= MAX_RETRIES && (now - q.queuedAt) > ONE_DAY) return false;
+    return true;
+  });
   saveQueue(queue);
 }
 

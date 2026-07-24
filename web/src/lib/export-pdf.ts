@@ -49,11 +49,11 @@ function getCompanyName(): string {
 }
 
 function fmt(n: number): string {
-  return n > 0 ? `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "";
+  return n > 0 ? `Rs.${n.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "";
 }
 
 function fmtAbs(n: number): string {
-  return `₹${Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+  return `Rs.${Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
 }
 
 /** Auto-detect which columns should be right-aligned (numbers/currency) */
@@ -62,7 +62,7 @@ function detectRightAlignCols(headers: string[], rows: (string | number)[][]): n
   for (let col = 0; col < headers.length; col++) {
     const h = headers[col].toLowerCase();
     if (h.includes("amount") || h.includes("debit") || h.includes("credit") ||
-        h.includes("balance") || h.includes("total") || h.includes("₹") ||
+        h.includes("balance") || h.includes("total") || h.includes("Rs") ||
         h.includes("qty") || h.includes("value") || h.includes("days") ||
         h.includes("opening") || h.includes("cash") || h.includes("bank") ||
         h.includes("short") || h.includes("excess") || h.includes("profit") ||
@@ -236,7 +236,7 @@ export function exportLedgerPdf(
     title: `Party Ledger: ${partyName}`,
     subtitle: parts.join(" | "),
     company,
-    headers: ["Date", "Bill No", "Type", "Debit (₹)", "Credit (₹)", "Balance"],
+    headers: ["Date", "Bill No", "Type", "Debit (Rs)", "Credit (Rs)", "Balance"],
     rows,
     totalsRow: ["", "", "TOTAL", fmtAbs(totalDebit), fmtAbs(totalCredit), `${fmtAbs(bal)} ${bal >= 0 ? "Dr" : "Cr"}`],
     filename: `Ledger_${partyName.replace(/\s+/g, "_")}`,
@@ -272,7 +272,7 @@ export function exportOutstandingPdf(
   exportToPdf({
     title: "Credit Outstanding Report",
     subtitle,
-    headers: ["#", "Party", "Status", "Days", "Last Receipt", "Outstanding (₹)"],
+    headers: ["#", "Party", "Status", "Days", "Last Receipt", "Outstanding (Rs)"],
     rows,
     totalsRow: ["", "NET TOTAL", "", "", "", fmtAbs(total)],
     filename: "Outstanding_Report",
@@ -300,7 +300,7 @@ export function exportTrialBalancePdf(
   exportToPdf({
     title: "Trial Balance",
     subtitle: `Total Debit: ${fmtAbs(totalDebit)} | Total Credit: ${fmtAbs(totalCredit)} | Difference: ${fmtAbs(Math.abs(totalDebit - totalCredit))}`,
-    headers: ["#", "Account / Party", "Type", "Debit (₹)", "Credit (₹)"],
+    headers: ["#", "Account / Party", "Type", "Debit (Rs)", "Credit (Rs)"],
     rows,
     totalsRow: ["", "TOTAL", "", fmtAbs(totalDebit), fmtAbs(totalCredit)],
     filename: "Trial_Balance",
@@ -331,7 +331,7 @@ export function exportProfitLossPdf(data: {
   exportToPdf({
     title: "Profit & Loss Statement",
     subtitle: `Net ${data.netProfit >= 0 ? "Profit" : "Loss"}: ${fmtAbs(data.netProfit)}`,
-    headers: ["Particulars", "Amount (₹)"],
+    headers: ["Particulars", "Amount (Rs)"],
     rows,
     filename: "Profit_Loss_Statement",
     rightAlignCols: [1],
@@ -377,7 +377,7 @@ export function exportPartyStatement(opts: {
     title: `Statement of Account: ${partyName}`,
     subtitle: `Closing Balance: ${fmtAbs(closingBalance)} ${closingBalance >= 0 ? "Dr" : "Cr"} | ${entries.length} transactions`,
     company,
-    headers: ["Date", "Bill No", "Particulars", "Debit (₹)", "Credit (₹)", "Balance"],
+    headers: ["Date", "Bill No", "Particulars", "Debit (Rs)", "Credit (Rs)", "Balance"],
     rows,
     totalsRow: ["", "", "CLOSING BALANCE", fmtAbs(totalDebit), fmtAbs(totalCredit), `${fmtAbs(closingBalance)} ${closingBalance >= 0 ? "Dr" : "Cr"}`],
     filename: `Statement_${partyName.replace(/\s+/g, "_")}`,

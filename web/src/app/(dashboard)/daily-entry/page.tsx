@@ -60,6 +60,10 @@ export default function DailyEntryPage() {
     window.addEventListener("offline", goOffline);
     const cleanup = startAutoSync();
 
+    // Clear old stuck entries on mount
+    cleanupSynced();
+    setPendingCount(getPendingCount());
+
     // When queue syncs, refresh the table
     const onSynced = () => {
       setPendingCount(getPendingCount());
