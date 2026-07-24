@@ -101,13 +101,12 @@ public class SplashForm : Form
     private void InitializeForm()
     {
         FormBorderStyle = FormBorderStyle.None;
-        WindowState = FormWindowState.Maximized;
-        StartPosition = FormStartPosition.Manual;
-        Location = Point.Empty;
-        Size = Screen.PrimaryScreen!.Bounds.Size;
+        // Use a centered window instead of fullscreen for faster startup
+        StartPosition = FormStartPosition.CenterScreen;
+        Size = new Size(480, 360);
         BackColor = Color.FromArgb(6, 7, 14);
         DoubleBuffered = true;
-        ShowInTaskbar = false;
+        ShowInTaskbar = true;  // Show in taskbar during splash
         TopMost = true;
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "finlogs.ico");
@@ -151,8 +150,9 @@ public class SplashForm : Form
 
     private void GenerateParticles()
     {
-        string[] symbols = { "₹", "$", "%", "∑", "△", "◇", "≡", "⊞", "◈", "⟐", "∞", "◎" };
-        int count = DesignTokens.Effects.ParticleCount;
+        // Minimal particles for fast startup
+        string[] symbols = { "₹", "∑", "◇", "◈" };
+        int count = 8; // Reduced from DesignTokens.Effects.ParticleCount
         for (int i = 0; i < count; i++)
         {
             _particles.Add(new Particle
@@ -235,8 +235,8 @@ public class SplashForm : Form
         };
         _animTimer.Start();
 
-        // Typing effect for subtitle
-        _typingTimer = new System.Windows.Forms.Timer { Interval = 55 };
+        // Typing effect for subtitle (faster)
+        _typingTimer = new System.Windows.Forms.Timer { Interval = 30 };
         _typingTimer.Tick += (s, e) =>
         {
             if (_typingIndex < _subtitle.Length)
@@ -244,8 +244,8 @@ public class SplashForm : Form
             else
                 _typingTimer.Stop();
         };
-        // Delayed start
-        Task.Delay(900).ContinueWith(_ => this.Invoke(() => _typingTimer.Start()));
+        // Start immediately
+        _typingTimer.Start();
     }
 
 
@@ -584,10 +584,11 @@ public class SplashForm : Form
         _isFadingOut = true;
         _progress = 1f;
 
+        // Fast fade out (0.3 seconds instead of slow)
         _fadeTimer = new System.Windows.Forms.Timer { Interval = 16 };
         _fadeTimer.Tick += (s, e) =>
         {
-            _fadeOpacity -= 0.04f;
+            _fadeOpacity -= 0.08f;  // Faster fade (was 0.04)
             Opacity = Math.Max(0, _fadeOpacity);
             if (_fadeOpacity <= 0)
             {

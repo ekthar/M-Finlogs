@@ -64,7 +64,7 @@ internal static class Program
             Config = AppConfig.Load();
         }
 
-        // === FULLSCREEN SPLASH ===
+        // === MINIMAL SPLASH (fast startup) ===
         SplashForm? splash = null;
         if (!startMinimized)
         {
@@ -105,12 +105,12 @@ internal static class Program
         }
         else
         {
-            // Online mode — just simulate progress for splash visual
+            // Online mode — minimal delay
             splash?.UpdateStatus("Connecting");
-            splash?.SetProgress(0.6f);
+            splash?.SetProgress(0.8f);
             Application.DoEvents();
-            Thread.Sleep(600);
-            splash?.SetProgress(0.9f);
+            Thread.Sleep(200);
+            splash?.SetProgress(1.0f);
             Application.DoEvents();
         }
 
@@ -118,15 +118,15 @@ internal static class Program
         splash?.UpdateStatus("Ready");
         splash?.SetProgress(1.0f);
         Application.DoEvents();
-        Thread.Sleep(400);
+        Thread.Sleep(150);
 
         var mainForm = new MainForm();
 
         if (startMinimized)
         {
             mainForm.WindowState = FormWindowState.Minimized;
-            mainForm.ShowInTaskbar = false;
-            mainForm.Visible = false;
+            mainForm.ShowInTaskbar = true;  // ALWAYS show in taskbar
+            mainForm.Visible = true;
         }
 
         // === FADE OUT SPLASH ===
